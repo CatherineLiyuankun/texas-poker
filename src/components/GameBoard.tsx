@@ -4,9 +4,11 @@ import { PlayerArea } from './PlayerArea';
 import { CommunityCards } from './CommunityCards';
 import { PotDisplay } from './PotDisplay';
 import { ActionButtons } from './ActionButtons';
+import { PokerTable } from './PokerTable';
+import { calculatePlayerPositions } from '../utils/tablePositions';
 import { getBotAction, getBotName } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { HAND_RANK_NAMES } from '../types/poker';
+import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
 
 interface PlayerConfig {
@@ -64,7 +66,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
     return () => clearTimeout(timer);
   }, [currentPlayer, roundSettled, state, playerAction]);
 
-  const handleAction = (action: 'check' | 'call' | 'raise' | 'fold', amount?: number) => {
+  const handleAction = (action: Action, amount?: number) => {
     playerAction(state.currentPlayer, action, amount);
   };
 
@@ -121,11 +123,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
     }
   };
 
-  const isMultiPlayer = state.players.length > 4;
-
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-4">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-4 overflow-hidden">
+      <div className="max-w-[1200px] mx-auto">
         <div className="flex justify-between items-center mb-4">
           <button
             onClick={onBackToMenu}
@@ -137,8 +137,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
             {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} | {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
           </div>
         </div>
-
-        <PotDisplay pot={state.pot} phase={state.phase} />
 
         {state.phase === 'preflop' && state.players[0].hand.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20">
@@ -152,87 +150,108 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
           </div>
         ) : (
           <>
-            <div className="mb-6 mt-4">
-              <CommunityCards
-                cards={currentPhaseCards}
-                phase={state.phase}
-              />
+            <div className="relative mx-auto" style={{ width: '1100px', height: '700px', marginTop: '150px' }}>
+              <div className="absolute" style={{ left: '150px', top: '110px', width: '800px', height: '480px' }}>
+                <PokerTable>
+                  <div className="flex flex-col items-center gap-4">
+                    <PotDisplay pot={state.pot} phase={state.phase} />
+                    <CommunityCards
+                      cards={currentPhaseCards}
+                      phase={state.phase}
+                    />
+                  </div>
+                </PokerTable>
+              </div>
+              
+              {(() => {
+                const positions = calculatePlayerPositions(state.players.length);
+                return state.players.map((player, idx) => {
+                  const pos = positions[idx];
+                  const isCurrentRealPlayer = state.currentPlayer === player.id && player.isRealPlayer && !player.folded && !roundSettled;
+                  
+                  return (
+                    <div
+                      key={player.id}
+                      className="absolute"
+                      style={{
+                        left: pos.x,
+                        top: pos.y,
+                        transform: 'translate(-50%, -50%)',
+                      }}
+                    >
+                      <PlayerArea
+                        player={player}
+                        displayName={getPlayerDisplayName(player, idx)}
+                        isCurrentPlayer={state.currentPlayer === player.id}
+                        isDealer={state.dealer === player.id}
+                        isWinner={state.winner === player.id}
+                        handRank={state.phase === 'showdown' && !player.folded ? evaluateHand(player.hand, state.communityCards).rank : undefined}
+                        blind={
+                          idx === (state.dealer - 1 + 1) % state.players.length ? '小盲' :
+                          idx === (state.dealer - 1 + 2) % state.players.length ? '大盲' : undefined
+                        }
+                        phase={state.phase}
+                        lastAction={player.lastAction}
+                        actionButtons={isCurrentRealPlayer ? (
+                          <ActionButtons
+                            onAction={handleAction}
+                            canCheck={canPlayerAct(player.id, 'check')}
+                            canCall={canPlayerAct(player.id, 'call')}
+                            canRaise={canPlayerAct(player.id, 'raise')}
+                            canFold={canPlayerAct(player.id, 'fold')}
+                            canAllIn={canPlayerAct(player.id, 'allin')}
+                            lastBet={state.lastBet}
+                            playerBet={player.bet}
+                            disabled={player.folded || !player.isRealPlayer}
+                            isBot={!player.isRealPlayer}
+                          />
+                        ) : undefined}
+                      />
+                    </div>
+                  );
+                });
+              })()}
             </div>
 
-            {roundSettled && (
-              <div className="text-center mb-4">
-                <div className="text-3xl font-bold text-yellow-400 mb-2">
-                  {state.winner !== null
-                    ? translations.gameBoard.playerWins(getPlayerDisplayName(state.players[state.winner - 1], state.winner - 1))
-                    : translations.gameBoard.splitPot}
-                </div>
-                {state.phase === 'showdown' && (
-                  <div className="text-white/80">
-                    {state.players.filter(p => !p.folded).map((p, idx) => (
-                      <div key={p.id}>
-                        {getPlayerDisplayName(p, idx)}: {HAND_RANK_NAMES[evaluateHand(p.hand, state.communityCards).rank]}
-                      </div>
-                    ))}
+            <div className="fixed top-20 right-30 z-50 flex flex-col items-end gap-3">
+              {roundSettled && (
+                <div className="text-right">
+                  <div className="text-3xl font-bold text-yellow-400 mb-2">
+                    {state.winner !== null
+                      ? translations.gameBoard.playerWins(getPlayerDisplayName(state.players[state.winner - 1], state.winner - 1))
+                      : translations.gameBoard.splitPot}
                   </div>
-                )}
-                <button
-                  onClick={() => {
-                    resetRound();
-                  }}
-                  className="mt-4 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
-                >
-                  {translations.gameBoard.nextRound}
-                </button>
-              </div>
-            )}
+                  {state.phase === 'showdown' && (
+                    <div className="text-white/80">
+                      {state.players.map((p, idx) => {
+                        if (p.folded) return null;
+                        return (
+                          <div key={p.id}>
+                            {getPlayerDisplayName(p, idx)}: {HAND_RANK_NAMES[evaluateHand(p.hand, state.communityCards).rank]}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => {
+                      resetRound();
+                    }}
+                    className="mt-4 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
+                  >
+                    {translations.gameBoard.nextRound}
+                  </button>
+                </div>
+              )}
 
-            {!roundSettled && canContinue() && state.phase !== 'showdown' && (
-              <div className="text-center mb-4">
+              {!roundSettled && canContinue() && state.phase !== 'showdown' && (
                 <button
                   onClick={handleNextPhase}
                   className="px-8 py-3 bg-yellow-500 hover:bg-yellow-600 text-black text-xl font-bold rounded-xl"
                 >
                   {getNextPhaseLabel()}
                 </button>
-              </div>
-            )}
-
-            <div className={isMultiPlayer ? 'grid grid-cols-2 gap-4' : 'space-y-4'}>
-              {state.players.map((player, idx) => {
-                const isCurrentRealPlayer = state.currentPlayer === player.id && player.isRealPlayer && !player.folded && !roundSettled;
-                
-                return (
-                  <div key={player.id} className={isMultiPlayer ? '' : idx % 2 === 0 ? 'mb-6' : 'mb-6'}>
-                    <PlayerArea
-                      player={player}
-                      displayName={getPlayerDisplayName(player, idx)}
-                      isCurrentPlayer={state.currentPlayer === player.id}
-                      isDealer={state.dealer === player.id}
-                      isWinner={state.winner === player.id}
-                      handRank={state.phase === 'showdown' && !player.folded ? evaluateHand(player.hand, state.communityCards).rank : undefined}
-                      blind={
-                        idx === (state.dealer - 1 + 1) % state.players.length ? '小盲' :
-                        idx === (state.dealer - 1 + 2) % state.players.length ? '大盲' : undefined
-                      }
-                      phase={state.phase}
-                      lastAction={player.lastAction}
-                      actionButtons={isCurrentRealPlayer ? (
-                        <ActionButtons
-                          onAction={handleAction}
-                          canCheck={canPlayerAct(player.id, 'check')}
-                          canCall={canPlayerAct(player.id, 'call')}
-                          canRaise={canPlayerAct(player.id, 'raise')}
-                          canFold={canPlayerAct(player.id, 'fold')}
-                          lastBet={state.lastBet}
-                          playerBet={player.bet}
-                          disabled={player.folded || !player.isRealPlayer}
-                          isBot={!player.isRealPlayer}
-                        />
-                      ) : undefined}
-                    />
-                  </div>
-                );
-              })}
+              )}
             </div>
           </>
         )}

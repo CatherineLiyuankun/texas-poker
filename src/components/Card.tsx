@@ -26,13 +26,13 @@ export const Card: React.FC<CardProps> = ({ card, hidden = false, small = false,
   if (hidden && !isFlipped) {
     return (
       <div 
-        className={`card-back ${small ? 'w-16 h-24' : 'w-20 h-28'} flex items-center justify-center transition-transform hover:scale-105 cursor-pointer`}
+        className={`card-back ${small ? 'w-12 h-16' : 'w-20 h-28'} flex items-center justify-center transition-transform hover:scale-105 cursor-pointer`}
         onClick={handleClick}
         style={{ animationDelay: `${delay}ms` }}
       >
         <div className="w-full h-full rounded-lg border-2 border-amber-400 bg-gradient-to-br from-blue-800 to-blue-600 flex items-center justify-center">
           <div className="w-3/4 h-5/6 rounded border border-amber-300/50 flex items-center justify-center">
-            <span className="text-amber-300/30 text-2xl">🃏</span>
+            <span className="text-amber-300/30 text-xl">🃏</span>
           </div>
         </div>
       </div>
@@ -41,13 +41,13 @@ export const Card: React.FC<CardProps> = ({ card, hidden = false, small = false,
 
   if (!card) {
     return (
-      <div className={`bg-white/10 rounded-lg border-2 border-white/20 ${small ? 'w-16 h-24' : 'w-20 h-28'}`} />
+      <div className={`bg-white/10 rounded-lg border-2 border-white/20 ${small ? 'w-12 h-16' : 'w-20 h-28'}`} />
     );
   }
 
   return (
     <div 
-      className={`card-front ${small ? 'w-16 h-24 text-xs' : 'w-20 h-28'} flex flex-col items-center justify-between p-1 select-none`}
+      className={`card-front ${small ? 'w-12 h-16 text-[8px]' : 'w-20 h-28'} flex flex-col items-center justify-between p-0.5 select-none`}
       style={{ 
         animation: 'slideUp 0.3s ease-out',
         animationDelay: `${delay}ms`,
@@ -57,7 +57,7 @@ export const Card: React.FC<CardProps> = ({ card, hidden = false, small = false,
       <div className={`${isRed ? 'text-red-600' : 'text-black'} font-bold leading-none`}>
         {card.rank}
       </div>
-      <div className={`text-3xl ${isRed ? 'text-red-600' : 'text-black'}`}>
+      <div className={`text-xl ${isRed ? 'text-red-600' : 'text-black'}`}>
         {card.suit}
       </div>
       <div className={`${isRed ? 'text-red-600' : 'text-black'} font-bold leading-none rotate-180`}>

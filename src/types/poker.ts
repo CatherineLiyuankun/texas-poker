@@ -21,7 +21,7 @@ export type HandRank =
   | 'royal_flush';
 
 export type GamePhase = 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'ended';
-export type Action = 'check' | 'call' | 'raise' | 'fold';
+export type Action = 'check' | 'call' | 'raise' | 'fold' | 'allin';
 
 export interface Player {
   id: PlayerId;

@@ -89,16 +89,21 @@ function canRaise(lastBet: number, playerBet: number, chips: number): boolean {
   return minAdditional <= chips;
 }
 
-function canFold(lastBet: number, playerBet: number): boolean {
-  return lastBet > playerBet;
-}
+  function canFold(lastBet: number, playerBet: number): boolean {
+    return lastBet > playerBet;
+  }
 
-function getNextActivePlayer(state: GameState): PlayerId | null {
-  const totalPlayers = state.players.length;
+  function canAllIn(chips: number): boolean {
+    return chips > 0;
+  }
+
+function getNextActivePlayer(state: GameState, playersOverride?: Player[]): PlayerId | null {
+  const players = playersOverride ?? state.players;
+  const totalPlayers = players.length;
   for (let i = 1; i <= totalPlayers; i++) {
     const nextIdx = ((state.currentPlayer - 1 + i) % totalPlayers);
-    const nextPlayer = state.players[nextIdx];
-    if (!nextPlayer.folded) {
+    const nextPlayer = players[nextIdx];
+    if (!nextPlayer.folded && nextPlayer.chips > 0) {
       return nextPlayer.id;
     }
   }
@@ -226,6 +231,18 @@ export function useGameState() {
             newPot += additional;
             break;
           }
+          case 'allin': {
+            const allInAmount = actingPlayer.chips;
+            actingPlayer.bet += allInAmount;
+            actingPlayer.totalBet += allInAmount;
+            actingPlayer.chips = 0;
+            actingPlayer.hasActed = true;
+            newPot += allInAmount;
+            if (actingPlayer.bet > newLastBet) {
+              newLastBet = actingPlayer.bet;
+            }
+            break;
+          }
           case 'fold':
             actingPlayer.folded = true;
             actingPlayer.hasActed = true;
@@ -254,7 +271,7 @@ export function useGameState() {
           }
         }
 
-        const nextPlayer = getNextActivePlayer(state);
+        const nextPlayer = getNextActivePlayer(state, newPlayers);
         if (!nextPlayer) return state;
 
         return {
@@ -402,12 +419,15 @@ export function useGameState() {
           };
         }
 
-        const nextPlayerIdx = (state.dealer - 1 + 1) % state.players.length;
+        let nextPlayerIdx = (state.dealer - 1 + 1) % state.players.length;
+        while (newPlayers[nextPlayerIdx].folded) {
+          nextPlayerIdx = (nextPlayerIdx + 1) % state.players.length;
+        }
         return {
           ...state,
           phase: newPhase,
           players: newPlayers,
-          currentPlayer: state.players[nextPlayerIdx].id,
+          currentPlayer: newPlayers[nextPlayerIdx].id,
           lastBet: 0,
         };
       }
@@ -536,6 +556,8 @@ export function useGameState() {
         return canRaise(state.lastBet, player.bet, player.chips);
       case 'fold':
         return canFold(state.lastBet, player.bet);
+      case 'allin':
+        return canAllIn(player.chips);
       default:
         return false;
     }

@@ -24,6 +24,9 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   const isHeadsUp = activePlayers.length === 1;
 
   if (handValue >= 7) {
+    if (canRaise && handValue >= 8 && player.chips > 0 && player.chips <= state.pot * 2) {
+      return { action: 'allin' as Action };
+    }
     if (canRaise) {
       const raiseAmount = calculateRaiseAmount(player, state, 1.5);
       return { action: 'raise', amount: raiseAmount };

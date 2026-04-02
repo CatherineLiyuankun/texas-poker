@@ -57,59 +57,74 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   };
 
   return (
-    <div className={`
-      p-4 rounded-xl transition-all duration-300
-      ${isWinner ? 'bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win' : ''}
-      ${isCurrentPlayer && !isWinner ? 'bg-white/10 border-2 border-blue-400' : 'bg-black/20 border-2 border-transparent'}
-    `}>
+    <div
+      className={`
+      p-3 rounded-xl transition-all duration-300 min-w-[280px]
+      ${isWinner ? "bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win" : ""}
+      ${isCurrentPlayer && !isWinner ? "bg-white/10 border-2 border-blue-400" : "bg-black/20 border-2 border-transparent"}
+    `}
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xl font-bold text-white">
+          <span className="text-lg font-bold text-white">
             {displayName || translations.gameBoard.player(player.id)}
           </span>
+        </div>
+        <div className="flex items-center gap-2">
           {!player.isRealPlayer && (
-            <span className="bg-gray-600 text-white text-xs px-2 py-0.5 rounded-full ml-1">
+            <span className="bg-gray-600 text-white text-sm px-2 py-0.5 rounded-full">
               {translations.playerArea.bot}
             </span>
           )}
           {blind && getBlindLabel() && (
-            <span className="bg-purple-700 text-white text-xs px-2 py-0.5 rounded-full ml-1">
+            <span className="bg-purple-700 text-white text-sm px-2 py-0.5 rounded-full">
               {getBlindLabel()}
             </span>
           )}
           {isDealer && (
-            <span className="bg-amber-600 text-white text-xs px-2 py-0.5 rounded-full ml-1">
+            <span className="bg-amber-600 text-white text-sm px-2 py-0.5 rounded-full">
               {translations.playerArea.dealer}
             </span>
           )}
           {lastAction && !player.isRealPlayer && !isShowdown && (
-            <span className={`
-              ml-1 text-xs px-2 py-0.5 rounded-full font-bold animate-pulse
-              ${lastAction === 'raise' ? 'bg-orange-500 text-white' : 
-                lastAction === 'call' ? 'bg-blue-500 text-white' : 
-                lastAction === 'fold' ? 'bg-red-500 text-white' : 
-                'bg-green-500 text-white'}
-            `}>
-              {lastAction === 'raise' ? 'Raise' : 
-               lastAction === 'call' ? 'Call' : 
-               lastAction === 'fold' ? 'Fold' : 'Check'}
+            <span
+              className={`
+              ml-1 text-sm px-2 py-0.5 rounded-full font-bold animate-pulse
+              ${
+                lastAction === "raise"
+                  ? "bg-orange-500 text-white"
+                  : lastAction === "call"
+                    ? "bg-blue-500 text-white"
+                    : lastAction === "fold"
+                      ? "bg-red-500 text-white"
+                      : "bg-green-500 text-white"
+              }
+            `}
+            >
+              {lastAction === "raise"
+                ? "Raise"
+                : lastAction === "call"
+                  ? "Call"
+                  : lastAction === "fold"
+                    ? "Fold"
+                    : "Check"}
             </span>
           )}
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold text-green-400">
+          <div className="text-xl font-bold text-green-400">
             ${player.chips}
           </div>
           <div className="text-sm text-white/60">
             {translations.playerArea.thisRoundBet} ${player.bet}
           </div>
-          <div className="text-sm text-yellow-400/80">
+          <div className="text-sm text-white/60">
             {translations.playerArea.totalBet} ${player.totalBet}
           </div>
         </div>
       </div>
 
-      <div className="relative flex gap-3 justify-center mb-3">
+      <div className="relative flex gap-2 justify-center mb-3">
         {player.hand.map((card, index) => (
           <Card
             key={index}
@@ -121,39 +136,43 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
       </div>
 
       <div className="flex items-center justify-between">
-        <div className={`
+        <div
+          className={`
           px-3 py-1 rounded-full text-sm
-          ${player.folded ? 'bg-red-500/30 text-red-300' : 
-            isShowdown && !player.folded ? 'bg-green-500/30 text-green-300' : 
-            'bg-blue-500/30 text-blue-300'}
-        `}>
+          ${
+            player.folded
+              ? "bg-red-500/30 text-red-300"
+              : isShowdown && !player.folded
+                ? "bg-green-500/30 text-green-300"
+                : "bg-blue-500/30 text-blue-300"
+          }
+        `}
+        >
           {getStatus()}
         </div>
 
-        {!isShowdown && isCurrentPlayer && !player.folded && player.isRealPlayer && (
-          <button
-            onClick={handleToggleView}
-            className={`
-              px-4 py-2 rounded-lg font-medium transition-all
-              ${isViewing
-                ? 'bg-blue-600' 
-                : 'bg-blue-500 hover:bg-blue-600'
-              }
+        {!isShowdown &&
+          isCurrentPlayer &&
+          !player.folded &&
+          player.isRealPlayer && (
+            <button
+              onClick={handleToggleView}
+              className={`
+              px-3 py-1.5 rounded-lg font-medium text-sm transition-all
+              ${isViewing ? "bg-blue-600" : "bg-blue-500 hover:bg-blue-600"}
               text-white
             `}
-            aria-pressed={isViewing}
-            tabIndex={0}
-          >
-            {isViewing ? translations.playerArea.hideCards : translations.playerArea.viewCards}
-          </button>
-        )}
+              aria-pressed={isViewing}
+              tabIndex={0}
+            >
+              {isViewing
+                ? translations.playerArea.hideCards
+                : translations.playerArea.viewCards}
+            </button>
+          )}
       </div>
 
-      {actionButtons && (
-        <div className="mt-3">
-          {actionButtons}
-        </div>
-      )}
+      {actionButtons && <div className="mt-3">{actionButtons}</div>}
     </div>
   );
 };
