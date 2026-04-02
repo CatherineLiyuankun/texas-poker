@@ -20,9 +20,7 @@ function clickFirstEnabled(patterns: RegExp[]): boolean {
 
 describe('showdown结算', () => {
   it('仅跟注和看牌到摊牌时，赢家只拿一次底池', () => {
-    render(<GameBoard />);
-
-    fireEvent.click(screen.getByRole('button', { name: '开始游戏' }));
+    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
 
     for (let i = 0; i < 120; i += 1) {
       if (screen.queryByText(/获胜！/)) {
@@ -32,6 +30,7 @@ describe('showdown结算', () => {
       const progressed = clickFirstEnabled([
         /发翻牌|发转牌|发河牌|摊牌/,
         /跟注/,
+        /看牌/,
         /看牌 \(Check\)/,
       ]);
 

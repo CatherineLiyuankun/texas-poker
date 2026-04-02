@@ -1,44 +1,60 @@
 import React, { useState } from 'react';
-import type { Player } from '../types/poker';
+import type { Player, GamePhase, Action } from '../types/poker';
 import { Card } from './Card';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
+import { translations } from '../utils/translations';
 
 interface PlayerAreaProps {
   player: Player;
+  displayName?: string;
   isCurrentPlayer: boolean;
   isDealer: boolean;
   isWinner?: boolean;
   handRank?: HandRank;
   blind?: '小盲' | '大盲';
+  actionButtons?: React.ReactNode;
+  phase?: GamePhase;
+  lastAction?: Action;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ 
   player, 
+  displayName,
   isCurrentPlayer, 
   isDealer,
   isWinner = false,
   handRank,
   blind,
+  actionButtons,
+  phase,
+  lastAction,
 }) => {
-  // 单按钮点击控制底牌显示状态
   const [isViewing, setIsViewing] = useState(false);
-  // 点击按钮切换显示/隐藏底牌
   const handleToggleView = () => {
     setIsViewing(v => !v);
   };
 
-  // 当前玩家切换或手牌新发时自动复位isViewing
   React.useEffect(() => {
     setIsViewing(false);
   }, [isCurrentPlayer, player.id, player.hand]);
 
-  const status = player.folded 
-    ? '已弃牌' 
-    : player.revealed 
-      ? (handRank ? HAND_RANK_NAMES[handRank] : '已看牌')
-      : isCurrentPlayer 
-        ? '查看底牌' 
-        : '等待中';
+  const isShowdown = phase === 'showdown' || phase === 'ended';
+  const canShowHand = isShowdown || (player.isRealPlayer && isCurrentPlayer && isViewing);
+
+  const getStatus = () => {
+    if (player.folded) return translations.playerArea.folded;
+    if (isShowdown && !player.folded) {
+      return handRank ? HAND_RANK_NAMES[handRank] : translations.playerArea.showingHand;
+    }
+    if (player.isRealPlayer && isCurrentPlayer) return translations.playerArea.viewingHand;
+    return translations.playerArea.waiting;
+  };
+
+  const getBlindLabel = () => {
+    if (blind === '小盲') return translations.blind.smallBlind;
+    if (blind === '大盲') return translations.blind.bigBlind;
+    return undefined;
+  };
 
   return (
     <div className={`
@@ -49,16 +65,34 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-xl font-bold text-white">
-            玩家 {player.id}
+            {displayName || translations.gameBoard.player(player.id)}
           </span>
-          {blind && (
+          {!player.isRealPlayer && (
+            <span className="bg-gray-600 text-white text-xs px-2 py-0.5 rounded-full ml-1">
+              {translations.playerArea.bot}
+            </span>
+          )}
+          {blind && getBlindLabel() && (
             <span className="bg-purple-700 text-white text-xs px-2 py-0.5 rounded-full ml-1">
-              {blind}
+              {getBlindLabel()}
             </span>
           )}
           {isDealer && (
             <span className="bg-amber-600 text-white text-xs px-2 py-0.5 rounded-full ml-1">
-              庄
+              {translations.playerArea.dealer}
+            </span>
+          )}
+          {lastAction && !player.isRealPlayer && !isShowdown && (
+            <span className={`
+              ml-1 text-xs px-2 py-0.5 rounded-full font-bold animate-pulse
+              ${lastAction === 'raise' ? 'bg-orange-500 text-white' : 
+                lastAction === 'call' ? 'bg-blue-500 text-white' : 
+                lastAction === 'fold' ? 'bg-red-500 text-white' : 
+                'bg-green-500 text-white'}
+            `}>
+              {lastAction === 'raise' ? 'Raise' : 
+               lastAction === 'call' ? 'Call' : 
+               lastAction === 'fold' ? 'Fold' : 'Check'}
             </span>
           )}
         </div>
@@ -67,7 +101,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
             ${player.chips}
           </div>
           <div className="text-sm text-white/60">
-            下注: ${player.bet}
+            {translations.playerArea.thisRoundBet} ${player.bet}
+          </div>
+          <div className="text-sm text-yellow-400/80">
+            {translations.playerArea.totalBet} ${player.totalBet}
           </div>
         </div>
       </div>
@@ -76,25 +113,24 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
         {player.hand.map((card, index) => (
           <Card
             key={index}
-            card={isViewing || player.revealed ? card : null} // 只在isViewing或revealed时正面
-            hidden={!(isViewing || player.revealed)}           // 其余时间全部背面
+            card={canShowHand ? card : null}
+            hidden={!canShowHand}
             delay={index * 100}
           />
         ))}
-        {/* Visual cue overlay when viewing */}
       </div>
 
       <div className="flex items-center justify-between">
         <div className={`
           px-3 py-1 rounded-full text-sm
           ${player.folded ? 'bg-red-500/30 text-red-300' : 
-            player.revealed ? 'bg-green-500/30 text-green-300' : 
+            isShowdown && !player.folded ? 'bg-green-500/30 text-green-300' : 
             'bg-blue-500/30 text-blue-300'}
         `}>
-          {status}
+          {getStatus()}
         </div>
 
-        {isCurrentPlayer && !player.folded && (
+        {!isShowdown && isCurrentPlayer && !player.folded && player.isRealPlayer && (
           <button
             onClick={handleToggleView}
             className={`
@@ -108,10 +144,16 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
             aria-pressed={isViewing}
             tabIndex={0}
           >
-            {isViewing ? '隐藏看牌' : '点击看牌'}
+            {isViewing ? translations.playerArea.hideCards : translations.playerArea.viewCards}
           </button>
         )}
       </div>
+
+      {actionButtons && (
+        <div className="mt-3">
+          {actionButtons}
+        </div>
+      )}
     </div>
   );
 };

@@ -6,7 +6,7 @@ export interface Card {
   rank: Rank;
 }
 
-export type PlayerId = 1 | 2;
+export type PlayerId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export type HandRank = 
   | 'high_card' 
@@ -27,24 +27,28 @@ export interface Player {
   id: PlayerId;
   chips: number;
   bet: number;
+  totalBet: number;
   hand: Card[];
   hasActed: boolean;
   folded: boolean;
   revealed: boolean;
+  isRealPlayer: boolean;
+  lastAction?: Action;
 }
 
 export interface GameState {
   phase: GamePhase;
   pot: number;
   communityCards: Card[];
-  players: [Player, Player];
+  players: Player[];
   currentPlayer: PlayerId;
   dealer: PlayerId;
   lastBet: number;
   winner: PlayerId | null;
   handRank: HandRank | null;
   winningCards: Card[];
-
+  realPlayerCount: number;
+  botPlayerCount: number;
 }
 
 export const RANK_ORDER: Record<Rank, number> = {

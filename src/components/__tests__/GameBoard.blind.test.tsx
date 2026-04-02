@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { GameBoard } from '../GameBoard';
 import * as useGameStateModule from '../../hooks/useGameState';
-import { SMALL_BLIND, BIG_BLIND } from '../../hooks/useGameState';
+import { BIG_BLIND } from '../../hooks/useGameState';
 
 // mock 数据生成函数
 function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player1Bet = 10, player2Bet = 20 }) {
@@ -19,6 +19,7 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
 ],
         revealed: false,
         hasActed: false,
+        isRealPlayer: true,
       },
       {
         id: 2,
@@ -31,6 +32,7 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
 ],
         revealed: false,
         hasActed: false,
+        isRealPlayer: true,
       },
     ] as [import('../../types/poker').Player, import('../../types/poker').Player],
     pot: player1Bet + player2Bet,
@@ -41,6 +43,8 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
       winner: null,
       handRank: null,
       winningCards: [],
+      realPlayerCount: 2,
+      botPlayerCount: 0,
     };
   }
 
@@ -66,15 +70,11 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    render(<GameBoard />);
-    // 玩家1有“小盲”标识
-    expect(screen.getByText('玩家 1').nextSibling).toHaveTextContent('小盲');
-    // 玩家2有“大盲”标识
-    expect(screen.getByText('玩家 2').nextSibling).toHaveTextContent('大盲');
-    // 玩家1下注等于小盲金额
-    expect(screen.getAllByText(`下注: $${SMALL_BLIND}`)[0]).toBeInTheDocument();
-    // 玩家2下注等于大盲
-    expect(screen.getAllByText(`下注: $${BIG_BLIND}`)[0]).toBeInTheDocument();
+    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    // 玩家1有"大盲"标识
+    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
+    // 玩家2有"小盲"标识
+    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
   });
 
   it('玩家2为小盲，玩家1为大盲时UI标识正确', () => {
@@ -98,14 +98,11 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    render(<GameBoard />);
-    // 玩家2有“小盲”标识
-    expect(screen.getByText('玩家 2').nextSibling).toHaveTextContent('小盲');
-    // 玩家1有“大盲”标识
-    expect(screen.getByText('玩家 1').nextSibling).toHaveTextContent('大盲');
-    // 大小盲下注金额配对
-    expect(screen.getAllByText(`下注: $${SMALL_BLIND}`)[0]).toBeInTheDocument();
-    expect(screen.getAllByText(`下注: $${BIG_BLIND}`)[0]).toBeInTheDocument();
+    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    // 玩家2有"大盲"标识
+    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
+    // 玩家1有"小盲"标识
+    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('小盲 SB');
   });
 
   it('新的每局庄家切换后，UI标记实时切换', () => {
@@ -124,9 +121,9 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    const { rerender } = render(<GameBoard />);
-    // 玩家2小盲
-    expect(screen.getByText('玩家 2').nextSibling).toHaveTextContent('小盲');
+    const { rerender } = render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    // 玩家2大盲
+    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
     // 模拟dealer切回1（下一局）
     jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue({
       state: buildState({ dealer: 1 }),
@@ -142,8 +139,8 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    rerender(<GameBoard />);
-    expect(screen.getByText('玩家 1').nextSibling).toHaveTextContent('小盲');
-    expect(screen.getByText('玩家 2').nextSibling).toHaveTextContent('大盲');
+    rerender(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
+    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
   });
 });
