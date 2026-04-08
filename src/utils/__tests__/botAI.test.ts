@@ -19,6 +19,8 @@ function createPlayer(
     folded,
     revealed: false,
     isRealPlayer,
+    buyInCount: 0,
+    allIn: false,
   };
 }
 

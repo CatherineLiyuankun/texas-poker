@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { useGameState } from '../useGameState';
-import { SMALL_BLIND, BIG_BLIND, INITIAL_CHIPS } from '../useGameState';
+import { SMALL_BLIND, BIG_BLIND, INITIAL_CHIPS } from '../../utils/constant';
 
 describe('游戏状态 - 多人场景与边界情况', () => {
   describe('初始游戏设置', () => {
@@ -403,6 +403,136 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(secondDealer).not.toBe(firstDealer);
       expect(thirdDealer).not.toBe(secondDealer);
       expect(thirdDealer).toBe(firstDealer);
+    });
+  });
+
+  describe('筹码不足场景', () => {
+    it('筹码不足盲注时自动all-in，筹码不会变负', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [10, 1000]);
+      });
+
+      const { players } = result.current.state;
+
+      players.forEach(p => {
+        expect(p.chips).toBeGreaterThanOrEqual(0);
+      });
+
+      const totalChips = players.reduce((sum, p) => sum + p.chips, 0);
+      const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
+      expect(totalChips + totalBets).toBe(10 + 1000);
+    });
+
+    it('筹码为0的玩家重置后获得INITIAL_CHIPS并buyInCount+1', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [0, 1000]);
+      });
+
+      const playerWithNoChips = result.current.state.players.find(p => p.chips === 0);
+      expect(playerWithNoChips).toBeDefined();
+      expect(playerWithNoChips!.buyInCount).toBe(0);
+
+      act(() => {
+        result.current.resetRound();
+      });
+
+      const resetPlayer = result.current.state.players.find(p => p.id === playerWithNoChips!.id);
+      expect(resetPlayer!.chips).toBe(INITIAL_CHIPS);
+      expect(resetPlayer!.buyInCount).toBe(1);
+    });
+
+    it('多次破产后buyInCount正确累加', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [0, 1000]);
+      });
+
+      act(() => result.current.resetRound());
+      expect(result.current.state.players[0].buyInCount).toBe(1);
+
+      act(() => {
+        result.current.playerAction(result.current.state.players[1].id, 'fold');
+      });
+
+      act(() => result.current.resetRound());
+      expect(result.current.state.players[0].buyInCount).toBe(1);
+
+      act(() => {
+        result.current.playerAction(result.current.state.players[1].id, 'fold');
+      });
+
+      act(() => result.current.resetRound());
+      expect(result.current.state.players[0].buyInCount).toBe(1);
+    });
+
+    it('筹码充足玩家重置后buyInCount不变', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [1000, 1000]);
+      });
+
+      act(() => {
+        result.current.playerAction(result.current.state.players[1].id, 'fold');
+      });
+
+      act(() => result.current.resetRound());
+
+      expect(result.current.state.players[0].buyInCount).toBe(0);
+      expect(result.current.state.players[1].buyInCount).toBe(0);
+    });
+
+    it('筹码刚好等于盲注时可以正常下注', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [SMALL_BLIND, 1000]);
+      });
+
+      const { players, dealer } = result.current.state;
+      const dealerIdx = dealer - 1;
+      const smallBlindIdx = (dealerIdx + 1) % players.length;
+      const bigBlindIdx = (dealerIdx + 2) % players.length;
+
+      const sbPlayer = players[smallBlindIdx];
+      const bbPlayer = players[bigBlindIdx];
+
+      expect(sbPlayer.bet).toBe(SMALL_BLIND);
+      expect(sbPlayer.chips).toBeGreaterThanOrEqual(0);
+
+      expect(bbPlayer.bet).toBe(Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet));
+      expect(bbPlayer.chips).toBeGreaterThanOrEqual(0);
+
+      const totalChips = players.reduce((sum, p) => sum + p.chips, 0);
+      const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
+      expect(totalChips + totalBets).toBe(SMALL_BLIND + 1000);
+    });
+
+    it('筹码小于盲注时自动all-in全部筹码', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [5, 1000]);
+      });
+
+      const { players, dealer } = result.current.state;
+      const dealerIdx = dealer - 1;
+      const smallBlindIdx = (dealerIdx + 1) % players.length;
+      const bigBlindIdx = (dealerIdx + 2) % players.length;
+
+      const sbPlayer = players[smallBlindIdx];
+      const bbPlayer = players[bigBlindIdx];
+
+      expect(sbPlayer.bet).toBe(Math.min(SMALL_BLIND, sbPlayer.chips + sbPlayer.bet));
+      expect(sbPlayer.chips).toBeGreaterThanOrEqual(0);
+
+      expect(bbPlayer.bet).toBe(Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet));
+      expect(bbPlayer.chips).toBeGreaterThanOrEqual(0);
+
+      expect(result.current.state.pot).toBe(sbPlayer.bet + bbPlayer.bet);
+
+      const totalChips = players.reduce((sum, p) => sum + p.chips, 0);
+      const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
+      expect(totalChips + totalBets).toBe(5 + 1000);
     });
   });
 

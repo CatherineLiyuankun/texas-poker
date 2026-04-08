@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { GameBoard } from '../GameBoard';
 import * as useGameStateModule from '../../hooks/useGameState';
-import { BIG_BLIND } from '../../hooks/useGameState';
+import { BIG_BLIND } from '../../utils/constant';
 import type { GameState, Player, PlayerId } from '../../types/poker';
 
 const dummyHand = [

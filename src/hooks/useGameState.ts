@@ -1,6 +1,7 @@
 import { useReducer, useCallback } from 'react';
 import type { Card, GameState, PlayerId, Action, Suit, Rank, Player } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
+import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
@@ -19,9 +20,6 @@ function shuffleDeck(): Card[] {
   return deck;
 }
 
-const INITIAL_CHIPS = 1000;
-const SMALL_BLIND = 10;
-const BIG_BLIND = 20;
 
 function createPlayer(id: PlayerId, isRealPlayer: boolean): Player {
   return {
@@ -34,6 +32,9 @@ function createPlayer(id: PlayerId, isRealPlayer: boolean): Player {
     folded: false,
     revealed: false,
     isRealPlayer,
+    lastAction: undefined,
+    buyInCount: 0,
+    allIn: false,
   };
 }
 
@@ -115,19 +116,19 @@ function getPlayerIndex(playerId: PlayerId): number {
 }
 
 function allPlayersActed(state: GameState): boolean {
-  const activePlayers = state.players.filter(p => !p.folded);
+  const activePlayers = state.players.filter(p => !p.folded && p.chips > 0);
   return activePlayers.every(p => p.hasActed);
 }
 
 function allBetsEqual(state: GameState): boolean {
-  const activePlayers = state.players.filter(p => !p.folded);
+  const activePlayers = state.players.filter(p => !p.folded && p.chips > 0);
   if (activePlayers.length === 0) return true;
   const firstBet = activePlayers[0].bet;
   return activePlayers.every(p => p.bet === firstBet && p.bet === state.lastBet);
 }
 
 function bettingComplete(state: GameState): boolean {
-  const activePlayers = state.players.filter(p => !p.folded);
+  const activePlayers = state.players.filter(p => !p.folded && p.chips > 0);
   if (activePlayers.length <= 1) return true;
   return allPlayersActed(state) && allBetsEqual(state);
 }
@@ -155,41 +156,47 @@ export function useGameState() {
             ...createPlayer(playerId, isReal),
             hand: [deck[i * 2], deck[i * 2 + 1]],
             chips: action.playerChips?.[i] ?? state.players[i]?.chips ?? INITIAL_CHIPS,
+            buyInCount: state.players[i]?.buyInCount ?? 0,
           });
         }
 
         const communityCards = deck.slice(totalPlayers * 2, totalPlayers * 2 + 5);
-        const currentDealer = state.dealer || ((Math.floor(Math.random() * totalPlayers) + 1) as PlayerId);
-        const nextDealer = ((currentDealer % totalPlayers) + 1) as PlayerId;
+        const dealer = state.dealer || ((Math.floor(Math.random() * totalPlayers) + 1) as PlayerId);
 
-        const { smallBlind: sbIdx, bigBlind: bbIdx } = getBlindIndices(nextDealer, totalPlayers);
+        const { smallBlind: sbIdx, bigBlind: bbIdx } = getBlindIndices(
+          dealer,
+          totalPlayers,
+        );
 
-        newPlayers[sbIdx].bet = SMALL_BLIND;
-        newPlayers[sbIdx].totalBet = SMALL_BLIND;
-        newPlayers[sbIdx].chips -= SMALL_BLIND;
-        newPlayers[bbIdx].bet = BIG_BLIND;
-        newPlayers[bbIdx].totalBet = BIG_BLIND;
-        newPlayers[bbIdx].chips -= BIG_BLIND;
+        const sbAmount = Math.min(SMALL_BLIND, newPlayers[sbIdx].chips);
+        newPlayers[sbIdx].bet = sbAmount;
+        newPlayers[sbIdx].totalBet = sbAmount;
+        newPlayers[sbIdx].chips -= sbAmount;
+
+        const bbAmount = Math.min(BIG_BLIND, newPlayers[bbIdx].chips);
+        newPlayers[bbIdx].bet = bbAmount;
+        newPlayers[bbIdx].totalBet = bbAmount;
+        newPlayers[bbIdx].chips -= bbAmount;
 
         let nextPlayerIdx = (bbIdx + 1) % totalPlayers;
         while (newPlayers[nextPlayerIdx].folded) {
           nextPlayerIdx = (nextPlayerIdx + 1) % totalPlayers;
         }
 
-        return {
-          phase: 'preflop',
-          pot: SMALL_BLIND + BIG_BLIND,
-          communityCards,
-          players: newPlayers,
-          currentPlayer: newPlayers[nextPlayerIdx].id,
-          dealer: nextDealer,
-          lastBet: BIG_BLIND,
-          winner: null,
-          handRank: null,
-          winningCards: [],
-          realPlayerCount: action.realPlayerCount,
-          botPlayerCount: action.botPlayerCount,
-        };
+         return {
+           phase: 'preflop',
+           pot: sbAmount + bbAmount,
+           communityCards,
+           players: newPlayers,
+           currentPlayer: newPlayers[nextPlayerIdx].id,
+           dealer: dealer,
+           lastBet: bbAmount,
+           winner: null,
+           handRank: null,
+           winningCards: [],
+           realPlayerCount: action.realPlayerCount,
+           botPlayerCount: action.botPlayerCount,
+         };
       }
 
       case 'PLAYER_ACTION': {
@@ -216,6 +223,9 @@ export function useGameState() {
             actingPlayer.chips -= toCall;
             actingPlayer.hasActed = true;
             newPot += toCall;
+            if (actingPlayer.chips === 0) {
+              actingPlayer.allIn = true;
+            }
             break;
           }
           case 'raise': {
@@ -226,6 +236,9 @@ export function useGameState() {
             actingPlayer.bet += additional;
             actingPlayer.totalBet += additional;
             actingPlayer.chips -= additional;
+            if (actingPlayer.chips === 0) {
+              actingPlayer.allIn = true;
+            }
             actingPlayer.hasActed = true;
             newLastBet = Math.max(newLastBet, actingPlayer.bet);
             newPot += additional;
@@ -237,9 +250,10 @@ export function useGameState() {
             actingPlayer.totalBet += allInAmount;
             actingPlayer.chips = 0;
             actingPlayer.hasActed = true;
-            newPot += allInAmount;
+            actingPlayer.allIn = true;
+            newPot += allInAmount; // 更新底池
             if (actingPlayer.bet > newLastBet) {
-              newLastBet = actingPlayer.bet;
+              newLastBet = actingPlayer.bet; // 更新当前最高注金
             }
             break;
           }
@@ -272,7 +286,19 @@ export function useGameState() {
         }
 
         const nextPlayer = getNextActivePlayer(state, newPlayers);
-        if (!nextPlayer) return state;
+        if (!nextPlayer) {
+          const activePlayers = newPlayers.filter(p => !p.folded);
+          if (activePlayers.length >= 2) {
+            return {
+              ...state,
+              players: newPlayers,
+              pot: newPot,
+              lastBet: newLastBet,
+              currentPlayer: activePlayers[0].id,
+            };
+          }
+          return state;
+        }
 
         return {
           ...state,
@@ -420,9 +446,23 @@ export function useGameState() {
         }
 
         let nextPlayerIdx = (state.dealer - 1 + 1) % state.players.length;
-        while (newPlayers[nextPlayerIdx].folded) {
+        let searchedCount = 0;
+        while ((newPlayers[nextPlayerIdx].folded || newPlayers[nextPlayerIdx].allIn || newPlayers[nextPlayerIdx].chips === 0) && searchedCount < state.players.length) {
           nextPlayerIdx = (nextPlayerIdx + 1) % state.players.length;
+          searchedCount++;
         }
+        
+        const canActPlayers = newPlayers.filter(p => !p.folded && !p.allIn && p.chips > 0);
+        if (canActPlayers.length === 0) {
+          return {
+            ...state,
+            phase: newPhase,
+            players: newPlayers,
+            currentPlayer: state.currentPlayer,
+            lastBet: 0,
+          };
+        }
+        
         return {
           ...state,
           phase: newPhase,
@@ -472,7 +512,8 @@ export function useGameState() {
         const newDealer = ((state.dealer % state.players.length) + 1) as PlayerId;
         const newPlayers = state.players.map((p, index) => ({
           ...p,
-          chips: p.chips > 0 ? p.chips : INITIAL_CHIPS,
+          chips: p.chips > 0 ? p.chips : p.chips + INITIAL_CHIPS,
+          buyInCount: p.chips > 0 ? p.buyInCount : p.buyInCount + 1,
           bet: 0,
           totalBet: 0,
           hand: [],
@@ -527,17 +568,15 @@ export function useGameState() {
   }, []);
 
   const resetRound = useCallback(() => {
-    const playerChips = state.players.map(p => p.chips > 0 ? p.chips : INITIAL_CHIPS);
     dispatch({ type: 'RESET_ROUND' });
     setTimeout(() => {
       dispatch({
         type: 'START_GAME',
         realPlayerCount: state.realPlayerCount,
         botPlayerCount: state.botPlayerCount,
-        playerChips,
       });
     }, 0);
-  }, [state.realPlayerCount, state.botPlayerCount, state.players]);
+  }, [state.realPlayerCount, state.botPlayerCount]);
 
   const fold = useCallback((player: PlayerId) => {
     dispatch({ type: 'FOLD', player });
@@ -545,7 +584,7 @@ export function useGameState() {
 
   const canPlayerAct = useCallback((playerId: PlayerId, action: Action): boolean => {
     const player = state.players[getPlayerIndex(playerId)];
-    if (!player || player.folded) return false;
+    if (!player || player.folded || player.allIn) return false;
 
     switch (action) {
       case 'check':

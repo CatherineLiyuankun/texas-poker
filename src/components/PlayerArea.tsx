@@ -3,6 +3,7 @@ import type { Player, GamePhase, Action } from '../types/poker';
 import { Card } from './Card';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
+import { INITIAL_CHIPS } from '../utils/constant';
 
 interface PlayerAreaProps {
   player: Player;
@@ -43,6 +44,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
 
   const getStatus = () => {
     if (player.folded) return translations.playerArea.folded;
+    if (player.allIn) return translations.playerArea.allIn || translations.actionButtons.allin;
     if (isShowdown && !player.folded) {
       return handRank ? HAND_RANK_NAMES[handRank] : translations.playerArea.showingHand;
     }
@@ -59,7 +61,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   return (
     <div
       className={`
-      p-3 rounded-xl transition-all duration-300 min-w-[280px]
+      p-3 rounded-xl transition-all duration-300 min-w-[300px]
       ${isWinner ? "bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win" : ""}
       ${isCurrentPlayer && !isWinner ? "bg-white/10 border-2 border-blue-400" : "bg-black/20 border-2 border-transparent"}
     `}
@@ -86,7 +88,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
               {translations.playerArea.dealer}
             </span>
           )}
-          {lastAction && !player.isRealPlayer && !isShowdown && (
+          {lastAction && !isShowdown && (
             <span
               className={`
               ml-1 text-sm px-2 py-0.5 rounded-full font-bold animate-pulse
@@ -97,7 +99,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
                     ? "bg-blue-500 text-white"
                     : lastAction === "fold"
                       ? "bg-red-500 text-white"
-                      : "bg-green-500 text-white"
+                      : lastAction === "allin"
+                        ? "bg-purple-500 text-white"
+                        : "bg-green-500 text-white"
               }
             `}
             >
@@ -107,13 +111,20 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
                   ? "Call"
                   : lastAction === "fold"
                     ? "Fold"
-                    : "Check"}
+                    : lastAction === "allin"
+                      ? "All In"
+                      : "Check"}
             </span>
           )}
         </div>
         <div className="text-right">
           <div className="text-xl font-bold text-green-400">
             ${player.chips}
+            {player.buyInCount > 0 && (
+              <span className="text-sm text-orange-400 ml-1">
+                (-{player.buyInCount * INITIAL_CHIPS})
+              </span>
+            )}
           </div>
           <div className="text-sm text-white/60">
             {translations.playerArea.thisRoundBet} ${player.bet}
@@ -138,15 +149,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
       <div className="flex items-center justify-between">
         <div
           className={`
-          px-3 py-1 rounded-full text-sm
-          ${
-            player.folded
-              ? "bg-red-500/30 text-red-300"
-              : isShowdown && !player.folded
-                ? "bg-green-500/30 text-green-300"
-                : "bg-blue-500/30 text-blue-300"
-          }
-        `}
+           px-3 py-1 rounded-full text-sm
+           ${
+             player.folded
+               ? "bg-red-500/30 text-red-300"
+               : player.allIn
+                 ? "bg-orange-500/30 text-orange-300"
+                 : isShowdown && !player.folded
+                   ? "bg-green-500/30 text-green-300"
+                   : "bg-blue-500/30 text-blue-300"
+           }
+         `}
         >
           {getStatus()}
         </div>

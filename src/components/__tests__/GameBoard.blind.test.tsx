@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { GameBoard } from '../GameBoard';
 import * as useGameStateModule from '../../hooks/useGameState';
-import { BIG_BLIND } from '../../hooks/useGameState';
+import { BIG_BLIND } from '../../utils/constant';
 
 // mock 数据生成函数
 function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player1Bet = 10, player2Bet = 20 }) {

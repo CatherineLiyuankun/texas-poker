@@ -1,6 +1,6 @@
 import type { Player, GameState, Action, PlayerId } from '../types/poker';
 import { evaluateHand } from './handEvaluator';
-import { BIG_BLIND } from '../hooks/useGameState';
+import { BIG_BLIND } from './constant';
 
 interface BotDecision {
   action: Action;

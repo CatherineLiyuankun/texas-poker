@@ -17,7 +17,7 @@ export const translations = {
     fold: "弃牌 Fold",
     confirm: "确认 Confirm",
     cancel: "取消 Cancel",
-    raisePlaceholder: (min: number) => `最低金额 Minimum: $${min}`,
+    raisePlaceholder: (toCall: number, minTargetExtra: number, min: number) => `最低${min}=call: ${toCall}+${minTargetExtra}`,
     allin: "全押 All In",
   },
   playerArea: {
@@ -29,6 +29,7 @@ export const translations = {
     hideCards: "Hide", // 隐藏手牌
     bot: "Bot", // 电脑
     dealer: "庄 Dealer",
+    allIn: "All In", // 全押
     thisRoundBet: "Bet:", // 此轮下注:
     totalBet: "All bet:", // 本局下注:
   },

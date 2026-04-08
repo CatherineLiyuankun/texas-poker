@@ -34,6 +34,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
   } = useGameState();
 
   const gameInitialized = useRef(false);
+  const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wasBettingCompleteRef = useRef(false);
 
   useEffect(() => {
     if (!gameInitialized.current && state.phase === 'preflop' && state.players[0].hand.length === 0) {
@@ -76,27 +78,51 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
   };
 
   useEffect(() => {
-    if (roundSettled) return;
-    if (state.phase === 'showdown') return;
+    if (roundSettled) {
+      wasBettingCompleteRef.current = false;
+      return;
+    }
+    if (state.phase === 'showdown') {
+      wasBettingCompleteRef.current = false;
+      return;
+    }
 
-    const activePlayers = state.players.filter(p => !p.folded);
-    if (activePlayers.length < 2) return;
-    const allActed = activePlayers.every(p => p.hasActed);
-    const allBetsEqual = activePlayers.every(p => p.bet === state.lastBet);
+    const activePlayers = state.players.filter(p => !p.folded && !p.allIn && p.chips > 0);
+    const isBettingComplete = (() => {
+      if (activePlayers.length === 0) return true;
+      if (activePlayers.length === 1 && activePlayers[0].hasActed) return true;
+      const allActed = activePlayers.every(p => p.hasActed);
+      const activeBets = activePlayers.map(p => p.bet);
+      const allBetsEqual = activeBets.length > 0 && activeBets.every(bet => bet === activeBets[0]);
+      return allActed && allBetsEqual;
+    })();
 
-    if (allActed && allBetsEqual) {
-      const timer = setTimeout(() => {
+    if (isBettingComplete && !wasBettingCompleteRef.current) {
+      wasBettingCompleteRef.current = true;
+      if (advanceTimerRef.current !== null) {
+        clearTimeout(advanceTimerRef.current);
+      }
+      advanceTimerRef.current = setTimeout(() => {
+        advanceTimerRef.current = null;
+        wasBettingCompleteRef.current = false;
         handleNextPhase();
       }, 1800);
-      return () => clearTimeout(timer);
+    } else if (!isBettingComplete) {
+      wasBettingCompleteRef.current = false;
+      if (advanceTimerRef.current !== null) {
+        clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
     }
   }, [state.phase, state.players, roundSettled, state.lastBet, revealHand, nextStreet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canContinue = () => {
-    const activePlayers = state.players.filter(p => !p.folded);
-    if (activePlayers.length < 2) return false;
+    const activePlayers = state.players.filter(p => !p.folded && !p.allIn && p.chips > 0);
+    if (activePlayers.length === 0) return true;
+    if (activePlayers.length === 1 && activePlayers[0].hasActed) return true;
     const allActed = activePlayers.every(p => p.hasActed);
-    const allBetsEqual = activePlayers.every(p => p.bet === state.lastBet);
+    const activeBets = activePlayers.map(p => p.bet);
+    const allBetsEqual = activeBets.length > 0 && activeBets.every(bet => bet === activeBets[0]);
     return allActed && allBetsEqual;
   };
 
@@ -168,7 +194,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
                 return state.players.map((player, idx) => {
                   const pos = positions[idx];
                   const isCurrentRealPlayer = state.currentPlayer === player.id && player.isRealPlayer && !player.folded && !roundSettled;
-                  
+                  const showActionButtons = isCurrentRealPlayer && !player.folded && !player.allIn;
+
                   return (
                     <div
                       key={player.id}
@@ -176,7 +203,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
                       style={{
                         left: pos.x,
                         top: pos.y,
-                        transform: 'translate(-50%, -50%)',
+                        transform: "translate(-50%, -50%)",
                       }}
                     >
                       <PlayerArea
@@ -185,27 +212,43 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
                         isCurrentPlayer={state.currentPlayer === player.id}
                         isDealer={state.dealer === player.id}
                         isWinner={state.winner === player.id}
-                        handRank={state.phase === 'showdown' && !player.folded ? evaluateHand(player.hand, state.communityCards).rank : undefined}
+                        handRank={
+                          state.phase === "showdown" && !player.folded
+                            ? evaluateHand(player.hand, state.communityCards)
+                                .rank
+                            : undefined
+                        }
                         blind={
-                          idx === (state.dealer - 1 + 1) % state.players.length ? '小盲' :
-                          idx === (state.dealer - 1 + 2) % state.players.length ? '大盲' : undefined
+                          idx === (state.dealer - 1 + 1) % state.players.length
+                            ? "小盲"
+                            : idx ===
+                                (state.dealer - 1 + 2) % state.players.length
+                              ? "大盲"
+                              : undefined
                         }
                         phase={state.phase}
                         lastAction={player.lastAction}
-                        actionButtons={isCurrentRealPlayer ? (
-                          <ActionButtons
-                            onAction={handleAction}
-                            canCheck={canPlayerAct(player.id, 'check')}
-                            canCall={canPlayerAct(player.id, 'call')}
-                            canRaise={canPlayerAct(player.id, 'raise')}
-                            canFold={canPlayerAct(player.id, 'fold')}
-                            canAllIn={canPlayerAct(player.id, 'allin')}
-                            lastBet={state.lastBet}
-                            playerBet={player.bet}
-                            disabled={player.folded || !player.isRealPlayer}
-                            isBot={!player.isRealPlayer}
-                          />
-                        ) : undefined}
+                        actionButtons={
+                          showActionButtons ? (
+                            <ActionButtons
+                              onAction={handleAction}
+                              canCheck={canPlayerAct(player.id, "check")}
+                              canCall={canPlayerAct(player.id, "call")}
+                              canRaise={canPlayerAct(player.id, "raise")}
+                              canFold={canPlayerAct(player.id, "fold")}
+                              canAllIn={canPlayerAct(player.id, "allin")}
+                              lastBet={state.lastBet}
+                              playerBet={player.bet}
+                              playerChips={player.chips}
+                              disabled={
+                                player.folded ||
+                                player.allIn ||
+                                !player.isRealPlayer
+                              }
+                              isBot={!player.isRealPlayer}
+                            />
+                          ) : undefined
+                        }
                       />
                     </div>
                   );

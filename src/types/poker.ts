@@ -25,15 +25,17 @@ export type Action = 'check' | 'call' | 'raise' | 'fold' | 'allin';
 
 export interface Player {
   id: PlayerId;
-  chips: number;
-  bet: number;
-  totalBet: number;
-  hand: Card[];
-  hasActed: boolean;
-  folded: boolean;
-  revealed: boolean;
-  isRealPlayer: boolean;
-  lastAction?: Action;
+  chips: number; // 玩家当前筹码数量
+  bet: number;  // 记录玩家在当前轮的下注金额
+  totalBet: number; // 记录玩家在当前局的总下注金额
+  isRealPlayer: boolean; // 是否是真人玩家（true）还是电脑玩家（false）
+  hand: Card[]; // 玩家手牌
+  lastAction?: Action; // 记录玩家上一次的行动（check、call、raise、fold、allin）
+  buyInCount: number;  // 记录玩家买入筹码次数，每次购买1000筹码
+  revealed: boolean; // 记录玩家是否已经看牌
+  hasActed: boolean; // 记录玩家在当前轮是否已经行动过
+  folded: boolean; // 弃牌
+  allIn: boolean; // all-in状态
 }
 
 export interface GameState {
