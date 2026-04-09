@@ -72,14 +72,14 @@ export const HAND_RANK_ORDER: Record<HandRank, number> = {
 };
 
 export const HAND_RANK_NAMES: Record<HandRank, string> = {
-  'high_card': '高牌',
-  'pair': '一对',
-  'two_pair': '两对',
-  'three_of_kind': '三条',
-  'straight': '顺子',
-  'flush': '同花',
-  'full_house': '葫芦',
-  'four_of_kind': '四条',
-  'straight_flush': '同花顺',
-  'royal_flush': '皇家同花顺'
+  'high_card': '高牌 High Card',
+  'pair': '一对 Pair',
+  'two_pair': '两对 Two Pair',
+  'three_of_kind': '三条 Three of a Kind',
+  'straight': '顺子 Straight',
+  'flush': '同花 Flush',
+  'full_house': '葫芦 Full House',
+  'four_of_kind': '四条 Four of a Kind',
+  'straight_flush': '同花顺 Straight Flush',
+  'royal_flush': '皇家同花顺 Royal Flush'
 };

@@ -44,10 +44,10 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
 
   const getStatus = () => {
     if (player.folded) return translations.playerArea.folded;
-    if (player.allIn) return translations.playerArea.allIn || translations.actionButtons.allin;
     if (isShowdown && !player.folded) {
       return handRank ? HAND_RANK_NAMES[handRank] : translations.playerArea.showingHand;
     }
+    if (player.allIn) return translations.playerArea.allIn || translations.actionButtons.allin;
     if (player.isRealPlayer && isCurrentPlayer) return translations.playerArea.viewingHand;
     return translations.playerArea.waiting;
   };
