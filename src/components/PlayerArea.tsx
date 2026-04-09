@@ -40,7 +40,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   }, [isCurrentPlayer, player.id, player.hand]);
 
   const isShowdown = phase === 'showdown' || phase === 'ended';
-  const canShowHand = isShowdown || (player.isRealPlayer && isCurrentPlayer && isViewing);
+  const canShowHand = (isShowdown && !player.folded) || (player.isRealPlayer && isCurrentPlayer && isViewing);
 
   const getStatus = () => {
     if (player.folded) return translations.playerArea.folded;
