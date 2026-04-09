@@ -5,6 +5,7 @@ import { CommunityCards } from './CommunityCards';
 import { PotDisplay } from './PotDisplay';
 import { ActionButtons } from './ActionButtons';
 import { PokerTable } from './PokerTable';
+import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions } from '../utils/tablePositions';
 import { getBotAction, getBotName } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
@@ -298,6 +299,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({ playerConfig, onBackToMenu
             </div>
           </>
         )}
+        <HandRankingGuide />
       </div>
     </div>
   );
