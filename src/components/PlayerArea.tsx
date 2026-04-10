@@ -67,8 +67,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
     <div
       className={`
       p-3 rounded-xl transition-all duration-300 min-w-[300px]
-      ${isWinner ? "bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win" : ""}
-      ${isCurrentPlayer && !isWinner ? "bg-white/10 border-2 border-blue-400" : "bg-black/20 border-2 border-transparent"}
+      ${isWinner ? 'bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win' : ''}
+      ${isCurrentPlayer && !isWinner ? 'bg-white/10 border-2 border-blue-400' : 'bg-black/20 border-2 border-transparent'}
     `}
     >
       <div className="flex items-center justify-between mb-3">
@@ -98,27 +98,27 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
               className={`
               ml-1 text-sm px-2 py-0.5 rounded-full font-bold animate-pulse
               ${
-                lastAction === "raise"
-                  ? "bg-orange-500 text-white"
-                  : lastAction === "call"
-                    ? "bg-blue-500 text-white"
-                    : lastAction === "fold"
-                      ? "bg-red-500 text-white"
-                      : lastAction === "allin"
-                        ? "bg-purple-500 text-white"
-                        : "bg-green-500 text-white"
+                lastAction === 'raise'
+                  ? 'bg-orange-500 text-white'
+                  : lastAction === 'call'
+                    ? 'bg-blue-500 text-white'
+                    : lastAction === 'fold'
+                      ? 'bg-red-500 text-white'
+                      : lastAction === 'allin'
+                        ? 'bg-purple-500 text-white'
+                        : 'bg-green-500 text-white'
               }
             `}
             >
-              {lastAction === "raise"
-                ? "Raise"
-                : lastAction === "call"
-                  ? "Call"
-                  : lastAction === "fold"
-                    ? "Fold"
-                    : lastAction === "allin"
-                      ? "All In"
-                      : "Check"}
+              {lastAction === 'raise'
+                ? 'Raise'
+                : lastAction === 'call'
+                  ? 'Call'
+                  : lastAction === 'fold'
+                    ? 'Fold'
+                    : lastAction === 'allin'
+                      ? 'All In'
+                      : 'Check'}
             </span>
           )}
         </div>
@@ -157,12 +157,12 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
            px-3 py-1 rounded-full text-sm
            ${
              player.folded
-               ? "bg-red-500/30 text-red-300"
+               ? 'bg-red-500/30 text-red-300'
                : player.allIn
-                 ? "bg-orange-500/30 text-orange-300"
+                 ? 'bg-orange-500/30 text-orange-300'
                  : isShowdown && !player.folded
-                   ? "bg-green-500/30 text-green-300"
-                   : "bg-blue-500/30 text-blue-300"
+                   ? 'bg-green-500/30 text-green-300'
+                   : 'bg-blue-500/30 text-blue-300'
            }
          `}
         >
@@ -184,7 +184,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
               onClick={handleToggleView}
               className={`
               px-3 py-1.5 rounded-lg font-medium text-sm transition-all
-              ${isViewing ? "bg-blue-600" : "bg-blue-500 hover:bg-blue-600"}
+              ${isViewing ? 'bg-blue-600' : 'bg-blue-500 hover:bg-blue-600'}
               text-white
             `}
               aria-pressed={isViewing}

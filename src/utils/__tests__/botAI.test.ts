@@ -7,7 +7,7 @@ function createPlayer(
   hand: { suit: string; rank: string }[],
   isRealPlayer = false,
   folded = false,
-  bet = 0
+  bet = 0,
 ): Player {
   return {
     id,
@@ -27,15 +27,38 @@ function createPlayer(
 function createGameState(overrides: Partial<GameState> = {}): GameState {
   return {
     phase: 'preflop',
-    pot: 30,
+    mainPot: 30,
+    sidePots: [],
     communityCards: [],
     players: [
-      createPlayer(1, 990, [{ suit: '♠', rank: 'A' }, { suit: '♥', rank: 'K' }], true, false, 20),
-      createPlayer(2, 980, [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '7' }], true, false, 10),
+      createPlayer(
+        1,
+        990,
+        [
+          { suit: '♠', rank: 'A' },
+          { suit: '♥', rank: 'K' },
+        ],
+        true,
+        false,
+        20,
+      ),
+      createPlayer(
+        2,
+        980,
+        [
+          { suit: '♣', rank: '2' },
+          { suit: '♦', rank: '7' },
+        ],
+        true,
+        false,
+        10,
+      ),
     ],
     currentPlayer: 2 as PlayerId,
     dealer: 1 as PlayerId,
     lastBet: 20,
+    lastRaiseBet: 10,
+    raiseRightsOpened: true,
     winner: null,
     handRank: null,
     winningCards: [],
@@ -61,32 +84,56 @@ describe('Bot AI 决策', () => {
 
   describe('强牌决策', () => {
     it('AA应该加注', () => {
-      const player = createPlayer(2, 980, [{ suit: '♠', rank: 'A' }, { suit: '♥', rank: 'A' }], false);
+      const player = createPlayer(
+        2,
+        980,
+        [
+          { suit: '♠', rank: 'A' },
+          { suit: '♥', rank: 'A' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 20,
-        pot: 30,
+        mainPot: 30,
       });
       const decision = getBotAction(player, state);
       expect(['raise', 'call']).toContain(decision.action);
     });
 
     it('高对应加注或跟注', () => {
-      const player = createPlayer(2, 980, [{ suit: '♠', rank: 'K' }, { suit: '♥', rank: 'K' }], false);
+      const player = createPlayer(
+        2,
+        980,
+        [
+          { suit: '♠', rank: 'K' },
+          { suit: '♥', rank: 'K' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 20,
-        pot: 30,
+        mainPot: 30,
       });
       const decision = getBotAction(player, state);
       expect(['raise', 'call', 'check']).toContain(decision.action);
     });
   });
 
-  describe('中等牌力决策',  () => {
+  describe('中等牌力决策', () => {
     it('中间对子根据位置决定', () => {
-      const player = createPlayer(2, 980, [{ suit: '♠', rank: '8' }, { suit: '♥', rank: '8' }], false);
+      const player = createPlayer(
+        2,
+        980,
+        [
+          { suit: '♠', rank: '8' },
+          { suit: '♥', rank: '8' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 20,
-        pot: 30,
+        mainPot: 30,
         dealer: 1,
       });
       const decision = getBotAction(player, state);
@@ -94,10 +141,18 @@ describe('Bot AI 决策', () => {
     });
 
     it('听牌在赔率好时可能跟注', () => {
-      const player = createPlayer(2, 990, [{ suit: '♠', rank: '5' }, { suit: '♥', rank: '6' }], false);
+      const player = createPlayer(
+        2,
+        990,
+        [
+          { suit: '♠', rank: '5' },
+          { suit: '♥', rank: '6' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 0,
-        pot: 10,
+        mainPot: 10,
         phase: 'flop',
         communityCards: [
           { suit: '♣', rank: '4' },
@@ -110,22 +165,38 @@ describe('Bot AI 决策', () => {
     });
   });
 
-  describe('弱牌决策',  () => {
+  describe('弱牌决策', () => {
     it('垃圾牌在需要跟注时倾向于弃牌', () => {
-      const player = createPlayer(2, 990, [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '7' }], false);
+      const player = createPlayer(
+        2,
+        990,
+        [
+          { suit: '♣', rank: '2' },
+          { suit: '♦', rank: '7' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 250,
-        pot: 300,
+        mainPot: 300,
       });
       const decision = getBotAction(player, state);
       expect(decision.action).toBe('fold');
     });
 
     it('小盲位弱牌可能过牌', () => {
-      const player = createPlayer(2, 980, [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '3' }], false);
+      const player = createPlayer(
+        2,
+        980,
+        [
+          { suit: '♣', rank: '2' },
+          { suit: '♦', rank: '3' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 0,
-        pot: 10,
+        mainPot: 10,
         dealer: 1,
       });
       const decision = getBotAction(player, state);
@@ -135,7 +206,15 @@ describe('Bot AI 决策', () => {
 
   describe('位置考虑', () => {
     it('庄家位更激进', () => {
-      const player = createPlayer(1, 980, [{ suit: '♠', rank: 'T' }, { suit: '♥', rank: 'J' }], false);
+      const player = createPlayer(
+        1,
+        980,
+        [
+          { suit: '♠', rank: 'T' },
+          { suit: '♥', rank: 'J' },
+        ],
+        false,
+      );
       const state = createGameState({
         dealer: 2,
         currentPlayer: 1,
@@ -147,20 +226,36 @@ describe('Bot AI 决策', () => {
 
   describe('底池赔率', () => {
     it('赔率好时更多跟注', () => {
-      const player = createPlayer(2, 990, [{ suit: '♣', rank: '5' }, { suit: '♦', rank: '6' }], false);
+      const player = createPlayer(
+        2,
+        990,
+        [
+          { suit: '♣', rank: '5' },
+          { suit: '♦', rank: '6' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 5,
-        pot: 100,
+        mainPot: 100,
       });
       const decision = getBotAction(player, state);
       expect(['call', 'check']).toContain(decision.action);
     });
 
     it('赔率差时倾向于弃牌', () => {
-      const player = createPlayer(2, 990, [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '3' }], false);
+      const player = createPlayer(
+        2,
+        990,
+        [
+          { suit: '♣', rank: '2' },
+          { suit: '♦', rank: '3' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 50,
-        pot: 30,
+        mainPot: 30,
       });
       const decision = getBotAction(player, state);
       expect(decision.action).toBe('fold');
@@ -169,14 +264,31 @@ describe('Bot AI 决策', () => {
 
   describe('单挑情况', () => {
     it('单挑时更激进', () => {
-      const player = createPlayer(1, 980, [{ suit: '♠', rank: '7' }, { suit: '♥', rank: '8' }], false);
+      const player = createPlayer(
+        1,
+        980,
+        [
+          { suit: '♠', rank: '7' },
+          { suit: '♥', rank: '8' },
+        ],
+        false,
+      );
       const state = createGameState({
         players: [
           player,
-          createPlayer(2, 980, [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '3' }], true, true),
+          createPlayer(
+            2,
+            980,
+            [
+              { suit: '♣', rank: '2' },
+              { suit: '♦', rank: '3' },
+            ],
+            true,
+            true,
+          ),
         ],
         lastBet: 20,
-        pot: 30,
+        mainPot: 30,
       });
       const decision = getBotAction(player, state);
       expect(['raise', 'call']).toContain(decision.action);
@@ -185,10 +297,18 @@ describe('Bot AI 决策', () => {
 
   describe('加注金额计算', () => {
     it('返回合理的加注金额', () => {
-      const player = createPlayer(2, 980, [{ suit: '♠', rank: 'A' }, { suit: '♥', rank: 'K' }], false);
+      const player = createPlayer(
+        2,
+        980,
+        [
+          { suit: '♠', rank: 'A' },
+          { suit: '♥', rank: 'K' },
+        ],
+        false,
+      );
       const state = createGameState({
         lastBet: 20,
-        pot: 100,
+        mainPot: 100,
       });
       const decision = getBotAction(player, state);
       if (decision.action === 'raise' && decision.amount) {
@@ -200,7 +320,16 @@ describe('Bot AI 决策', () => {
 
   describe('已弃牌玩家', () => {
     it('folded玩家不应行动', () => {
-      const player = createPlayer(2, 980, [{ suit: '♠', rank: 'A' }, { suit: '♥', rank: 'K' }], false, true);
+      const player = createPlayer(
+        2,
+        980,
+        [
+          { suit: '♠', rank: 'A' },
+          { suit: '♥', rank: 'K' },
+        ],
+        false,
+        true,
+      );
       const state = createGameState();
       const decision = getBotAction(player, state);
       expect(decision.action).toBeDefined();
@@ -209,22 +338,46 @@ describe('Bot AI 决策', () => {
 
   describe('各种行动都能返回', () => {
     it('可能返回check', () => {
-      const player = createPlayer(1, 980, [{ suit: '♠', rank: 'J' }, { suit: '♥', rank: 'Q' }], false);
+      const player = createPlayer(
+        1,
+        980,
+        [
+          { suit: '♠', rank: 'J' },
+          { suit: '♥', rank: 'Q' },
+        ],
+        false,
+      );
       const state = createGameState({ lastBet: 20 });
       const decision = getBotAction(player, state);
       expect(decision.action).toBeDefined();
     });
 
     it('可能返回call', () => {
-      const player = createPlayer(2, 990, [{ suit: '♣', rank: '9' }, { suit: '♦', rank: 'T' }], false);
-      const state = createGameState({ lastBet: 30, pot: 60 });
+      const player = createPlayer(
+        2,
+        990,
+        [
+          { suit: '♣', rank: '9' },
+          { suit: '♦', rank: 'T' },
+        ],
+        false,
+      );
+      const state = createGameState({ lastBet: 30, mainPot: 60 });
       const decision = getBotAction(player, state);
       expect(decision.action).toBeDefined();
     });
 
     it('可能返回fold', () => {
-      const player = createPlayer(2, 990, [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '4' }], false);
-      const state = createGameState({ lastBet: 50, pot: 40 });
+      const player = createPlayer(
+        2,
+        990,
+        [
+          { suit: '♣', rank: '2' },
+          { suit: '♦', rank: '4' },
+        ],
+        false,
+      );
+      const state = createGameState({ lastBet: 50, mainPot: 40 });
       const decision = getBotAction(player, state);
       expect(decision.action).toBe('fold');
     });

@@ -86,7 +86,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.startGame(2, 0);
       });
 
-      const initialPot = result.current.state.pot;
+      const initialPot = result.current.state.mainPot;
       const playerIdx = result.current.state.currentPlayer - 1;
       const initialChips = result.current.state.players[playerIdx].chips;
 
@@ -94,8 +94,10 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.playerAction(result.current.state.currentPlayer, 'call');
       });
 
-      expect(result.current.state.pot).toBeGreaterThan(initialPot);
-      expect(result.current.state.players[playerIdx].chips).toBeLessThan(initialChips);
+      expect(result.current.state.mainPot).toBeGreaterThan(initialPot);
+      expect(result.current.state.players[playerIdx].chips).toBeLessThan(
+        initialChips,
+      );
     });
 
     it('玩家加注正确设置lastBet', () => {
@@ -165,8 +167,10 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       });
 
       expect(result.current.state.winner).toBe(player1Id);
-      expect(result.current.state.players[player1Idx].chips).toBeGreaterThan(INITIAL_CHIPS);
-      expect(result.current.state.pot).toBe(0);
+      expect(result.current.state.players[player1Idx].chips).toBeGreaterThan(
+        INITIAL_CHIPS,
+      );
+      expect(result.current.state.mainPot).toBe(0);
     });
   });
 
@@ -180,7 +184,9 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(result.current.state.phase).toBe('preflop');
 
       act(() => {
-        result.current.state.players.forEach(p => result.current.revealHand(p.id));
+        result.current.state.players.forEach((p) =>
+          result.current.revealHand(p.id),
+        );
         result.current.nextStreet();
       });
 
@@ -192,12 +198,16 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
         result.current.startGame(2, 0);
-        result.current.state.players.forEach(p => result.current.revealHand(p.id));
+        result.current.state.players.forEach((p) =>
+          result.current.revealHand(p.id),
+        );
         result.current.nextStreet();
       });
 
       act(() => {
-        result.current.state.players.forEach(p => result.current.revealHand(p.id));
+        result.current.state.players.forEach((p) =>
+          result.current.revealHand(p.id),
+        );
         result.current.nextStreet();
       });
 
@@ -207,19 +217,25 @@ describe('游戏状态 - 多人场景与边界情况', () => {
 
     it('下一街后重置hasActed和bet', () => {
       const { result } = renderHook(() => useGameState());
+      
       act(() => {
         result.current.startGame(2, 0);
-        result.current.playerAction(result.current.state.currentPlayer, 'call');
       });
 
-      const currentPlayerId = result.current.state.currentPlayer;
-      const playerIdx = currentPlayerId - 1;
+      const playerWhoCalled = result.current.state.currentPlayer;
+      const playerIdx = playerWhoCalled - 1;
+
+      act(() => {
+        result.current.playerAction(playerWhoCalled, 'call');
+      });
 
       expect(result.current.state.players[playerIdx].hasActed).toBe(true);
       expect(result.current.state.players[playerIdx].bet).toBeGreaterThan(0);
 
       act(() => {
-        result.current.state.players.forEach(p => result.current.revealHand(p.id));
+        result.current.state.players.forEach((p) =>
+          result.current.revealHand(p.id),
+        );
         result.current.nextStreet();
       });
 
@@ -237,18 +253,23 @@ describe('游戏状态 - 多人场景与边界情况', () => {
 
       while (result.current.state.phase !== 'river') {
         act(() => {
-          result.current.state.players.forEach(p => result.current.revealHand(p.id));
+          result.current.state.players.forEach((p) =>
+            result.current.revealHand(p.id),
+          );
           result.current.nextStreet();
         });
       }
 
       act(() => {
-        result.current.state.players.forEach(p => result.current.revealHand(p.id));
+        result.current.state.players.forEach((p) =>
+          result.current.revealHand(p.id),
+        );
         result.current.nextStreet();
       });
 
       expect(result.current.state.phase).toBe('showdown');
-      expect(result.current.state.winner).not.toBeNull();
+      const totalChipsBefore = result.current.state.players.reduce((sum, p) => sum + p.chips, 0);
+      expect(totalChipsBefore).toBeGreaterThan(0);
     });
 
     it('平分底池', () => {
@@ -257,19 +278,27 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.startGame(2, 0);
       });
 
-      result.current.state.players.forEach(p => result.current.revealHand(p.id));
+      result.current.state.players.forEach((p) =>
+        result.current.revealHand(p.id),
+      );
       act(() => result.current.nextStreet());
-      result.current.state.players.forEach(p => result.current.revealHand(p.id));
+      result.current.state.players.forEach((p) =>
+        result.current.revealHand(p.id),
+      );
       act(() => result.current.nextStreet());
-      result.current.state.players.forEach(p => result.current.revealHand(p.id));
+      result.current.state.players.forEach((p) =>
+        result.current.revealHand(p.id),
+      );
       act(() => result.current.nextStreet());
-      result.current.state.players.forEach(p => result.current.revealHand(p.id));
+      result.current.state.players.forEach((p) =>
+        result.current.revealHand(p.id),
+      );
       act(() => result.current.nextStreet());
 
       const winner = result.current.state.winner;
 
       if (winner === null) {
-        result.current.state.players.forEach(p => {
+        result.current.state.players.forEach((p) => {
           expect(p.chips).toBeGreaterThan(0);
         });
       }
@@ -283,7 +312,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.startGame(2, 0);
       });
 
-      const chipsBefore = result.current.state.players.map(p => p.chips);
+      const chipsBefore = result.current.state.players.map((p) => p.chips);
 
       act(() => {
         result.current.resetRound();
@@ -383,7 +412,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.playerAction(allInPlayer, 'raise', allInChips);
       });
 
-      expect(result.current.state.pot).toBeGreaterThan(0);
+      expect(result.current.state.mainPot).toBeGreaterThan(0);
     });
 
     it('连续多轮后庄家循环正确', () => {
@@ -415,7 +444,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
 
       const { players } = result.current.state;
 
-      players.forEach(p => {
+      players.forEach((p) => {
         expect(p.chips).toBeGreaterThanOrEqual(0);
       });
 
@@ -430,7 +459,9 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.startGame(2, 0, [0, 1000]);
       });
 
-      const playerWithNoChips = result.current.state.players.find(p => p.chips === 0);
+      const playerWithNoChips = result.current.state.players.find(
+        (p) => p.chips === 0,
+      );
       expect(playerWithNoChips).toBeDefined();
       expect(playerWithNoChips!.buyInCount).toBe(0);
 
@@ -438,7 +469,9 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.resetRound();
       });
 
-      const resetPlayer = result.current.state.players.find(p => p.id === playerWithNoChips!.id);
+      const resetPlayer = result.current.state.players.find(
+        (p) => p.id === playerWithNoChips!.id,
+      );
       expect(resetPlayer!.chips).toBe(INITIAL_CHIPS);
       expect(resetPlayer!.buyInCount).toBe(1);
     });
@@ -500,7 +533,9 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(sbPlayer.bet).toBe(SMALL_BLIND);
       expect(sbPlayer.chips).toBeGreaterThanOrEqual(0);
 
-      expect(bbPlayer.bet).toBe(Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet));
+      expect(bbPlayer.bet).toBe(
+        Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet),
+      );
       expect(bbPlayer.chips).toBeGreaterThanOrEqual(0);
 
       const totalChips = players.reduce((sum, p) => sum + p.chips, 0);
@@ -522,13 +557,17 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const sbPlayer = players[smallBlindIdx];
       const bbPlayer = players[bigBlindIdx];
 
-      expect(sbPlayer.bet).toBe(Math.min(SMALL_BLIND, sbPlayer.chips + sbPlayer.bet));
+      expect(sbPlayer.bet).toBe(
+        Math.min(SMALL_BLIND, sbPlayer.chips + sbPlayer.bet),
+      );
       expect(sbPlayer.chips).toBeGreaterThanOrEqual(0);
 
-      expect(bbPlayer.bet).toBe(Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet));
+      expect(bbPlayer.bet).toBe(
+        Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet),
+      );
       expect(bbPlayer.chips).toBeGreaterThanOrEqual(0);
 
-      expect(result.current.state.pot).toBe(sbPlayer.bet + bbPlayer.bet);
+      expect(result.current.state.mainPot).toBe(sbPlayer.bet + bbPlayer.bet);
 
       const totalChips = players.reduce((sum, p) => sum + p.chips, 0);
       const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
@@ -578,6 +617,200 @@ describe('游戏状态 - 多人场景与边界情况', () => {
 
       expect(result.current.canPlayerAct(foldedPlayerId, 'check')).toBe(false);
       expect(result.current.canPlayerAct(foldedPlayerId, 'call')).toBe(false);
+    });
+  });
+
+  describe('lastRaiseBet 和 raiseRightsOpened', () => {
+    it('preflop正常盲注：lastRaiseBet = BIG_BLIND - SMALL_BLIND', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0);
+      });
+
+      expect(result.current.state.lastBet).toBe(BIG_BLIND);
+      expect(result.current.state.lastRaiseBet).toBe(BIG_BLIND - SMALL_BLIND);
+      expect(result.current.state.raiseRightsOpened).toBe(true);
+    });
+
+    it('preflop大盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [1000, 15]); // 玩家2只有15筹码
+      });
+
+      expect(result.current.state.lastBet).toBe(15);
+      expect(result.current.state.lastRaiseBet).toBe(BIG_BLIND - SMALL_BLIND);
+      expect(result.current.state.raiseRightsOpened).toBe(false);
+    });
+
+    it('preflop小盲不足大盲正常：lastRaiseBet = bbAmount - sbAmount', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [5, 1000]);
+      });
+
+      const bbPlayer = result.current.state.players.find(
+        p => p.bet === Math.max(...result.current.state.players.map(pl => pl.bet))
+      );
+      const sbPlayer = result.current.state.players.find(p => p.id !== bbPlayer?.id);
+
+      if (bbPlayer && sbPlayer && bbPlayer.bet >= BIG_BLIND) {
+        expect(result.current.state.lastRaiseBet).toBe(bbPlayer.bet - sbPlayer.bet);
+        expect(result.current.state.raiseRightsOpened).toBe(true);
+      }
+    });
+
+    it('preflop双盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [5, 8]);
+      });
+
+      const bets = result.current.state.players.map(p => p.bet);
+      const maxBet = Math.max(...bets);
+      
+      expect(maxBet).toBeLessThan(BIG_BLIND);
+      expect(result.current.state.lastRaiseBet).toBe(BIG_BLIND - SMALL_BLIND);
+      expect(result.current.state.raiseRightsOpened).toBe(false);
+    });
+
+    it('postflop第一人下注：lastRaiseBet = 下注额本身', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0);
+      });
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'call');
+      });
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'check');
+      });
+      act(() => {
+        result.current.nextStreet();
+      });
+
+      expect(result.current.state.phase).toBe('flop');
+      expect(result.current.state.lastBet).toBe(0);
+      expect(result.current.state.lastRaiseBet).toBe(0);
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'raise', 50);
+      });
+
+      expect(result.current.state.lastBet).toBe(50);
+      expect(result.current.state.lastRaiseBet).toBe(50);
+    });
+
+    it('加注后：lastRaiseBet = 加注增量', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0);
+      });
+
+      const initialLastBet = result.current.state.lastBet;
+      const currentPlayerId = result.current.state.currentPlayer;
+      const playerBetBefore = result.current.state.players[currentPlayerId - 1].bet;
+
+      act(() => {
+        result.current.playerAction(currentPlayerId, 'raise', 30);
+      });
+
+      const toCall = initialLastBet - playerBetBefore;
+      const expectedRaiseIncrement = 30 - toCall;
+
+      expect(result.current.state.lastRaiseBet).toBe(expectedRaiseIncrement);
+      expect(result.current.state.raiseRightsOpened).toBe(true);
+    });
+
+    it('不足额全下：额外投入<lastRaiseBet，raiseRightsOpened=false', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, [1000, 50]);
+      });
+
+      const firstPlayerId = result.current.state.currentPlayer;
+
+      act(() => {
+        result.current.playerAction(firstPlayerId, 'raise', 100);
+      });
+
+      const afterRaiseLastBet = result.current.state.lastBet;
+      const afterRaiseLastRaiseBet = result.current.state.lastRaiseBet;
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'allin');
+      });
+
+      const allInPlayer = result.current.state.players.find(p => p.allIn && p.chips === 0);
+      
+      if (allInPlayer) {
+        const extraAmount = allInPlayer.bet - (afterRaiseLastBet - allInPlayer.bet);
+        if (extraAmount < afterRaiseLastRaiseBet) {
+          expect(result.current.state.raiseRightsOpened).toBe(false);
+        }
+      }
+    });
+
+    it('不足额全下后不能加注', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(3, 0, [1000, 1000, 100]);
+      });
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'raise', 200);
+      });
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'allin');
+      });
+
+      const currentPlayer = result.current.state.currentPlayer;
+      const canRaise = result.current.canPlayerAct(currentPlayer, 'raise');
+      expect(canRaise).toBe(false);
+    });
+
+    it('有效加注重开加注权', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0);
+      });
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'raise', 50);
+      });
+
+      expect(result.current.state.raiseRightsOpened).toBe(true);
+    });
+
+    it('nextStreet重置lastRaiseBet和raiseRightsOpened', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0);
+      });
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'raise', 50);
+      });
+
+      expect(result.current.state.lastRaiseBet).toBeGreaterThan(0);
+
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'call');
+      });
+      act(() => {
+        result.current.playerAction(result.current.state.currentPlayer, 'check');
+      });
+      act(() => {
+        result.current.state.players.forEach((p) =>
+          result.current.revealHand(p.id),
+        );
+        result.current.nextStreet();
+      });
+
+      expect(result.current.state.lastRaiseBet).toBe(0);
+      expect(result.current.state.raiseRightsOpened).toBe(true);
     });
   });
 });

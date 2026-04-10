@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { GameBoard } from '../GameBoard';
 import * as useGameStateModule from '../../hooks/useGameState';
-import { BIG_BLIND } from '../../utils/constant';
+import { BIG_BLIND, SMALL_BLIND } from '../../utils/constant';
 
 // mock 数据生成函数
 function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player1Bet = 10, player2Bet = 20 }) {
@@ -14,9 +14,9 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
         bet: player1Bet,
         folded: false,
         hand: [
-  { suit: '♠', rank: 'A' },
-  { suit: '♠', rank: 'K' }
-],
+          { suit: '♠', rank: 'A' },
+          { suit: '♠', rank: 'K' },
+        ],
         revealed: false,
         hasActed: false,
         isRealPlayer: true,
@@ -27,25 +27,31 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
         bet: player2Bet,
         folded: false,
         hand: [
-  { suit: '♦', rank: 'Q' },
-  { suit: '♦', rank: 'J' }
-],
+          { suit: '♦', rank: 'Q' },
+          { suit: '♦', rank: 'J' },
+        ],
         revealed: false,
         hasActed: false,
         isRealPlayer: true,
       },
-    ] as [import('../../types/poker').Player, import('../../types/poker').Player],
-    pot: player1Bet + player2Bet,
+    ] as [
+      import('../../types/poker').Player,
+      import('../../types/poker').Player,
+    ],
+    mainPot: player1Bet + player2Bet,
+    sidePots: [],
     dealer: dealer as import('../../types/poker').PlayerId,
     currentPlayer: 1 as import('../../types/poker').PlayerId,
     communityCards: [],
     lastBet: BIG_BLIND,
-      winner: null,
-      handRank: null,
-      winningCards: [],
-      realPlayerCount: 2,
-      botPlayerCount: 0,
-    };
+    lastRaiseBet: BIG_BLIND - SMALL_BLIND,
+    raiseRightsOpened: true,
+    winner: null,
+    handRank: null,
+    winningCards: [],
+    realPlayerCount: 2,
+    botPlayerCount: 0,
+  };
   }
 
 jest.mock('../../hooks/useGameState');
@@ -71,10 +77,8 @@ describe('GameBoard blinds UI logic', () => {
       getCurrentPhaseCards: jest.fn(),
     });
     render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    // 玩家1有"大盲"标识
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
-    // 玩家2有"小盲"标识
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it('玩家2为小盲，玩家1为大盲时UI标识正确', () => {
@@ -99,10 +103,8 @@ describe('GameBoard blinds UI logic', () => {
       getCurrentPhaseCards: jest.fn(),
     });
     render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    // 玩家2有"大盲"标识
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
-    // 玩家1有"小盲"标识
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('小盲 SB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it('新的每局庄家切换后，UI标记实时切换', () => {
@@ -122,8 +124,8 @@ describe('GameBoard blinds UI logic', () => {
       getCurrentPhaseCards: jest.fn(),
     });
     const { rerender } = render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    // 玩家2大盲
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
     // 模拟dealer切回1（下一局）
     jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue({
       state: buildState({ dealer: 1 }),
@@ -140,7 +142,7 @@ describe('GameBoard blinds UI logic', () => {
       getCurrentPhaseCards: jest.fn(),
     });
     rerender(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 });

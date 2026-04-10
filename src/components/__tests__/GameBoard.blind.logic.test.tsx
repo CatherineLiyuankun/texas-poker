@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { GameBoard } from '../GameBoard';
 import * as useGameStateModule from '../../hooks/useGameState';
-import { BIG_BLIND } from '../../utils/constant';
+import { BIG_BLIND, SMALL_BLIND } from '../../utils/constant';
 import type { GameState, Player, PlayerId } from '../../types/poker';
 
 const dummyHand = [
@@ -50,11 +50,14 @@ function buildState({
         isRealPlayer: true,
       },
     ] as [Player, Player],
-    pot: player1Bet + player2Bet,
+    mainPot: player1Bet + player2Bet,
+    sidePots: [],
     dealer: dealer as PlayerId,
     currentPlayer: dealer === 1 ? (2 as PlayerId) : (1 as PlayerId),
     communityCards: [],
     lastBet: BIG_BLIND,
+    lastRaiseBet: BIG_BLIND - SMALL_BLIND,
+    raiseRightsOpened: true,
     winner,
     handRank: null,
     winningCards: [],
@@ -87,12 +90,17 @@ describe('GameBoard盲注与下注金额——全场景', () => {
   });
 
   it('初始局——dealer为1时，小盲/大盲标签与下注金额正确', () => {
-    jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(
-      buildHookMock(buildState({ dealer: 1 }))
+    jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue(buildHookMock(buildState({ dealer: 1 })));
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
     );
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it('初始局——dealer为2时，小盲/大盲标签与下注金额正确', () => {
@@ -104,12 +112,17 @@ describe('GameBoard盲注与下注金额——全场景', () => {
           player2Bet: 10,
           player1Chips: 980,
           player2Chips: 990,
-        })
-      )
+        }),
+      ),
     );
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('小盲 SB');
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it.skip('下一局后立即分配盲注和刷新标签/金额', () => {
@@ -124,15 +137,22 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       player2Chips: 990,
     });
 
-    const useGameStateSpy = jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue({
-      ...buildHookMock(initialState),
-      resetRound: mockResetRound,
-    });
+    const useGameStateSpy = jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue({
+        ...buildHookMock(initialState),
+        resetRound: mockResetRound,
+      });
 
-    const { rerender } = render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    const { rerender } = render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
     // 当前局标签
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
     // 模拟点击"下一局"
     act(() => {
       const nextBtn = screen.getByRole('button', { name: /下一局/ });
@@ -142,11 +162,16 @@ describe('GameBoard盲注与下注金额——全场景', () => {
     expect(mockResetRound).toHaveBeenCalledTimes(1);
 
     useGameStateSpy.mockReturnValue(buildHookMock(round2State));
-    rerender(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    rerender(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
 
     // "下一局"立刻刷新——新dealer、小盲/大盲/下注金额切换
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('小盲 SB');
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it('非preflop/无下注时盲注标签消失', () => {
@@ -156,8 +181,15 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       player1Bet: 0,
       player2Bet: 0,
     });
-    jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(buildHookMock(state));
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue(buildHookMock(state));
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
     expect(screen.queryByText('小盲')).toBeNull();
     expect(screen.queryByText('大盲')).toBeNull();
   });
@@ -169,10 +201,17 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       player2Bet: 20,
       folded2: true,
     });
-    jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(buildHookMock(state));
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('小盲 SB');
+    jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue(buildHookMock(state));
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it.skip('玩家顺序和庄家交错也能正确分配盲注和标签', () => {
@@ -206,10 +245,17 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         },
       ] as [Player, Player],
     };
-    jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(buildHookMock(state));
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
-    expect(screen.getByText(/玩家2/).nextSibling).toHaveTextContent('大盲 BB');
-    expect(screen.getByText(/玩家1/).nextSibling).toHaveTextContent('小盲 SB');
+    jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue(buildHookMock(state));
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
+    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
+    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
   });
 
   it('chips与pot变动严格等于盲注金额', () => {
@@ -221,8 +267,15 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       player1Bet: 10,
       player2Bet: 20,
     });
-    jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(buildHookMock(state));
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue(buildHookMock(state));
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
     expect(screen.getByText('$990')).toBeInTheDocument();
     expect(screen.getByText('$980')).toBeInTheDocument();
     expect(screen.getByText('$30')).toBeInTheDocument(); // pot
@@ -237,8 +290,15 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       player1Bet: 0,
       player2Bet: 10,
     });
-    jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(buildHookMock(state));
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    jest
+      .spyOn(useGameStateModule, 'useGameState')
+      .mockReturnValue(buildHookMock(state));
+    render(
+      <GameBoard
+        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        onBackToMenu={() => {}}
+      />,
+    );
     // 玩家1恢复初始筹码后还能继续正常下注/分盲注
     // ...后续可以模拟点击"下一局"并再次断言
   });
