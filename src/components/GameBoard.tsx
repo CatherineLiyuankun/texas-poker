@@ -92,19 +92,53 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     const canActPlayers = state.players.filter(
       (p) => !p.folded && !p.allIn && p.chips > 0,
     );
-    console.log('-----------------activePlayers:', activePlayers);
-    console.log('canActPlayers:', canActPlayers);
-    if (activePlayers.length === 0 || canActPlayers.length === 0) return true;
-    const allActed = canActPlayers.every((p) => p.hasActed);
-    const allBetsValid = activePlayers.every(
-      (p) =>
-        (p.bet < state.lastBet && (p.chips <= 0 || p.allIn)) ||
-        p.bet === state.lastBet,
+
+    console.groupCollapsed(
+      '%c[canContinue] 检查',
+      'color: blue; font-weight: bold; font-size: 12px;',
     );
-    console.log('allActed:', allActed);
-    console.log('allBetsValid:', allBetsValid);
-    console.log('state.phase:', state.phase);
-    console.log('canContinue---------------:', allActed && allBetsValid);
+
+    console.log('状态上下文:', {
+      phase: state.phase,
+      currentPlayer: state.currentPlayer,
+      lastBet: state.lastBet,
+      mainPot: state.mainPot,
+    });
+
+    console.table(
+      activePlayers.map((p) => ({
+        ID: p.id,
+        筹码: p.chips,
+        下注: p.bet,
+        已行动: p.hasActed ? '✓' : '✗',
+        AllIn: p.allIn ? '✓' : '✗',
+      })),
+    );
+
+    console.log(
+      `统计: ${activePlayers.length}未弃牌 / ${canActPlayers.length}可行动`,
+    );
+
+    if (activePlayers.length === 0 || canActPlayers.length === 0) {
+      console.log('✅ 可继续（无活跃玩家）');
+      console.groupEnd();
+      return true;
+    }
+
+    const allActed = canActPlayers.every((p) => p.hasActed);
+    const allBetsValid = activePlayers.every((p) => {
+      const isValid =
+        (p.bet < state.lastBet && (p.chips <= 0 || p.allIn)) ||
+        p.bet === state.lastBet;
+      return isValid;
+    });
+
+    console.log(`allActed: ${allActed}, allBetsValid: ${allBetsValid}`);
+    console.log(
+      `结果: ${allActed && allBetsValid ? '✅ 可继续' : '⏸️ 不能继续'}`,
+    );
+
+    console.groupEnd();
     return allActed && allBetsValid;
   };
 

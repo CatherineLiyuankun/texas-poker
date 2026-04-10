@@ -2,6 +2,7 @@ import { useReducer, useCallback } from 'react';
 import type {
   Card,
   GameState,
+  GamePhase,
   PlayerId,
   Action,
   Suit,
@@ -28,6 +29,30 @@ const RANKS: Rank[] = [
   'K',
   'A',
 ];
+
+function logStateChange(actionType: string, newState: GameState): void {
+  console.log(`[${actionType}] State update:`, {
+    phase: newState.phase,
+    mainPot: newState.mainPot,
+    sidePots: newState.sidePots.length,
+    currentPlayer: newState.currentPlayer,
+    lastBet: newState.lastBet,
+    lastRaiseBet: newState.lastRaiseBet,
+    raiseRightsOpened: newState.raiseRightsOpened,
+    winner: newState.winner,
+    dealer: newState.dealer,
+    players: newState.players.map((p) => ({
+      id: p.id,
+      chips: p.chips,
+      bet: p.bet,
+      totalBet: p.totalBet,
+      folded: p.folded,
+      allIn: p.allIn,
+      hasActed: p.hasActed,
+      isRealPlayer: p.isRealPlayer,
+    })),
+  });
+}
 
 function shuffleDeck(): Card[] {
   const deck: Card[] = [];
@@ -223,15 +248,6 @@ export function useGameState() {
     (state: GameState, action: GameAction): GameState => {
       switch (action.type) {
         case 'START_GAME': {
-          console.log(
-            'START_GAME:',
-            JSON.stringify({
-              actionReal: action.realPlayerCount,
-              actionBot: action.botPlayerCount,
-              stateReal: state.realPlayerCount,
-              stateBot: state.botPlayerCount,
-            }),
-          );
           const deck = shuffleDeck();
           const totalPlayers = action.realPlayerCount + action.botPlayerCount;
 
@@ -289,7 +305,7 @@ export function useGameState() {
             raiseRightsOpened = false;
           }
 
-          return {
+          const newState = {
             phase: 'preflop',
             mainPot: sbAmount + bbAmount,
             sidePots: [],
@@ -305,7 +321,9 @@ export function useGameState() {
             winningCards: [],
             realPlayerCount: action.realPlayerCount,
             botPlayerCount: action.botPlayerCount,
-          };
+          } as GameState;
+          logStateChange('START_GAME', newState);
+          return newState;
         }
 
         case 'PLAYER_ACTION': {
@@ -463,7 +481,7 @@ export function useGameState() {
                   chips: newPlayers[winnerIdx].chips + totalPot,
                 };
               }
-              return {
+              const newState = {
                 ...state,
                 players: newPlayers,
                 mainPot: 0,
@@ -472,6 +490,8 @@ export function useGameState() {
                 raiseRightsOpened: newRaiseRightsOpened,
                 winner,
               };
+              logStateChange('PLAYER_ACTION', newState);
+              return newState;
             }
           }
 
@@ -479,7 +499,7 @@ export function useGameState() {
           if (!nextPlayer) {
             const activePlayers = newPlayers.filter((p) => !p.folded);
             if (activePlayers.length >= 2) {
-              return {
+              const newState = {
                 ...state,
                 players: newPlayers,
                 mainPot: newPot,
@@ -489,11 +509,13 @@ export function useGameState() {
                 raiseRightsOpened: newRaiseRightsOpened,
                 currentPlayer: activePlayers[0].id,
               };
+              logStateChange('PLAYER_ACTION', newState);
+              return newState;
             }
             return state;
           }
 
-          return {
+          const newState = {
             ...state,
             players: newPlayers,
             mainPot: newPot,
@@ -503,6 +525,8 @@ export function useGameState() {
             raiseRightsOpened: newRaiseRightsOpened,
             currentPlayer: nextPlayer,
           };
+          logStateChange('PLAYER_ACTION', newState);
+          return newState;
         }
 
         case 'FOLD': {
@@ -526,16 +550,20 @@ export function useGameState() {
                 chips: newPlayers[winnerIdx].chips + totalPot,
               };
             }
-            return {
+            const newState = {
               ...state,
               players: newPlayers,
               mainPot: 0,
               sidePots: [],
               winner,
             };
+            logStateChange('FOLD', newState);
+            return newState;
           }
 
-          return { ...state, players: newPlayers };
+          const newState = { ...state, players: newPlayers };
+          logStateChange('FOLD', newState);
+          return newState;
         }
 
         case 'REVEAL_HAND': {
@@ -545,7 +573,9 @@ export function useGameState() {
           const newPlayers = state.players.map((p, i) =>
             i === playerIdx ? { ...p, revealed: true } : p,
           );
-          return { ...state, players: newPlayers };
+          const newState = { ...state, players: newPlayers };
+          logStateChange('REVEAL_HAND', newState);
+          return newState;
         }
 
         case 'NEXT_STREET': {
@@ -556,7 +586,7 @@ export function useGameState() {
             bet: 0,
           }));
 
-          let newPhase = state.phase;
+          let newPhase: GamePhase = state.phase;
           if (state.phase === 'preflop') {
             newPhase = 'flop';
           } else if (state.phase === 'flop') {
@@ -595,7 +625,7 @@ export function useGameState() {
                 ...newPlayers[winnerIdx],
                 chips: newPlayers[winnerIdx].chips + totalPot,
               };
-              return {
+              const newState = {
                 ...state,
                 phase: newPhase,
                 players: newPlayers,
@@ -607,10 +637,12 @@ export function useGameState() {
                 sidePots: [],
                 winner,
               };
+              logStateChange('NEXT_STREET', newState);
+              return newState;
             }
 
             if (eligiblePlayers.length === 0 || totalPot === 0) {
-              return {
+              const newState = {
                 ...state,
                 phase: newPhase,
                 players: newPlayers,
@@ -622,6 +654,8 @@ export function useGameState() {
                 sidePots: [],
                 winner: null,
               };
+              logStateChange('NEXT_STREET', newState);
+              return newState;
             }
 
             const evaluated = eligiblePlayers.map((p) => ({
@@ -730,7 +764,7 @@ export function useGameState() {
               }
             });
 
-            return {
+            const newState = {
               ...state,
               phase: newPhase,
               players: newPlayers,
@@ -743,6 +777,8 @@ export function useGameState() {
               winner: winnerIds.length === 1 ? winnerIds[0] : null,
               handRank: winners[0].eval.rank,
             };
+            logStateChange('NEXT_STREET', newState);
+            return newState;
           }
 
           let nextPlayerIdx = (state.dealer - 1 + 1) % state.players.length;
@@ -761,7 +797,7 @@ export function useGameState() {
             (p) => !p.folded && !p.allIn && p.chips > 0,
           );
           if (canActPlayers.length === 0) {
-            return {
+            const newState = {
               ...state,
               phase: newPhase,
               players: newPlayers,
@@ -770,9 +806,11 @@ export function useGameState() {
               lastRaiseBet: 0,
               raiseRightsOpened: true,
             };
+            logStateChange('NEXT_STREET', newState);
+            return newState;
           }
 
-          return {
+          const newState = {
             ...state,
             phase: newPhase,
             players: newPlayers,
@@ -781,6 +819,8 @@ export function useGameState() {
             lastRaiseBet: 0,
             raiseRightsOpened: true,
           };
+          logStateChange('NEXT_STREET', newState);
+          return newState;
         }
 
         case 'COLLECT_POT': {
@@ -794,7 +834,7 @@ export function useGameState() {
           const newPlayers = state.players.map((p, i) =>
             i === winnerIdx ? { ...p, chips: p.chips + totalWinnings } : p,
           );
-          return {
+          const newState = {
             ...state,
             players: newPlayers,
             mainPot: 0,
@@ -803,6 +843,8 @@ export function useGameState() {
             raiseRightsOpened: true,
             winner: action.winner,
           };
+          logStateChange('COLLECT_POT', newState);
+          return newState;
         }
 
         case 'SPLIT_POT': {
@@ -822,7 +864,7 @@ export function useGameState() {
           if (remainder > 0 && newPlayers[0]) {
             newPlayers[0].chips += remainder;
           }
-          return {
+          const newState = {
             ...state,
             players: newPlayers,
             mainPot: 0,
@@ -831,6 +873,8 @@ export function useGameState() {
             raiseRightsOpened: true,
             winner: null,
           };
+          logStateChange('SPLIT_POT', newState);
+          return newState;
         }
 
         case 'RESET_ROUND': {
@@ -848,7 +892,7 @@ export function useGameState() {
             revealed: false,
             isRealPlayer: index < state.realPlayerCount,
           }));
-          return {
+          const newState = {
             phase: 'preflop',
             mainPot: 0,
             sidePots: [],
@@ -864,7 +908,9 @@ export function useGameState() {
             winningCards: [],
             realPlayerCount: state.realPlayerCount,
             botPlayerCount: state.botPlayerCount,
-          };
+          } as GameState;
+          logStateChange('RESET_ROUND', newState);
+          return newState;
         }
 
         default:
