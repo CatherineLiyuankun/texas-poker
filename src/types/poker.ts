@@ -62,6 +62,8 @@ export interface SidePot {
   amount: number;
   contributions: Partial<Record<PlayerId, number>>;
   eligiblePlayers: PlayerId[];
+  level?: number;
+  threshold?: number;
 }
 
 export interface GameState {

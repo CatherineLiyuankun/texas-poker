@@ -5,10 +5,11 @@
 ## Table of Contents
 1. **Project Overview**
 2. **Build, Lint, and Test Commands**
-3. **Code Style and Formatting Rules**
-4. **TypeScript, Error Handling, and Naming**
-5. **Imports and File Organization**
-6. **Development, Review, and Best Practices**
+3. **Core Game Logic**
+4. **Code Style and Formatting Rules**
+5. **TypeScript, Error Handling, and Naming**
+6. **Imports and File Organization**
+7. **Development, Review, and Best Practices**
 
 ---
 
@@ -39,27 +40,80 @@ npm run lint
 *Runs ESLint with project configuration for TypeScript, React, and Hooks.*
 
 ### Testing
-> **Note:** No test runner/scripts present by default. To add tests:
-> - Install Jest and React Testing Library:
->   ```
->   npm install --save-dev jest @testing-library/react @types/jest
->   ```
-> - Add `test` script to `package.json`:
->   ```json
->   "test": "jest"
->   ```
-> - Run tests:
->   ```
->   npm test
->   # or for a single test file:
->   npx jest src/components/MyComponent.test.tsx
->   ```
-> 
-> Place all new test files in `src/**/*.test.{ts,tsx}`
+
+Tests are now fully implemented with Jest and React Testing Library.
+
+**Run all tests:**
+```
+npm test
+```
+
+**Run specific test files:**
+```
+npm test potCalculator.test.ts          # Unit tests for pot calculation
+npm test useGameState.integration.test.ts  # Integration tests for game flow
+```
+
+**Test Structure:**
+- **Unit Tests**: `src/utils/__tests__/potCalculator.test.ts` - Algorithm correctness (11 tests)
+- **Integration Tests**: `src/e2eTests/useGameState.integration.test.ts` - Full game flow (9 tests)
+- **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
+- Place all new test files in `src/**/*.test.{ts,tsx}`
+
+**Test Coverage:**
+- Pot calculation: 6 standard Texas Hold'em scenarios + edge cases
+- Game flow: Chip conservation, all-in mechanics, pot splitting
+- Must ensure chip conservation (total chips = initial chips) at all times
 
 ---
 
-## 3. Code Style and Formatting Rules
+## 3. Core Game Logic
+
+### Pot Calculation (`src/utils/potCalculator.ts`)
+
+The pot calculation logic follows standard Texas Hold'em rules:
+
+**Key Function:**
+```typescript
+calculatePots(players: Player[], currentPot: number): PotCalculation
+```
+
+**Algorithm:**
+1. **Main Pot**: Sum of `min(player.bet, mainThreshold)` for all players with bet > 0
+2. **Side Pots**: Created for each betting threshold level above mainThreshold
+3. **Eligible Players**: Only players with `!folded && bet >= threshold` can contest each pot
+
+**Critical Rules:**
+- Blinds are forced bets and always count toward pot (even if `hasActed=false`)
+- All-in creates side pots when bet amounts differ
+- Chip conservation must be maintained: `sum(all bets) = mainPot + sidePots total`
+- Never double-count chips (mainPot display value vs. player.bet)
+
+**Example Scenario:**
+```
+Players: A($20), B($50), C($80), D($80)
+Main Pot: $80 (20×4, all players eligible)
+Side Pot 1: $90 ((50-20)×3, players B,C,D eligible)  
+Side Pot 2: $60 ((80-50)×2, players C,D eligible)
+Total: $230 = sum of all bets ✓
+```
+
+### Game State Management (`src/hooks/useGameState.ts`)
+
+**State Flow:**
+- `START_GAME`: Initialize blinds, set mainPot for UI display
+- `PLAYER_ACTION`: Handle check/call/raise/fold/allin
+- `NEXT_STREET`: Reset bets for new round, handle showdown
+- **All-in Logic**: Call `calculatePots(players, 0)` to avoid double-counting
+
+**Critical Implementation Details:**
+- `state.mainPot` is for UI display only, actual chips tracked in `player.bet`
+- When calculating pots after all-in, pass `currentPot=0` to avoid duplication
+- Clear existing side pots before recalculating (fix cumulative bug)
+
+---
+
+## 4. Code Style and Formatting Rules
 
 - **Linting:** Uses ESLint flat config (`eslint.config.js`) with these configs:
   - `@eslint/js` recommended
@@ -78,7 +132,7 @@ npm run lint
 
 ---
 
-## 4. TypeScript, Error Handling, and Naming
+## 5. TypeScript, Error Handling, and Naming
 
 - **Type Annotations:**
   - All React props, return types, function parameters, and exported objects must have explicit types.
@@ -98,7 +152,7 @@ npm run lint
 
 ---
 
-## 5. Imports and File Organization
+## 6. Imports and File Organization
 
 - Use ESModule imports everywhere. No CommonJS (`require`).
   ```ts
@@ -114,7 +168,7 @@ npm run lint
 
 ---
 
-## 6. Development, Review, and Best Practices
+## 7. Development, Review, and Best Practices
 
 - **File Placement:**
   - UI components: `src/components/`

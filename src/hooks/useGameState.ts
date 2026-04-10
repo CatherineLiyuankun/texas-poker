@@ -8,10 +8,10 @@ import type {
   Suit,
   Rank,
   Player,
-  SidePot,
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
+import { calculatePots } from '../utils/potCalculator';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = [
@@ -395,7 +395,6 @@ export function useGameState() {
               actingPlayer.chips = 0;
               actingPlayer.hasActed = true;
               actingPlayer.allIn = true;
-              newPot = 0;
 
               newLastBet = Math.max(newLastBet, actingPlayer.bet);
 
@@ -415,44 +414,19 @@ export function useGameState() {
                 lastAction: action.action,
               };
 
-              const allPlayers = newPlayers.filter(
-                (p) => !p.folded && p.bet > 0,
-              );
-              const statePlayers = state.players.filter(
-                (p) => !p.folded && p.bet > 0,
-              );
-              const activePlayers = newPlayers.filter((p) => !p.folded);
-              if (allPlayers.length === 0) {
-                break;
-              }
-              const commonBet = Math.min(...allPlayers.map((p) => p.bet));
-              const mainPotSize = commonBet * activePlayers.length;
-              const totalContributed =
-                state.mainPot + allPlayers.reduce((sum, p) => sum + p.bet, 0);
-              const excessTotal = totalContributed - mainPotSize;
-              newPot = mainPotSize;
-
-              if (excessTotal > 0) {
-                const playersWhoCanBetFurther = allPlayers.filter(
-                  (p) => p.bet > commonBet,
-                );
-                if (playersWhoCanBetFurther.length > 0) {
-                  const contributions: Partial<Record<PlayerId, number>> = {};
-                  let sidePotAmount = 0;
-                  playersWhoCanBetFurther.forEach((p) => {
-                    const excess = p.bet - commonBet;
-                    contributions[p.id] = excess;
-                    sidePotAmount += excess;
-                  });
-                  const newSidePot: SidePot = {
-                    id: newSidePots.length + 1,
-                    amount: sidePotAmount,
-                    contributions,
-                    eligiblePlayers: statePlayers.map((p) => p.id), // 参与当前轮下注的玩家都可以竞争边池
-                  };
-                  newSidePots.push(newSidePot);
-                }
-              }
+              const potCalculation = calculatePots(newPlayers, 0);
+              newPot = potCalculation.mainPot;
+              newSidePots.length = 0;  // 清空现有边池
+              potCalculation.sidePots.forEach((sp) => {
+                newSidePots.push({
+                  id: newSidePots.length + 1,
+                  amount: sp.amount,
+                  contributions: sp.contributions,
+                  eligiblePlayers: sp.eligiblePlayers,
+                  level: sp.level,
+                  threshold: sp.threshold,
+                });
+              });
 
               newLastBet = actingPlayer.bet;
               break;

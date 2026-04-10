@@ -55,14 +55,19 @@ export const PotDisplay: React.FC<PotDisplayProps> = ({
                 : `Side Pots (${sidePots.length})`}
             </div>
             <div className="space-y-1">
-              {sidePots.map((sp) => (
-                <div
-                  key={sp.id}
-                  className="text-lg font-semibold text-orange-400"
-                >
-                  ${sp.amount}
-                </div>
-              ))}
+              {sidePots.map((sp) => {
+                const playerIds = sp.eligiblePlayers.join(', ');
+                return (
+                  <div key={sp.id}>
+                    <div className="text-lg font-semibold text-orange-400">
+                      ${sp.amount}
+                    </div>
+                    <div className="text-xs text-orange-300/60">
+                      Player: {playerIds}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
