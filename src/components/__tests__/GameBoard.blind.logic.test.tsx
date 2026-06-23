@@ -63,6 +63,9 @@ function buildState({
     winningCards: [],
     realPlayerCount: 2,
     botPlayerCount: 0,
+    chipsAtRoundStart: [],
+    chipsBeforeSettlement: [],
+    potDistribution: [],
   };
 }
 

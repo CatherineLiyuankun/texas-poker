@@ -66,6 +66,12 @@ export interface SidePot {
   threshold?: number;
 }
 
+export interface PotDistribution {
+  potType: string;
+  amount: number;
+  winnings: number[];
+}
+
 export interface GameState {
   phase: GamePhase;
   mainPot: number;
@@ -82,6 +88,9 @@ export interface GameState {
   winningCards: Card[];
   realPlayerCount: number;
   botPlayerCount: number;
+  chipsAtRoundStart: number[];
+  chipsBeforeSettlement: number[];
+  potDistribution: PotDistribution[];
 }
 
 export const RANK_ORDER: Record<Rank, number> = {

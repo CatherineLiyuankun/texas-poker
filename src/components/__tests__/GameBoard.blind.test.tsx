@@ -51,6 +51,9 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
     winningCards: [],
     realPlayerCount: 2,
     botPlayerCount: 0,
+    chipsAtRoundStart: [],
+    chipsBeforeSettlement: [],
+    potDistribution: [],
   };
   }
 

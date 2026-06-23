@@ -214,7 +214,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-4 overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-hidden">
       <div className="max-w-[1200px] mx-auto">
         <div className="flex justify-between items-center mb-4">
           <button
@@ -319,6 +319,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         }
                         phase={state.phase}
                         lastAction={player.lastAction}
+                        chipChange={
+                          roundSettled && state.chipsAtRoundStart.length > 0
+                            ? player.chips - state.chipsAtRoundStart[idx]
+                            : undefined
+                        }
                         actionButtons={
                           showActionButtons ? (
                             <ActionButtons
@@ -348,6 +353,110 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 });
               })()}
             </div>
+
+            {roundSettled && state.chipsAtRoundStart.length > 0 && state.chipsBeforeSettlement.length > 0 && (
+              <div className="fixed top-14 right-4 z-50 max-h-[80vh] overflow-y-auto">
+                <div className="bg-black/60 rounded-lg p-3 text-left backdrop-blur-sm">
+                  <div className="text-sm font-bold text-white mb-2">
+                    {translations.chipSummary.title}
+                  </div>
+                  <table className="text-xs text-white">
+                    <thead>
+                      <tr className="text-white/60">
+                        <th className="px-2 py-1 text-left">{translations.chipSummary.player}</th>
+                        <th className="px-2 py-1 text-right">{translations.chipSummary.roundStart}</th>
+                        <th className="px-2 py-1 text-right">{translations.chipSummary.beforeSettlement}</th>
+                        <th className="px-2 py-1 text-right">{translations.chipSummary.winnings}</th>
+                        <th className="px-2 py-1 text-right">{translations.chipSummary.change}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {state.players.map((p, idx) => {
+                        const roundStart = state.chipsAtRoundStart[idx] ?? p.chips;
+                        const beforeSettlement = state.chipsBeforeSettlement[idx] ?? p.chips;
+                        const winnings = p.chips - beforeSettlement;
+                        const change = p.chips - roundStart;
+                        return (
+                          <tr key={p.id} className={p.folded ? 'opacity-50' : ''}>
+                            <td className="px-2 py-1">
+                              {getPlayerDisplayName(p, idx)}
+                              {p.folded && ` (${translations.chipSummary.folded})`}
+                            </td>
+                            <td className="px-2 py-1 text-right">${roundStart}</td>
+                            <td className="px-2 py-1 text-right">${beforeSettlement}</td>
+                            <td className="px-2 py-1 text-right">
+                              {winnings > 0 ? (
+                                <span className="text-green-400">+${winnings}</span>
+                              ) : (
+                                <span className="text-white/60">$0</span>
+                              )}
+                            </td>
+                            <td className={`px-2 py-1 text-right font-bold ${change > 0 ? 'text-green-400' : change < 0 ? 'text-red-400' : 'text-white/60'}`}>
+                              {change > 0 ? `+$${change}` : change < 0 ? `-$${Math.abs(change)}` : '$0'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {state.potDistribution.length > 0 && (
+                  <div className="mt-2 bg-black/60 rounded-lg p-3 text-left backdrop-blur-sm">
+                    <div className="text-sm font-bold text-white mb-2">
+                      {translations.potDistribution.title}
+                    </div>
+                    <table className="text-xs text-white">
+                      <thead>
+                        <tr className="text-white/60">
+                          <th className="px-2 py-1 text-left">{translations.potDistribution.player}</th>
+                          {state.potDistribution.map((_, potIdx) => (
+                            <th key={potIdx} className="px-2 py-1 text-right">
+                              {potIdx === 0
+                                ? translations.potDistribution.mainPot
+                                : translations.potDistribution.sidePot(potIdx)}
+                            </th>
+                          ))}
+                          <th className="px-2 py-1 text-right">{translations.potDistribution.total}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {state.players.map((p, idx) => {
+                          const totalWinnings = state.potDistribution.reduce(
+                            (sum, pot) => sum + (pot.winnings[idx] ?? 0), 0
+                          );
+                          return (
+                            <tr key={p.id}>
+                              <td className="px-2 py-1">{getPlayerDisplayName(p, idx)}</td>
+                              {state.potDistribution.map((pot, potIdx) => {
+                                const win = pot.winnings[idx] ?? 0;
+                                return (
+                                  <td key={potIdx} className={`px-2 py-1 text-right ${win > 0 ? 'text-green-400' : 'text-white/60'}`}>
+                                    ${win}
+                                  </td>
+                                );
+                              })}
+                              <td className={`px-2 py-1 text-right font-bold ${totalWinnings > 0 ? 'text-green-400' : 'text-white/60'}`}>
+                                ${totalWinnings}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="border-t border-white/20 font-bold text-yellow-400">
+                          <td className="px-2 py-1">{translations.potDistribution.potTotal}</td>
+                          {state.potDistribution.map((pot, potIdx) => (
+                            <td key={potIdx} className="px-2 py-1 text-right">${pot.amount}</td>
+                          ))}
+                          <td className="px-2 py-1 text-right">
+                            ${state.potDistribution.reduce((sum, pot) => sum + pot.amount, 0)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="fixed top-20 right-30 z-50 flex flex-col items-end gap-3">
               {roundSettled && (
@@ -379,6 +488,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       })}
                     </div>
                   )}
+
                   <button
                     onClick={() => {
                       resetRound();

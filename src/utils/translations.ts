@@ -64,4 +64,21 @@ export const translations = {
     smallBlind: '小盲 SB',
     bigBlind: '大盲 BB',
   },
+  chipSummary: {
+    title: '筹码变化 Chip Summary',
+    roundStart: '开局',
+    beforeSettlement: '结算前',
+    winnings: '赢得',
+    change: '变化',
+    folded: '已弃牌',
+    player: '玩家',
+  },
+  potDistribution: {
+    title: '奖池分配 Pot Distribution',
+    mainPot: '主池',
+    sidePot: (n: number) => `边池${n}`,
+    total: '总计',
+    player: '玩家',
+    potTotal: '池总额',
+  },
 };

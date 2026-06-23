@@ -9,8 +9,8 @@ export const calculatePlayerPositions = (playerCount: number): PlayerPosition[] 
   const centerX = 550;
   const centerY = 350;
   
-  const radiusX = 500;
-  const radiusY = 320;
+  const radiusX = 490;
+  const radiusY = 290;
   
   const startAngle = -90;
   const angleStep = 360 / playerCount;

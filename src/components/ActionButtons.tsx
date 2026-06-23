@@ -42,7 +42,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
   }, [lastBet, playerBet, canRaise]);
 
   const toCall = lastBet - playerBet;
-  const minRaiseTotal = toCall + lastRaiseBet; 
+  const minRaiseTotal = toCall + lastRaiseBet; // Minimum total amount to raise (current call + last raise)
 
   const handleRaise = () => {
     const targetTotal = parseInt(raiseAmount);

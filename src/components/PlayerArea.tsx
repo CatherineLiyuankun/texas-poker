@@ -16,6 +16,7 @@ interface PlayerAreaProps {
   actionButtons?: React.ReactNode;
   phase?: GamePhase;
   lastAction?: Action;
+  chipChange?: number;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ 
@@ -29,6 +30,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   actionButtons,
   phase,
   lastAction,
+  chipChange,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -128,6 +130,11 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
             {player.buyInCount > 0 && (
               <span className="text-sm text-orange-400 ml-1">
                 (-{player.buyInCount * INITIAL_CHIPS})
+              </span>
+            )}
+            {chipChange !== undefined && chipChange !== 0 && (
+              <span className={`text-sm ml-1 ${chipChange > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {chipChange > 0 ? '+' : ''}{chipChange}
               </span>
             )}
           </div>

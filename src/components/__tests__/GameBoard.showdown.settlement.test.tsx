@@ -40,7 +40,7 @@ describe('showdown结算', () => {
     }
 
     expect(screen.getByText(/获胜！/)).toBeInTheDocument();
-    expect(screen.getByText('$1020')).toBeInTheDocument();
-    expect(screen.getByText('$980')).toBeInTheDocument();
+    expect(screen.getAllByText('$1020').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$980').length).toBeGreaterThan(0);
   });
 });

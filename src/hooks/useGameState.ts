@@ -8,6 +8,7 @@ import type {
   Suit,
   Rank,
   Player,
+  PotDistribution,
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
@@ -116,6 +117,9 @@ function createInitialState(
     winningCards: [],
     realPlayerCount,
     botPlayerCount,
+    chipsAtRoundStart: [],
+    chipsBeforeSettlement: [],
+    potDistribution: [],
   };
 }
 
@@ -274,6 +278,8 @@ export function useGameState() {
             state.dealer ||
             ((Math.floor(Math.random() * totalPlayers) + 1) as PlayerId);
 
+          const chipsAtRoundStartSnapshot = newPlayers.map(p => p.chips);
+
           const { smallBlind: sbIdx, bigBlind: bbIdx } = getBlindIndices(
             dealer,
             totalPlayers,
@@ -321,6 +327,9 @@ export function useGameState() {
             winningCards: [],
             realPlayerCount: action.realPlayerCount,
             botPlayerCount: action.botPlayerCount,
+            chipsAtRoundStart: chipsAtRoundStartSnapshot,
+            chipsBeforeSettlement: [],
+            potDistribution: [],
           } as GameState;
           logStateChange('START_GAME', newState);
           return newState;
@@ -448,6 +457,12 @@ export function useGameState() {
               const winner = activePlayers[0].id;
               const totalPot =
                 newPot + newSidePots.reduce((sum, sp) => sum + sp.amount, 0);
+              const preChips = state.players.map(p => p.chips);
+              const potDist: PotDistribution[] = [{
+                potType: '主池',
+                amount: totalPot,
+                winnings: state.players.map(p => p.id === winner ? totalPot : 0),
+              }];
               if (totalPot > 0) {
                 const winnerIdx = getPlayerIndex(winner);
                 newPlayers[winnerIdx] = {
@@ -463,6 +478,8 @@ export function useGameState() {
                 lastRaiseBet: newLastRaiseBet,
                 raiseRightsOpened: newRaiseRightsOpened,
                 winner,
+                chipsBeforeSettlement: preChips,
+                potDistribution: potDist,
               };
               logStateChange('PLAYER_ACTION', newState);
               return newState;
@@ -517,6 +534,12 @@ export function useGameState() {
             const totalPot =
               state.mainPot +
               state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
+            const preChips = state.players.map(p => p.chips);
+            const potDist: PotDistribution[] = winner !== null ? [{
+              potType: '主池',
+              amount: totalPot,
+              winnings: state.players.map(p => p.id === winner ? totalPot : 0),
+            }] : [];
             if (totalPot > 0) {
               const winnerIdx = getPlayerIndex(winner);
               newPlayers[winnerIdx] = {
@@ -530,6 +553,8 @@ export function useGameState() {
               mainPot: 0,
               sidePots: [],
               winner,
+              chipsBeforeSettlement: preChips,
+              potDistribution: potDist,
             };
             logStateChange('FOLD', newState);
             return newState;
@@ -591,10 +616,16 @@ export function useGameState() {
             const totalPot =
               state.mainPot +
               state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
+            const preChips = state.players.map(p => p.chips);
 
             if (eligiblePlayers.length === 1) {
               const winner = eligiblePlayers[0].id;
               const winnerIdx = getPlayerIndex(winner);
+              const potDist: PotDistribution[] = [{
+                potType: '主池',
+                amount: totalPot,
+                winnings: state.players.map(p => p.id === winner ? totalPot : 0),
+              }];
               newPlayers[winnerIdx] = {
                 ...newPlayers[winnerIdx],
                 chips: newPlayers[winnerIdx].chips + totalPot,
@@ -610,6 +641,8 @@ export function useGameState() {
                 mainPot: 0,
                 sidePots: [],
                 winner,
+                chipsBeforeSettlement: preChips,
+                potDistribution: potDist,
               };
               logStateChange('NEXT_STREET', newState);
               return newState;
@@ -627,6 +660,8 @@ export function useGameState() {
                 mainPot: 0,
                 sidePots: [],
                 winner: null,
+                chipsBeforeSettlement: preChips,
+                potDistribution: [],
               };
               logStateChange('NEXT_STREET', newState);
               return newState;
@@ -664,8 +699,10 @@ export function useGameState() {
               mainPotWinners = winners;
             }
 
+            const mainWinnings = new Array(state.players.length).fill(0);
             if (mainPotWinners.length === 1) {
               const winnerIdx = getPlayerIndex(mainPotWinners[0].player.id);
+              mainWinnings[winnerIdx] += state.mainPot;
               newPlayers[winnerIdx] = {
                 ...newPlayers[winnerIdx],
                 chips: newPlayers[winnerIdx].chips + state.mainPot,
@@ -674,6 +711,7 @@ export function useGameState() {
               const each = Math.floor(state.mainPot / mainPotWinners.length);
               mainPotWinners.forEach((w) => {
                 const idx = getPlayerIndex(w.player.id);
+                mainWinnings[idx] += each;
                 newPlayers[idx] = {
                   ...newPlayers[idx],
                   chips: newPlayers[idx].chips + each,
@@ -681,12 +719,16 @@ export function useGameState() {
               });
               const remainder = state.mainPot - each * mainPotWinners.length;
               if (remainder > 0) {
-                newPlayers[getPlayerIndex(mainPotWinners[0].player.id)].chips +=
-                  remainder;
+                const firstIdx = getPlayerIndex(mainPotWinners[0].player.id);
+                mainWinnings[firstIdx] += remainder;
+                newPlayers[firstIdx].chips += remainder;
               }
             }
 
-            state.sidePots.forEach((sp) => {
+            const sideWinnings: number[][] = state.sidePots.map(() =>
+              new Array(state.players.length).fill(0),
+            );
+            state.sidePots.forEach((sp, spIndex) => {
               const sidePotEligible = sp.eligiblePlayers
                 .map((id) => eligiblePlayers.find((p) => p.id === id))
                 .filter((p) => p !== undefined);
@@ -717,6 +759,7 @@ export function useGameState() {
 
               if (sideWinners.length === 1) {
                 const winnerIdx = getPlayerIndex(sideWinners[0].player.id);
+                sideWinnings[spIndex][winnerIdx] += sp.amount;
                 newPlayers[winnerIdx] = {
                   ...newPlayers[winnerIdx],
                   chips: newPlayers[winnerIdx].chips + sp.amount,
@@ -725,6 +768,7 @@ export function useGameState() {
                 const each = Math.floor(sp.amount / sideWinners.length);
                 sideWinners.forEach((w) => {
                   const idx = getPlayerIndex(w.player.id);
+                  sideWinnings[spIndex][idx] += each;
                   newPlayers[idx] = {
                     ...newPlayers[idx],
                     chips: newPlayers[idx].chips + each,
@@ -732,11 +776,21 @@ export function useGameState() {
                 });
                 const remainder = sp.amount - each * sideWinners.length;
                 if (remainder > 0) {
-                  newPlayers[getPlayerIndex(sideWinners[0].player.id)].chips +=
-                    remainder;
+                  const firstIdx = getPlayerIndex(sideWinners[0].player.id);
+                  sideWinnings[spIndex][firstIdx] += remainder;
+                  newPlayers[firstIdx].chips += remainder;
                 }
               }
             });
+
+            const potDist: PotDistribution[] = [
+              { potType: '主池', amount: state.mainPot, winnings: mainWinnings },
+              ...state.sidePots.map((sp, i) => ({
+                potType: `边池${i + 1}`,
+                amount: sp.amount,
+                winnings: sideWinnings[i],
+              })),
+            ];
 
             const newState = {
               ...state,
@@ -750,6 +804,8 @@ export function useGameState() {
               sidePots: [],
               winner: winnerIds.length === 1 ? winnerIds[0] : null,
               handRank: winners[0].eval.rank,
+              chipsBeforeSettlement: preChips,
+              potDistribution: potDist,
             };
             logStateChange('NEXT_STREET', newState);
             return newState;
@@ -805,6 +861,12 @@ export function useGameState() {
           const totalWinnings =
             state.mainPot +
             state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
+          const preChips = state.players.map(p => p.chips);
+          const potDist: PotDistribution[] = [{
+            potType: '主池',
+            amount: totalWinnings,
+            winnings: state.players.map(p => p.id === action.winner ? totalWinnings : 0),
+          }];
           const newPlayers = state.players.map((p, i) =>
             i === winnerIdx ? { ...p, chips: p.chips + totalWinnings } : p,
           );
@@ -816,6 +878,8 @@ export function useGameState() {
             lastRaiseBet: 0,
             raiseRightsOpened: true,
             winner: action.winner,
+            chipsBeforeSettlement: preChips,
+            potDistribution: potDist,
           };
           logStateChange('COLLECT_POT', newState);
           return newState;
@@ -830,14 +894,23 @@ export function useGameState() {
             state.mainPot +
             state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
           const each = Math.floor(totalPot / activePlayers.length);
-          const newPlayers = state.players.map((p) => {
+          const preChips = state.players.map(p => p.chips);
+          const splitWinnings = new Array(state.players.length).fill(0);
+          const newPlayers = state.players.map((p, i) => {
             if (p.folded || p.totalBet === 0) return p;
+            splitWinnings[i] = each;
             return { ...p, chips: p.chips + each };
           });
           const remainder = totalPot - each * activePlayers.length;
           if (remainder > 0 && newPlayers[0]) {
             newPlayers[0].chips += remainder;
+            splitWinnings[0] += remainder;
           }
+          const potDist: PotDistribution[] = [{
+            potType: '主池',
+            amount: totalPot,
+            winnings: splitWinnings,
+          }];
           const newState = {
             ...state,
             players: newPlayers,
@@ -846,6 +919,8 @@ export function useGameState() {
             lastRaiseBet: 0,
             raiseRightsOpened: true,
             winner: null,
+            chipsBeforeSettlement: preChips,
+            potDistribution: potDist,
           };
           logStateChange('SPLIT_POT', newState);
           return newState;
@@ -882,6 +957,9 @@ export function useGameState() {
             winningCards: [],
             realPlayerCount: state.realPlayerCount,
             botPlayerCount: state.botPlayerCount,
+            chipsAtRoundStart: [],
+            chipsBeforeSettlement: [],
+            potDistribution: [],
           } as GameState;
           logStateChange('RESET_ROUND', newState);
           return newState;
