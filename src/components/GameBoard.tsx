@@ -247,7 +247,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           <>
             <div
               className="relative mx-auto"
-              style={{ width: '1100px', height: '700px', marginTop: '100px' }}
+              style={{ width: '1100px', height: '700px', marginTop: '90px' }}
             >
               <div
                 className="absolute"
@@ -355,7 +355,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </div>
 
             {roundSettled && state.chipsAtRoundStart.length > 0 && state.chipsBeforeSettlement.length > 0 && (
-              <div className="fixed top-14 right-4 z-50 max-h-[80vh] overflow-y-auto">
+              <div className="fixed bottom-4 left-4 z-50 max-h-[80vh] overflow-y-auto">
                 <div className="bg-black/60 rounded-lg p-3 text-left backdrop-blur-sm">
                   <div className="text-sm font-bold text-white mb-2">
                     {translations.chipSummary.title}
