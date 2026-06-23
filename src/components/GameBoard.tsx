@@ -247,7 +247,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           <>
             <div
               className="relative mx-auto"
-              style={{ width: '1100px', height: '700px', marginTop: '150px' }}
+              style={{ width: '1100px', height: '700px', marginTop: '100px' }}
             >
               <div
                 className="absolute"
@@ -410,14 +410,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       <thead>
                         <tr className="text-white/60">
                           <th className="px-2 py-1 text-left">{translations.potDistribution.player}</th>
-                          {state.potDistribution.map((_, potIdx) => (
+                          {state.potDistribution.map((pot, potIdx) => (
                             <th key={potIdx} className="px-2 py-1 text-right">
                               {potIdx === 0
                                 ? translations.potDistribution.mainPot
-                                : translations.potDistribution.sidePot(potIdx)}
+                                : translations.potDistribution.sidePot(potIdx)}{' '}
+                              <span className="text-yellow-400">${pot.amount}</span>
                             </th>
                           ))}
-                          <th className="px-2 py-1 text-right">{translations.potDistribution.total}</th>
+                          <th className="px-2 py-1 text-right">
+                            {translations.potDistribution.total}{' '}
+                            <span className="text-yellow-400">
+                              ${state.potDistribution.reduce((sum, pot) => sum + pot.amount, 0)}
+                            </span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -442,15 +448,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             </tr>
                           );
                         })}
-                        <tr className="border-t border-white/20 font-bold text-yellow-400">
-                          <td className="px-2 py-1">{translations.potDistribution.potTotal}</td>
-                          {state.potDistribution.map((pot, potIdx) => (
-                            <td key={potIdx} className="px-2 py-1 text-right">${pot.amount}</td>
-                          ))}
-                          <td className="px-2 py-1 text-right">
-                            ${state.potDistribution.reduce((sum, pot) => sum + pot.amount, 0)}
-                          </td>
-                        </tr>
+
                       </tbody>
                     </table>
                   </div>
