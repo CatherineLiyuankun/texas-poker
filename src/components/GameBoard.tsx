@@ -290,7 +290,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   return (
                     <div
                       key={player.id}
-                      className="absolute"
+                      className="absolute z-[60]"
                       style={{
                         left: pos.x,
                         top: pos.y,
