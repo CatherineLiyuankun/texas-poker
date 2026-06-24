@@ -73,15 +73,12 @@ function createGameState(overrides: Partial<GameState> = {}): GameState {
 
 describe('Bot AI 决策', () => {
   describe('getBotName', () => {
-    it('返回正确的Bot名称', () => {
-      expect(getBotName(0)).toBe('Alpha');
-      expect(getBotName(1)).toBe('Beta');
-      expect(getBotName(4)).toBe('Epsilon');
-    });
-
-    it('超出范围时返回默认名称', () => {
-      expect(getBotName(10)).toBe('Bot 11');
-      expect(getBotName(15)).toBe('Bot 16');
+    it('返回 bot + 序号 格式的名称', () => {
+      expect(getBotName(0)).toBe('Bot1');
+      expect(getBotName(1)).toBe('Bot2');
+      expect(getBotName(4)).toBe('Bot5');
+      expect(getBotName(10)).toBe('Bot11');
+      expect(getBotName(15)).toBe('Bot16');
     });
   });
 

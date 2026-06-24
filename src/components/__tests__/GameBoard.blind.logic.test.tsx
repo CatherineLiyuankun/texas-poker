@@ -92,7 +92,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
     jest.clearAllMocks();
   });
 
-  it('初始局——dealer为1时，小盲/大盲标签与下注金额正确', () => {
+  it('初始局——dealer为1时，位置标签与下注金额正确', () => {
     jest
       .spyOn(useGameStateModule, 'useGameState')
       .mockReturnValue(buildHookMock(buildState({ dealer: 1 })));
@@ -102,11 +102,11 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         onBackToMenu={() => {}}
       />,
     );
-    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
-    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
+    expect(screen.getByText('BB')).toBeInTheDocument();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
 
-  it('初始局——dealer为2时，小盲/大盲标签与下注金额正确', () => {
+  it('初始局——dealer为2时，位置标签与下注金额正确', () => {
     jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue(
       buildHookMock(
         buildState({
@@ -124,8 +124,8 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         onBackToMenu={() => {}}
       />,
     );
-    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
-    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
+    expect(screen.getByText('BB')).toBeInTheDocument();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
 
   it.skip('下一局后立即分配盲注和刷新标签/金额', () => {
@@ -154,8 +154,8 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       />,
     );
     // 当前局标签
-    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
-    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
+    expect(screen.getByText('BB')).toBeInTheDocument();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
     // 模拟点击"下一局"
     act(() => {
       const nextBtn = screen.getByRole('button', { name: /下一局/ });
@@ -172,13 +172,12 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       />,
     );
 
-    // "下一局"立刻刷新——新dealer、小盲/大盲/下注金额切换
-    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
-    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
+    // "下一局"立刻刷新——新dealer、位置标签/下注金额切换
+    expect(screen.getByText('BB')).toBeInTheDocument();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
 
-  it('非preflop/无下注时盲注标签消失', () => {
-    // turn阶段、都未下注，不显示盲注标签
+  it('非preflop阶段位置标签始终显示', () => {
     const state = buildState({
       phase: 'turn',
       player1Bet: 0,
@@ -193,11 +192,11 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         onBackToMenu={() => {}}
       />,
     );
-    expect(screen.queryByText('小盲')).toBeNull();
-    expect(screen.queryByText('大盲')).toBeNull();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('BB')).toBeInTheDocument();
   });
 
-  it('弃牌时不影响盲注标签显示且下注金额正确', () => {
+  it('弃牌时不影响位置标签显示且下注金额正确', () => {
     const state = buildState({
       dealer: 1,
       player1Bet: 10,
@@ -213,12 +212,11 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         onBackToMenu={() => {}}
       />,
     );
-    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
-    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
+    expect(screen.getByText('BB')).toBeInTheDocument();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
 
   it.skip('玩家顺序和庄家交错也能正确分配盲注和标签', () => {
-    // players数组顺序反过来
     const state = {
       ...buildState({
         dealer: 1,
@@ -257,8 +255,8 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         onBackToMenu={() => {}}
       />,
     );
-    expect(screen.getByText('大盲 BB')).toBeInTheDocument();
-    expect(screen.getByText('小盲 SB')).toBeInTheDocument();
+    expect(screen.getByText('BB')).toBeInTheDocument();
+    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
 
   it('chips与pot变动严格等于盲注金额', () => {

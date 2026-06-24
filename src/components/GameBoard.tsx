@@ -6,8 +6,8 @@ import { PotDisplay } from './PotDisplay';
 import { ActionButtons } from './ActionButtons';
 import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
-import { calculatePlayerPositions } from '../utils/tablePositions';
-import { getBotAction, getBotName } from '../utils/botAI';
+import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
+import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
@@ -194,10 +194,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     index: number,
   ): string => {
     if (player.isRealPlayer) {
-      return translations.gameBoard.player(index + 1);
+      return `玩家${index + 1}`;
     }
-    const botIndex = index - playerConfig.realPlayers;
-    return getBotName(botIndex >= 0 ? botIndex : index);
+    return `${translations.playerArea.bot}${index + 1}`;
   };
 
   const getNextPhaseLabel = () => {
@@ -290,7 +289,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   return (
                     <div
                       key={player.id}
-                      className="absolute z-[60]"
+                      className={`absolute ${player.isRealPlayer ? 'z-[70]' : 'z-[60]'}`}
                       style={{
                         left: pos.x,
                         top: pos.y,
@@ -301,7 +300,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         player={player}
                         displayName={getPlayerDisplayName(player, idx)}
                         isCurrentPlayer={state.currentPlayer === player.id}
-                        isDealer={state.dealer === player.id}
                         isWinner={state.winner === player.id}
                         handRank={
                           state.phase === 'showdown' && !player.folded
@@ -309,14 +307,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                                 .rank
                             : undefined
                         }
-                        blind={
-                          idx === (state.dealer - 1 + 1) % state.players.length
-                            ? '小盲'
-                            : idx ===
-                                (state.dealer - 1 + 2) % state.players.length
-                              ? '大盲'
-                              : undefined
-                        }
+                        positionLabel={getPositionLabel(
+                          idx,
+                          state.dealer,
+                          state.players.length,
+                        )}
                         phase={state.phase}
                         lastAction={player.lastAction}
                         chipChange={
@@ -324,6 +319,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             ? player.chips - state.chipsAtRoundStart[idx]
                             : undefined
                         }
+                        communityCards={state.communityCards}
+                        numActiveOpponents={
+                          state.players.filter(
+                            (p) => !p.folded && p.id !== player.id,
+                          ).length
+                        }
+                        potOdds={(() => {
+                          const toCall = state.lastBet - player.bet;
+                          if (toCall <= 0) return 0;
+                          const totalPot =
+                            state.mainPot +
+                            state.sidePots.reduce(
+                              (sum, sp) => sum + sp.amount,
+                              0,
+                            );
+                          return toCall / (totalPot + toCall);
+                        })()}
                         actionButtons={
                           showActionButtons ? (
                             <ActionButtons

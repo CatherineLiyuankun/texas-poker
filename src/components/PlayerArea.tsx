@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import type { Player, GamePhase, Action } from '../types/poker';
+import type { Player, GamePhase, Action, Card as CardType } from '../types/poker';
 import { Card } from './Card';
+import { HandAnalysis } from './HandAnalysis';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
 import { INITIAL_CHIPS } from '../utils/constant';
@@ -9,28 +10,32 @@ interface PlayerAreaProps {
   player: Player;
   displayName?: string;
   isCurrentPlayer: boolean;
-  isDealer: boolean;
   isWinner?: boolean;
   handRank?: HandRank;
-  blind?: '小盲' | '大盲';
+  positionLabel?: string;
   actionButtons?: React.ReactNode;
   phase?: GamePhase;
   lastAction?: Action;
   chipChange?: number;
+  communityCards?: CardType[];
+  numActiveOpponents?: number;
+  potOdds?: number;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ 
   player, 
   displayName,
   isCurrentPlayer, 
-  isDealer,
   isWinner = false,
   handRank,
-  blind,
+  positionLabel,
   actionButtons,
   phase,
   lastAction,
   chipChange,
+  communityCards,
+  numActiveOpponents,
+  potOdds,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -59,18 +64,13 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
     }
   }
 
-  const getBlindLabel = () => {
-    if (blind === '小盲') return translations.blind.smallBlind;
-    if (blind === '大盲') return translations.blind.bigBlind;
-    return undefined;
-  };
-
   return (
     <div
       className={`
-      p-3 rounded-xl transition-all duration-300 min-w-[300px]
+      p-3 rounded-xl transition-all duration-300 min-w-[200px]
       ${isWinner ? 'bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win' : ''}
       ${isCurrentPlayer && !isWinner ? 'bg-white/10 border-2 border-blue-400' : 'bg-black/20 border-2 border-transparent'}
+      ${player.isRealPlayer ? 'max-w-[380px]' : ''}
     `}
     >
       <div className="flex items-center justify-between mb-3">
@@ -80,47 +80,9 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {!player.isRealPlayer && (
-            <span className="bg-gray-600 text-white text-sm px-2 py-0.5 rounded-full">
-              {translations.playerArea.bot}
-            </span>
-          )}
-          {blind && getBlindLabel() && (
-            <span className="bg-purple-700 text-white text-sm px-2 py-0.5 rounded-full">
-              {getBlindLabel()}
-            </span>
-          )}
-          {isDealer && (
-            <span className="bg-amber-600 text-white text-sm px-2 py-0.5 rounded-full">
-              {translations.playerArea.dealer}
-            </span>
-          )}
-          {lastAction && !isShowdown && (
-            <span
-              className={`
-              ml-1 text-sm px-2 py-0.5 rounded-full font-bold animate-pulse
-              ${
-                lastAction === 'raise'
-                  ? 'bg-orange-500 text-white'
-                  : lastAction === 'call'
-                    ? 'bg-blue-500 text-white'
-                    : lastAction === 'fold'
-                      ? 'bg-red-500 text-white'
-                      : lastAction === 'allin'
-                        ? 'bg-purple-500 text-white'
-                        : 'bg-green-500 text-white'
-              }
-            `}
-            >
-              {lastAction === 'raise'
-                ? 'Raise'
-                : lastAction === 'call'
-                  ? 'Call'
-                  : lastAction === 'fold'
-                    ? 'Fold'
-                    : lastAction === 'allin'
-                      ? 'All In'
-                      : 'Check'}
+          {positionLabel && (
+            <span className="bg-purple-600 text-white text-sm px-2 py-0.5 rounded-full font-medium">
+              {positionLabel}
             </span>
           )}
         </div>
@@ -147,15 +109,26 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
         </div>
       </div>
 
-      <div className="relative flex gap-2 justify-center mb-3">
-        {player.hand.map((card, index) => (
-          <Card
-            key={index}
-            card={canShowHand ? card : null}
-            hidden={!canShowHand}
-            delay={index * 100}
+      <div className="flex items-start gap-2 mb-3">
+        <div className="relative flex gap-2 justify-center">
+          {player.hand.map((card, index) => (
+            <Card
+              key={index}
+              card={canShowHand ? card : null}
+              hidden={!canShowHand}
+              delay={index * 100}
+            />
+          ))}
+        </div>
+        {canShowHand && player.isRealPlayer && !isShowdown && phase && (
+          <HandAnalysis
+            holeCards={player.hand}
+            communityCards={communityCards || []}
+            phase={phase}
+            numOpponents={numActiveOpponents || 0}
+            potOdds={potOdds || 0}
           />
-        ))}
+        )}
       </div>
 
       <div className="flex items-center justify-between">
@@ -202,6 +175,35 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
                 : translations.playerArea.viewCards}
             </button>
           )}
+
+        {lastAction && !isShowdown && (
+          <span
+            className={`
+            text-sm px-2 py-0.5 rounded-full font-bold animate-pulse
+            ${
+              lastAction === 'raise'
+                ? 'bg-orange-500 text-white'
+                : lastAction === 'call'
+                  ? 'bg-blue-500 text-white'
+                  : lastAction === 'fold'
+                    ? 'bg-red-500 text-white'
+                    : lastAction === 'allin'
+                      ? 'bg-purple-500 text-white'
+                      : 'bg-green-500 text-white'
+            }
+          `}
+          >
+            {lastAction === 'raise'
+              ? 'Raise'
+              : lastAction === 'call'
+                ? 'Call'
+                : lastAction === 'fold'
+                  ? 'Fold'
+                  : lastAction === 'allin'
+                    ? 'All In'
+                    : 'Check'}
+          </span>
+        )}
       </div>
 
       {actionButtons && <div className="mt-3">{actionButtons}</div>}

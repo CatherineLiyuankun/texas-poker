@@ -14,6 +14,7 @@ import {
   getOpponentTendency,
   getOpponentFoldRate,
 } from './opponentModel';
+import { translations } from './translations';
 
 interface BotDecision {
   action: Action;
@@ -354,17 +355,5 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
 }
 
 export function getBotName(botIndex: number): string {
-  const names = [
-    'Alpha',
-    'Beta',
-    'Gamma',
-    'Delta',
-    'Epsilon',
-    'Zeta',
-    'Eta',
-    'Theta',
-    'Iota',
-    'Kappa',
-  ];
-  return names[botIndex] || `Bot ${botIndex + 1}`;
+  return `${translations.playerArea.bot}${botIndex + 1}`;
 }
