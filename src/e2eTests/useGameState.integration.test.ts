@@ -315,4 +315,161 @@ describe('useGameState - E2E集成测试', () => {
       }
     });
   });
+
+  describe('场景6：跨街fold后奖池分配和筹码正确性', () => {
+    it('Player all-in后对手跨街fold，净利润=对手totalBet之和，potDistribution正确拆分', () => {
+      const { result } = renderHook(() => useGameState());
+
+      act(() => {
+        result.current.startGame(1, 3);
+      });
+
+      const initialChips = 4000;
+
+      // preflop: all players call to match BB
+      let safety = 0;
+      while (
+        result.current.state.phase === 'preflop' &&
+        !result.current.state.winner &&
+        safety++ < 20
+      ) {
+        const cp = result.current.state.currentPlayer;
+        act(() => {
+          result.current.playerAction(cp, 'call');
+        });
+      }
+      if (result.current.state.winner) return;
+
+      // flop: all players check
+      safety = 0;
+      while (
+        result.current.state.phase === 'flop' &&
+        !result.current.state.winner &&
+        safety++ < 20
+      ) {
+        const cp = result.current.state.currentPlayer;
+        act(() => {
+          result.current.playerAction(cp, 'check');
+        });
+      }
+      if (result.current.state.winner) return;
+
+      // All-in + folds on turn/river
+      const allInPlayer = result.current.state.players.find(
+        (p) => !p.folded && p.chips > 0
+      );
+      if (!allInPlayer) return;
+
+      act(() => {
+        result.current.playerAction(allInPlayer.id, 'allin');
+      });
+
+      // Opponents fold
+      safety = 0;
+      while (!result.current.state.winner && safety++ < 20) {
+        const cp = result.current.state.currentPlayer;
+        const player = result.current.state.players.find((p) => p.id === cp);
+        if (!player || player.allIn) break;
+        act(() => {
+          result.current.playerAction(cp, 'fold');
+        });
+      }
+
+      const state = result.current.state;
+
+      // 1. Chip conservation
+      const totalChips = state.players.reduce((sum, p) => sum + p.chips, 0);
+      expect(totalChips).toBe(initialChips);
+
+      // 2. Winner receives ALL bets (sum of totalBet)
+      const totalAllBets = state.players.reduce(
+        (sum, p) => sum + p.totalBet,
+        0
+      );
+      const winner = state.players.find((p) => p.id === state.winner);
+      expect(winner).toBeDefined();
+      if (winner) {
+        expect(winner.chips).toBe(totalAllBets);
+      }
+
+      // 3. Pot distribution total matches totalBets
+      expect(state.potDistribution.length).toBeGreaterThan(0);
+      const potTotal = state.potDistribution.reduce(
+        (sum, p) => sum + p.amount,
+        0
+      );
+      expect(potTotal).toBe(totalAllBets);
+
+      // 4. Main pot = min(totalBet) * numPlayersWithBet
+      const playersWithBet = state.players.filter((p) => p.totalBet > 0);
+      const minTotalBet = Math.min(...playersWithBet.map((p) => p.totalBet));
+      expect(state.potDistribution[0].potType).toBe('主池');
+      expect(state.potDistribution[0].amount).toBe(
+        minTotalBet * playersWithBet.length
+      );
+
+      // 5. Winner's net profit = sum of opponents' totalBet
+      if (winner && winner.id === allInPlayer.id) {
+        const opponentsTotalBet = state.players
+          .filter((p) => p.id !== winner.id)
+          .reduce((sum, p) => sum + p.totalBet, 0);
+        const netProfit = winner.chips - 1000;
+        expect(netProfit).toBe(opponentsTotalBet);
+      }
+
+      // 6. Winner receives all pot winnings from potDistribution
+      if (winner) {
+        const winnerIdx = winner.id - 1;
+        const winnerWinnings = state.potDistribution.reduce(
+          (sum, pot) => sum + (pot.winnings[winnerIdx] ?? 0),
+          0
+        );
+        expect(winnerWinnings).toBe(totalAllBets);
+      }
+    });
+
+    it('翻牌前all-in后对手fold，potDistribution正确包含盲注', () => {
+      const { result } = renderHook(() => useGameState());
+
+      act(() => {
+        result.current.startGame(1, 3);
+      });
+
+      // First player to act goes all-in pre-flop
+      const cp = result.current.state.currentPlayer;
+      act(() => {
+        result.current.playerAction(cp, 'allin');
+      });
+
+      // Opponents fold
+      let safety = 0;
+      while (!result.current.state.winner && safety++ < 20) {
+        const nextCp = result.current.state.currentPlayer;
+        const player = result.current.state.players.find(
+          (p) => p.id === nextCp
+        );
+        if (!player || player.allIn) break;
+        act(() => {
+          result.current.playerAction(nextCp, 'fold');
+        });
+      }
+
+      const state = result.current.state;
+
+      // Chip conservation
+      const totalChips = state.players.reduce((sum, p) => sum + p.chips, 0);
+      expect(totalChips).toBe(4000);
+
+      // Pot distribution total = sum of totalBets (including blinds)
+      const totalAllBets = state.players.reduce(
+        (sum, p) => sum + p.totalBet,
+        0
+      );
+      const potTotal = state.potDistribution.reduce(
+        (sum, p) => sum + p.amount,
+        0
+      );
+      expect(potTotal).toBe(totalAllBets);
+    });
+  });
 });
