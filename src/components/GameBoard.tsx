@@ -440,22 +440,22 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       </thead>
                       <tbody>
                         {state.players.map((p, idx) => {
-                          const totalWinnings = state.potDistribution.reduce(
-                            (sum, pot) => sum + (pot.winnings[idx] ?? 0), 0
+                          const totalContrib = state.potDistribution.reduce(
+                            (sum, pot) => sum + (pot.contributions[idx] ?? 0), 0,
                           );
                           return (
                             <tr key={p.id}>
                               <td className="px-2 py-1">{getPlayerDisplayName(p, idx)}</td>
                               {state.potDistribution.map((pot, potIdx) => {
-                                const win = pot.winnings[idx] ?? 0;
+                                const contrib = pot.contributions[idx] ?? 0;
                                 return (
-                                  <td key={potIdx} className={`px-2 py-1 text-right ${win > 0 ? 'text-green-400' : 'text-white/60'}`}>
-                                    ${win}
+                                  <td key={potIdx} className={`px-2 py-1 text-right ${contrib > 0 ? 'text-white' : 'text-white/60'}`}>
+                                    ${contrib}
                                   </td>
                                 );
                               })}
-                              <td className={`px-2 py-1 text-right font-bold ${totalWinnings > 0 ? 'text-green-400' : 'text-white/60'}`}>
-                                ${totalWinnings}
+                              <td className={`px-2 py-1 text-right font-bold ${totalContrib > 0 ? 'text-white' : 'text-white/60'}`}>
+                                ${totalContrib}
                               </td>
                             </tr>
                           );

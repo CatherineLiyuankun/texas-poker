@@ -70,6 +70,7 @@ export interface PotDistribution {
   potType: string;
   amount: number;
   winnings: number[];
+  contributions: number[];
 }
 
 export interface GameState {

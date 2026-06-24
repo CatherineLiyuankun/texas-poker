@@ -68,6 +68,36 @@ export function calculatePots(
   return { mainPot, sidePots };
 }
 
+export function computeContributions(
+  players: Player[],
+  potCalc: PotCalculation,
+): { mainContributions: number[]; sideContributions: number[][] } {
+  const activePlayers = players.filter((p) => !p.folded && p.bet > 0);
+  const mainThreshold =
+    activePlayers.length > 0
+      ? Math.min(...activePlayers.map((p) => p.bet))
+      : 0;
+
+  const mainContributions = players.map((p) =>
+    p.bet > 0 ? Math.min(p.bet, mainThreshold) : 0,
+  );
+
+  const thresholds = [...new Set(players.filter((p) => p.bet > 0).map((p) => p.bet))]
+    .filter((bet) => bet > mainThreshold)
+    .sort((a, b) => a - b);
+
+  const sideContributions: number[][] = potCalc.sidePots.map((_sp, i) => {
+    const threshold = thresholds[i] ?? 0;
+    const prevThreshold = i === 0 ? mainThreshold : (thresholds[i - 1] ?? mainThreshold);
+    const levelBet = threshold - prevThreshold;
+    return players.map((p) =>
+      !p.folded && p.bet >= threshold ? levelBet : 0,
+    );
+  });
+
+  return { mainContributions, sideContributions };
+}
+
 export function validateTotalPots(
   players: Player[],
   pots: PotCalculation,

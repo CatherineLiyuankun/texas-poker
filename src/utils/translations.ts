@@ -108,7 +108,7 @@ export const translations = {
     player: '玩家',
   },
   potDistribution: {
-    title: '奖池分配 Pot Distribution',
+    title: '奖池贡献 Pot Contribution',
     mainPot: '主池',
     sidePot: (n: number) => `边池${n}`,
     total: '总计',

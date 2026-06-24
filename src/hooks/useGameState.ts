@@ -12,7 +12,7 @@ import type {
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
-import { calculatePots } from '../utils/potCalculator';
+import { calculatePots, computeContributions } from '../utils/potCalculator';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = [
@@ -458,20 +458,21 @@ export function useGameState() {
               const preChips = state.players.map(p => p.chips);
               const tempPlayers = newPlayers.map(p => ({ ...p, folded: false, bet: p.totalBet }));
               const potCalc = calculatePots(tempPlayers, 0);
-              console.log('[FOLD DEBUG] potCalc:', JSON.stringify(potCalc));
+              const contribs = computeContributions(tempPlayers, potCalc);
               const potDist: PotDistribution[] = [
                 {
                   potType: '主池',
                   amount: potCalc.mainPot,
                   winnings: newPlayers.map(p => p.id === winner ? potCalc.mainPot : 0),
+                  contributions: contribs.mainContributions,
                 },
                 ...potCalc.sidePots.map((sp, i) => ({
                   potType: `边池${i + 1}`,
                   amount: sp.amount,
                   winnings: newPlayers.map(p => p.id === winner ? sp.amount : 0),
+                  contributions: contribs.sideContributions[i],
                 })),
               ];
-              console.log('[FOLD DEBUG] potDist:', JSON.stringify(potDist));
               if (totalPot > 0) {
                 const winnerIdx = getPlayerIndex(winner);
                 newPlayers[winnerIdx] = {
@@ -546,16 +547,19 @@ export function useGameState() {
             if (winner !== null) {
               const tempPlayers = newPlayers.map(p => ({ ...p, folded: false, bet: p.totalBet }));
               const potCalc = calculatePots(tempPlayers, 0);
+              const contribs = computeContributions(tempPlayers, potCalc);
               potDist = [
                 {
                   potType: '主池',
                   amount: potCalc.mainPot,
                   winnings: newPlayers.map(p => p.id === winner ? potCalc.mainPot : 0),
+                  contributions: contribs.mainContributions,
                 },
                 ...potCalc.sidePots.map((sp, i) => ({
                   potType: `边池${i + 1}`,
                   amount: sp.amount,
                   winnings: newPlayers.map(p => p.id === winner ? sp.amount : 0),
+                  contributions: contribs.sideContributions[i],
                 })),
               ];
             }
@@ -640,11 +644,22 @@ export function useGameState() {
             if (eligiblePlayers.length === 1) {
               const winner = eligiblePlayers[0].id;
               const winnerIdx = getPlayerIndex(winner);
+              const tempPlayersForContrib = state.players.map(p => ({
+                ...p, folded: false, bet: p.totalBet,
+              }));
+              const contribCalc = calculatePots(tempPlayersForContrib, 0);
+              const contribsForSingle = computeContributions(tempPlayersForContrib, contribCalc);
               const potDist: PotDistribution[] = [{
                 potType: '主池',
                 amount: totalPot,
                 winnings: state.players.map(p => p.id === winner ? totalPot : 0),
-              }];
+                contributions: contribsForSingle.mainContributions,
+              }, ...contribCalc.sidePots.map((sp, i) => ({
+                potType: `边池${i + 1}`,
+                amount: sp.amount,
+                winnings: state.players.map(() => 0),
+                contributions: contribsForSingle.sideContributions[i],
+              }))];
               newPlayers[winnerIdx] = {
                 ...newPlayers[winnerIdx],
                 chips: newPlayers[winnerIdx].chips + totalPot,
@@ -802,12 +817,18 @@ export function useGameState() {
               }
             });
 
+            const tempPlayersForContrib = state.players.map(p => ({
+              ...p, folded: false, bet: p.totalBet,
+            }));
+            const contribCalc = calculatePots(tempPlayersForContrib, 0);
+            const contribs = computeContributions(tempPlayersForContrib, contribCalc);
             const potDist: PotDistribution[] = [
-              { potType: '主池', amount: state.mainPot, winnings: mainWinnings },
+              { potType: '主池', amount: state.mainPot, winnings: mainWinnings, contributions: contribs.mainContributions },
               ...state.sidePots.map((sp, i) => ({
                 potType: `边池${i + 1}`,
                 amount: sp.amount,
                 winnings: sideWinnings[i],
+                contributions: contribs.sideContributions[i],
               })),
             ];
 
@@ -881,11 +902,22 @@ export function useGameState() {
             state.mainPot +
             state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
           const preChips = state.players.map(p => p.chips);
+          const tempPlayersForContrib = state.players.map(p => ({
+            ...p, folded: false, bet: p.totalBet,
+          }));
+          const contribCalc = calculatePots(tempPlayersForContrib, 0);
+          const contribs = computeContributions(tempPlayersForContrib, contribCalc);
           const potDist: PotDistribution[] = [{
             potType: '主池',
             amount: totalWinnings,
             winnings: state.players.map(p => p.id === action.winner ? totalWinnings : 0),
-          }];
+            contributions: contribs.mainContributions,
+          }, ...contribCalc.sidePots.map((sp, i) => ({
+            potType: `边池${i + 1}`,
+            amount: sp.amount,
+            winnings: state.players.map(() => 0),
+            contributions: contribs.sideContributions[i],
+          }))];
           const newPlayers = state.players.map((p, i) =>
             i === winnerIdx ? { ...p, chips: p.chips + totalWinnings } : p,
           );
@@ -925,11 +957,22 @@ export function useGameState() {
             newPlayers[0].chips += remainder;
             splitWinnings[0] += remainder;
           }
+          const tempPlayersForContrib = state.players.map(p => ({
+            ...p, folded: false, bet: p.totalBet,
+          }));
+          const contribCalc = calculatePots(tempPlayersForContrib, 0);
+          const contribs = computeContributions(tempPlayersForContrib, contribCalc);
           const potDist: PotDistribution[] = [{
             potType: '主池',
             amount: totalPot,
             winnings: splitWinnings,
-          }];
+            contributions: contribs.mainContributions,
+          }, ...contribCalc.sidePots.map((sp, i) => ({
+            potType: `边池${i + 1}`,
+            amount: sp.amount,
+            winnings: state.players.map(() => 0),
+            contributions: contribs.sideContributions[i],
+          }))];
           const newState = {
             ...state,
             players: newPlayers,
