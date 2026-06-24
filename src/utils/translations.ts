@@ -84,6 +84,15 @@ export const translations = {
     drawEq: '听牌补偿 Draw Eq',
     suggest: '建议',
     currentHand: 'Current Hand',
+    tier: 'Tier',
+    tierNames: {
+      1: 'Premium 顶级',
+      2: 'Strong 强牌',
+      3: 'Playable 可玩',
+      4: 'Speculative 投机',
+      5: 'Marginal 边缘',
+      6: 'Fold 弃牌',
+    } as Record<number, string>,
     draws: {
       flushDraw: '同花听牌 Flush',
       openEndedStraight: '两端顺子 OESD',

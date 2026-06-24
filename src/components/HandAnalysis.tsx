@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import type { Card, GamePhase } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
-import { getPreflopStrength } from '../utils/preflopHandStrength';
+import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
 import { calculateEquity } from '../utils/equityCalculator';
 import { evaluateHand } from '../utils/handEvaluator';
@@ -121,6 +121,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     [holeCards, phase],
   );
 
+  const preflopTier = useMemo(
+    () => (phase === 'preflop' ? getPreflopTier(holeCards) : null),
+    [holeCards, phase],
+  );
+
   const drawInfo: DrawInfo | null = useMemo(() => {
     if (phase === 'preflop' || phase === 'showdown' || phase === 'ended')
       return null;
@@ -175,26 +180,44 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       </div>
 
       {phase === 'preflop' && preflopStrength !== null && (
-        <Row
-          label={translations.handAnalysis.preflop}
-          value={
-            <>
-              {(preflopStrength * 100).toFixed(0)}%
-              <StrengthBar
-                value={preflopStrength}
-                color={
-                  preflopStrength >= 0.65
-                    ? 'bg-green-400'
-                    : preflopStrength >= 0.5
-                      ? 'bg-yellow-400'
-                      : preflopStrength >= 0.38
+        <>
+          <Row
+            label={translations.handAnalysis.preflop}
+            value={
+              <>
+                {(preflopStrength * 100).toFixed(0)}%
+                <StrengthBar
+                  value={preflopStrength}
+                  color={
+                    preflopStrength >= 0.80
+                      ? 'bg-red-400'
+                      : preflopStrength >= 0.60
                         ? 'bg-orange-400'
-                        : 'bg-red-400'
-                }
-              />
-            </>
-          }
-        />
+                        : preflopStrength >= 0.45
+                          ? 'bg-amber-500'
+                          : preflopStrength >= 0.30
+                            ? 'bg-green-400'
+                            : preflopStrength >= 0.20
+                              ? 'bg-blue-400'
+                              : 'bg-purple-400'
+                  }
+                />
+              </>
+            }
+          />
+          {preflopTier !== null && (
+            <div className={`text-center font-medium ${
+              preflopTier === 1 ? 'text-red-400'
+                : preflopTier === 2 ? 'text-orange-400'
+                : preflopTier === 3 ? 'text-amber-500'
+                : preflopTier === 4 ? 'text-green-400'
+                : preflopTier === 5 ? 'text-blue-400'
+                : 'text-purple-400'
+            }`}>
+              {translations.handAnalysis.tier} {preflopTier} — {translations.handAnalysis.tierNames[preflopTier]}
+            </div>
+          )}
+        </>
       )}
 
       {phase !== 'preflop' && shouldCalculate && (

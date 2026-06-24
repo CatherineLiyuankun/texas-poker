@@ -1,4 +1,4 @@
-import { getPreflopStrength } from '../preflopHandStrength';
+import { getPreflopStrength, getPreflopTier } from '../preflopHandStrength';
 import type { Card } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -60,5 +60,65 @@ describe('Preflop Hand Strength', () => {
   it('不足2张牌返回0', () => {
     expect(getPreflopStrength([])).toBe(0);
     expect(getPreflopStrength([card('♠', 'A')])).toBe(0);
+  });
+});
+
+describe('Preflop Hand Tier', () => {
+  it('AA/KK/QQ/AKs/AQs/AKo/AQo = Tier 1', () => {
+    expect(getPreflopTier([card('♠', 'A'), card('♥', 'A')])).toBe(1);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', 'K')])).toBe(1);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', 'Q')])).toBe(1);
+    expect(getPreflopTier([card('♠', 'A'), card('♠', 'K')])).toBe(1);
+    expect(getPreflopTier([card('♠', 'A'), card('♠', 'Q')])).toBe(1);
+    expect(getPreflopTier([card('♠', 'A'), card('♥', 'K')])).toBe(1);
+    expect(getPreflopTier([card('♠', 'A'), card('♥', 'Q')])).toBe(1);
+  });
+
+  it('JJ/TT/AJs/ATs/KQs/KJs/QJs/AJo = Tier 2', () => {
+    expect(getPreflopTier([card('♠', 'J'), card('♥', 'J')])).toBe(2);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '10')])).toBe(2);
+    expect(getPreflopTier([card('♠', 'A'), card('♠', 'J')])).toBe(2);
+    expect(getPreflopTier([card('♠', 'A'), card('♠', '10')])).toBe(2);
+    expect(getPreflopTier([card('♠', 'K'), card('♠', 'Q')])).toBe(2);
+    expect(getPreflopTier([card('♠', 'K'), card('♠', 'J')])).toBe(2);
+    expect(getPreflopTier([card('♠', 'Q'), card('♠', 'J')])).toBe(2);
+    expect(getPreflopTier([card('♠', 'A'), card('♥', 'J')])).toBe(2);
+  });
+
+  it('99/88/77/A9s/KTs/ATo/KQo/KJo = Tier 3', () => {
+    expect(getPreflopTier([card('♠', '9'), card('♥', '9')])).toBe(3);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '8')])).toBe(3);
+    expect(getPreflopTier([card('♠', '7'), card('♥', '7')])).toBe(3);
+    expect(getPreflopTier([card('♠', 'A'), card('♠', '9')])).toBe(3);
+    expect(getPreflopTier([card('♠', 'K'), card('♠', '10')])).toBe(3);
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '10')])).toBe(3);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', 'Q')])).toBe(3);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', 'J')])).toBe(3);
+  });
+
+  it('66/55/K8s/98s/KTo = Tier 4', () => {
+    expect(getPreflopTier([card('♠', '6'), card('♥', '6')])).toBe(4);
+    expect(getPreflopTier([card('♠', '5'), card('♥', '5')])).toBe(4);
+    expect(getPreflopTier([card('♠', 'K'), card('♠', '8')])).toBe(4);
+    expect(getPreflopTier([card('♠', '9'), card('♠', '8')])).toBe(4);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '10')])).toBe(4);
+  });
+
+  it('33/22/Q8s/97s = Tier 5', () => {
+    expect(getPreflopTier([card('♠', '3'), card('♥', '3')])).toBe(5);
+    expect(getPreflopTier([card('♠', '2'), card('♥', '2')])).toBe(5);
+    expect(getPreflopTier([card('♠', 'Q'), card('♠', '8')])).toBe(5);
+    expect(getPreflopTier([card('♠', '9'), card('♠', '7')])).toBe(5);
+  });
+
+  it('72o/J3o/94o = Tier 6', () => {
+    expect(getPreflopTier([card('♣', '7'), card('♦', '2')])).toBe(6);
+    expect(getPreflopTier([card('♣', 'J'), card('♦', '3')])).toBe(6);
+    expect(getPreflopTier([card('♣', '9'), card('♦', '4')])).toBe(6);
+  });
+
+  it('不足2张牌返回 Tier 6', () => {
+    expect(getPreflopTier([])).toBe(6);
+    expect(getPreflopTier([card('♠', 'A')])).toBe(6);
   });
 });

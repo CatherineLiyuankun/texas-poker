@@ -64,19 +64,25 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   }, [state.players, state.winner, state.mainPot, collectPot]);
 
+  const noRealCanAct = !state.players.some(
+    (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
+  );
+
   useEffect(() => {
     if (!currentPlayer || currentPlayer.folded || roundSettled) return;
     if (currentPlayer.isRealPlayer) return;
 
     const decision = getBotAction(currentPlayer, state);
-    const delay = decision.action === 'check' ? 2800 : 3800;
+    const delay = noRealCanAct
+      ? (decision.action === 'check' ? 800 : 1200)
+      : (decision.action === 'check' ? 2800 : 3800);
 
     const timer = setTimeout(() => {
       playerAction(currentPlayer.id, decision.action, decision.amount);
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [currentPlayer, roundSettled, state, playerAction]);
+  }, [currentPlayer, roundSettled, state, playerAction, noRealCanAct]);
 
   const handleAction = (action: Action, amount?: number) => {
     playerAction(state.currentPlayer, action, amount);
@@ -163,7 +169,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         advanceTimerRef.current = null;
         wasBettingCompleteRef.current = false;
         handleNextPhase();
-      }, 1800);
+      }, noRealCanAct ? 500 : 1800);
     } else if (!isBettingComplete) {
       wasBettingCompleteRef.current = false;
       if (advanceTimerRef.current !== null) {
@@ -178,7 +184,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     state.lastBet,
     revealHand,
     nextStreet,
-  ]);  
+    noRealCanAct,
+  ]);
 
   const currentPhaseCards =
     state.phase === 'preflop'

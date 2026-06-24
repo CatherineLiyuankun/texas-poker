@@ -32,3 +32,52 @@ export function getPreflopStrength(hand: Card[]): number {
 
   return Math.max(0, Math.min(1, (raw - 6.2) / 14.2));
 }
+
+// Tier grid for 169 starting hands (6 tiers)
+// Index: 0='2', 1='3', 2='4', 3='5', 4='6', 5='7', 6='8', 7='9', 8='T', 9='J', 10='Q', 11='K', 12='A'
+// Diagonal [i][i] = pocket pair i
+// Upper triangle [lo][hi] (lo < hi) = suited hand
+// Lower triangle [hi][lo] (hi > lo) = offsuit hand
+//
+// Reference tiers (9-max cash):
+// T1 Premium: AA,KK,QQ,AKs,AQs,AKo
+// T2 Strong: JJ,TT,AJs,ATs,KQs,KJs,QJs,AJo
+// T3 Playable: 99,88,77,Axs(A9s-A2s),KTs,QTs,JTs,T9s,ATo,KQo,KJo
+// T4 Speculative: 66-44,Kxs,scs(98s-54s),KTo,QJo,JTo
+// T5 Marginal: 33,22,Qxs,QTo,J9o,T9o,98o,87o,76o,65o,54o
+// T6 Fold: rest
+const T: number[][] = [
+  [5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
+  [6, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
+  [6, 6, 4, 6, 6, 6, 6, 6, 6, 6, 6, 6, 3],
+  [6, 6, 6, 4, 4, 6, 6, 6, 6, 6, 6, 4, 3],
+  [6, 6, 6, 5, 4, 4, 6, 6, 6, 6, 6, 4, 3],
+  [6, 6, 6, 5, 5, 3, 4, 5, 6, 6, 6, 4, 3],
+  [6, 6, 6, 6, 5, 5, 3, 4, 5, 6, 5, 4, 3],
+  [6, 6, 6, 6, 5, 5, 5, 3, 5, 5, 5, 4, 3],
+  [6, 6, 6, 6, 6, 5, 5, 5, 2, 4, 4, 3, 2],
+  [6, 6, 6, 6, 6, 5, 5, 5, 4, 2, 2, 2, 2],
+  [6, 6, 6, 6, 6, 6, 5, 5, 4, 4, 1, 2, 1],
+  [6, 6, 6, 6, 6, 6, 5, 5, 4, 3, 3, 1, 1],
+  [6, 6, 6, 5, 5, 4, 4, 4, 3, 2, 1, 1, 1],  // A row
+];
+
+const RI: Record<string, number> = {
+  '2': 0, '3': 1, '4': 2, '5': 3, '6': 4, '7': 5, '8': 6,
+  '9': 7, '10': 8, J: 9, Q: 10, K: 11, A: 12,
+};
+
+export function getPreflopTier(hand: Card[]): number {
+  if (hand.length !== 2) return 6;
+
+  const i = RI[hand[0].rank];
+  const j = RI[hand[1].rank];
+
+  if (i === j) return T[i][j];
+
+  const suited = hand[0].suit === hand[1].suit;
+  const lo = Math.min(i, j);
+  const hi = Math.max(i, j);
+
+  return suited ? T[lo][hi] : T[hi][lo];
+}
