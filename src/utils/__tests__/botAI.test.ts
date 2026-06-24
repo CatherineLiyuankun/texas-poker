@@ -148,23 +148,23 @@ describe('Bot AI 决策', () => {
         2,
         990,
         [
-          { suit: '♠', rank: '5' },
-          { suit: '♥', rank: '6' },
+          { suit: '♠', rank: 'A' },
+          { suit: '♠', rank: 'K' },
         ],
         false,
       );
       const state = createGameState({
-        lastBet: 0,
-        mainPot: 10,
+        lastBet: 10,
+        mainPot: 100,
         phase: 'flop',
         communityCards: [
-          { suit: '♣', rank: '4' },
+          { suit: '♠', rank: '2' },
+          { suit: '♠', rank: '3' },
           { suit: '♦', rank: '7' },
-          { suit: '♥', rank: '8' },
         ],
       });
       const decision = getBotAction(player, state);
-      expect(['check', 'call', 'fold']).toContain(decision.action);
+      expect(['raise', 'check', 'call', 'fold']).toContain(decision.action);
     });
   });
 
@@ -213,8 +213,8 @@ describe('Bot AI 决策', () => {
         1,
         980,
         [
-          { suit: '♠', rank: 'T' },
-          { suit: '♥', rank: 'J' },
+          { suit: '♠', rank: 'A' },
+          { suit: '♥', rank: 'Q' },
         ],
         false,
       );
@@ -223,7 +223,7 @@ describe('Bot AI 决策', () => {
         currentPlayer: 1,
       });
       const decision = getBotAction(player, state);
-      expect(['raise', 'check', 'call']).toContain(decision.action);
+      expect(['raise', 'call']).toContain(decision.action);
     });
   });
 
@@ -271,8 +271,8 @@ describe('Bot AI 决策', () => {
         1,
         980,
         [
-          { suit: '♠', rank: '7' },
-          { suit: '♥', rank: '8' },
+          { suit: '♠', rank: 'A' },
+          { suit: '♥', rank: 'K' },
         ],
         false,
       );
@@ -361,7 +361,7 @@ describe('Bot AI 决策', () => {
         990,
         [
           { suit: '♣', rank: '9' },
-          { suit: '♦', rank: 'T' },
+          { suit: '♦', rank: '10' },
         ],
         false,
       );

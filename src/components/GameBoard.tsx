@@ -247,7 +247,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           <>
             <div
               className="relative mx-auto"
-              style={{ width: '1100px', height: '700px', marginTop: '90px' }}
+              style={{ width: '1100px', height: '700px', marginTop: '100px' }}
             >
               <div
                 className="absolute"
