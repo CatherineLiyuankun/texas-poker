@@ -9,7 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, recordOpponentAction } from '../utils/opponentModel';
+import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats } from '../utils/opponentModel';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
 
@@ -49,6 +49,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       state.players[0].hand.length === 0
     ) {
       gameInitialized.current = true;
+      // 首次开局，清除对手数据
+      resetOpponentStats();
       startGame(playerConfig.realPlayers, playerConfig.botPlayers);
     }
   }, [state.phase, state.players, startGame, playerConfig]);
@@ -262,9 +264,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               {translations.startPage.title}
             </h1>
             <button
-              onClick={() =>
-                startGame(playerConfig.realPlayers, playerConfig.botPlayers)
-              }
+              onClick={() => {
+                resetOpponentStats();
+                startGame(playerConfig.realPlayers, playerConfig.botPlayers);
+              }}
               className="px-12 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-2xl font-bold rounded-xl transition-all hover:scale-105"
             >
               {translations.gameBoard.startGame}

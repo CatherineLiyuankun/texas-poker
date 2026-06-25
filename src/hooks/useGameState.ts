@@ -14,6 +14,7 @@ import type {
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
 import { calculatePots, computeContributions } from '../utils/potCalculator';
+import { resetOpponentStats } from '../utils/opponentModel';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = [
@@ -975,6 +976,7 @@ export function useGameState() {
             hasActed: false,
             folded: false,
             revealed: false,
+            lastAction: undefined,
             isRealPlayer: index < state.realPlayerCount,
           }));
           const newState = {
@@ -1048,6 +1050,8 @@ export function useGameState() {
   }, []);
 
   const resetRound = useCallback(() => {
+    // 新一局开始，清除对手画像数据
+    resetOpponentStats();
     dispatch({ type: 'RESET_ROUND' });
     setTimeout(() => {
       dispatch({
