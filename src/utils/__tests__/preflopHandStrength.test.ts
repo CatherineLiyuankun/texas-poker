@@ -169,7 +169,7 @@ describe('Preflop Hand Tier', () => {
     expect(getPreflopTier([card('♠', '2'), card('♥', '2')])).toBe(5);
   });
 
-  it('J6s-J2s/T6s-T2s/K9o/J9o/T9o/95s-92s/85s-82s/74s/63s/52s/72o/J3o/94o = Tier 6', () => {
+  it('J6s-J2s/T6s-T2s/K9o/J9o/T9o/95s-92s/A8o-98o/85s-82s/A7o-87o/74s/63s/52s/72o/J3o/94o/... = Tier 6', () => {
     
     expect(getPreflopTier([card('♠', 'J'), card('♠', '6')])).toBe(6);
     expect(getPreflopTier([card('♠', 'J'), card('♠', '5')])).toBe(6);
@@ -183,10 +183,6 @@ describe('Preflop Hand Tier', () => {
     expect(getPreflopTier([card('♠', '10'), card('♠', '3')])).toBe(6);
     expect(getPreflopTier([card('♠', '10'), card('♠', '2')])).toBe(6);
     
-    expect(getPreflopTier([card('♠', 'K'), card('♥', '9')])).toBe(6);
-    expect(getPreflopTier([card('♠', 'J'), card('♥', '9')])).toBe(6);
-    expect(getPreflopTier([card('♠', '10'), card('♥', '9')])).toBe(6);
-
     expect(getPreflopTier([card('♠', '9'), card('♠', '5')])).toBe(6);
     expect(getPreflopTier([card('♠', '9'), card('♠', '4')])).toBe(6);
     expect(getPreflopTier([card('♠', '9'), card('♠', '3')])).toBe(6);
@@ -196,14 +192,91 @@ describe('Preflop Hand Tier', () => {
     expect(getPreflopTier([card('♠', '8'), card('♠', '4')])).toBe(6);
     expect(getPreflopTier([card('♠', '8'), card('♠', '3')])).toBe(6);
     expect(getPreflopTier([card('♠', '8'), card('♠', '2')])).toBe(6);
-    expect(getPreflopTier([card('♠', '8'), card('♠', '5')])).toBe(6);
-    expect(getPreflopTier([card('♠', '7'), card('♠', '4')])).toBe(6);
-    expect(getPreflopTier([card('♠', '6'), card('♠', '3')])).toBe(6);
-    expect(getPreflopTier([card('♠', '5'), card('♠', '2')])).toBe(6);
 
-    expect(getPreflopTier([card('♣', '7'), card('♦', '2')])).toBe(6);
-    expect(getPreflopTier([card('♣', 'J'), card('♦', '3')])).toBe(6);
-    expect(getPreflopTier([card('♣', '9'), card('♦', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♠', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♠', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♠', '2')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', '6'), card('♠', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '6'), card('♠', '2')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', '5'), card('♠', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '4'), card('♠', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '3'), card('♠', '2')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '9')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '9')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '9')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '8')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '8')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '8')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '8')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '8')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '8')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '7')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '7')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '7')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '7')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '7')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '7')])).toBe(6);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '7')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '6')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♥', '6')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♥', '5')])).toBe(6);
+    expect(getPreflopTier([card('♠', '6'), card('♥', '5')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '6'), card('♥', '4')])).toBe(6);
+    expect(getPreflopTier([card('♠', '5'), card('♥', '4')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '6'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '5'), card('♥', '3')])).toBe(6);
+    expect(getPreflopTier([card('♠', '4'), card('♥', '3')])).toBe(6);
+
+    expect(getPreflopTier([card('♠', 'A'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'K'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'Q'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', 'J'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '10'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '9'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '8'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '7'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '6'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '5'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '4'), card('♥', '2')])).toBe(6);
+    expect(getPreflopTier([card('♠', '3'), card('♥', '2')])).toBe(6);
   });
 
   it('不足2张牌返回 Tier 6', () => {
