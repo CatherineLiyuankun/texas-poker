@@ -6,6 +6,7 @@ import { detectDraws, type DrawInfo } from '../utils/drawDetector';
 import { calculateEquity } from '../utils/equityCalculator';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
+import type { OpponentProfile } from '../utils/opponentModel';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -13,8 +14,11 @@ interface HandAnalysisProps {
   phase: GamePhase;
   numOpponents: number;
   potOdds: number;
+  opponentProfile?: OpponentProfile;
 }
 
+// 建议逻辑：仅基于胜率 + 赔率
+// Monte Carlo 胜率已包含听牌概率，不再单独叠加
 function getRecommendation(
   equity: number,
   potOdds: number,
@@ -110,6 +114,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   phase,
   numOpponents,
   potOdds,
+  opponentProfile,
 }) => {
   const [equity, setEquity] = useState<number | null>(null);
 
@@ -126,6 +131,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     [holeCards, phase],
   );
 
+  // 听牌检测：仅用于展示，不叠加到胜率
   const drawInfo: DrawInfo | null = useMemo(() => {
     if (phase === 'preflop' || phase === 'showdown' || phase === 'ended')
       return null;
@@ -160,13 +166,9 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return () => clearTimeout(timer);
   }, [holeCards, community, numOpponents, shouldCalculate]);
 
-  const effectiveEquity = useMemo(() => {
-    if (!shouldCalculate) return 0;
-    return equity ?? 0;
-  }, [equity, shouldCalculate]);
-
+  // Monte Carlo 胜率已包含听牌概率，直接使用
   const displayEquity =
-    phase === 'preflop' ? preflopStrength : effectiveEquity;
+    phase === 'preflop' ? preflopStrength : (equity ?? 0);
 
   const recommendation = useMemo(() => {
     if (displayEquity === null) return '';
@@ -271,13 +273,35 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               color="text-orange-300"
             />
           ))}
-          {drawInfo.totalOuts > 0 && (
-            <Row
-              label={translations.handAnalysis.drawEq}
-              value={`+${(drawInfo.estimatedEquity * 100).toFixed(0)}%`}
-              color="text-white/50"
-            />
-          )}
+        </div>
+      )}
+
+      {/* 对手画像展示：每个对手的单独风格和弃牌率 */}
+      {opponentProfile && opponentProfile.opponents.length > 0 && (
+        <div className="space-y-0.5">
+          {opponentProfile.opponents.map((opp) => {
+            const { opponentStyle } = translations.handAnalysis;
+            const tendencyLabel =
+              opp.tendency === 'aggressive'
+                ? opponentStyle.aggressive
+                : opp.tendency === 'passive'
+                  ? opponentStyle.passive
+                  : opponentStyle.unknown;
+            const tendencyColor =
+              opp.tendency === 'aggressive'
+                ? 'text-red-300'
+                : opp.tendency === 'passive'
+                  ? 'text-blue-300'
+                  : 'text-white/50';
+            return (
+              <Row
+                key={opp.id}
+                label={`${translations.playerArea.bot}${opp.id}`}
+                value={`${tendencyLabel} (${(opp.foldRate * 100).toFixed(0)}%)`}
+                color={tendencyColor}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -288,11 +312,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             value={recommendation}
             color={getRecColor(recommendation)}
           />
-          {phase !== 'preflop' && effectiveEquity > 0 && potOdds > 0 && (
+          {phase !== 'preflop' && equity !== null && equity > 0 && potOdds > 0 && (
             <div className="text-white/30 text-center mt-0.5">
-              {effectiveEquity >= potOdds ? '>=' : '<'}
+              {equity >= potOdds ? '>=' : '<'}
               {' '}
-              {(effectiveEquity * 100).toFixed(0)}% vs {(potOdds * 100).toFixed(0)}%
+              {(equity * 100).toFixed(0)}% vs {(potOdds * 100).toFixed(0)}%
             </div>
           )}
         </div>

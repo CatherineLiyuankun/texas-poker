@@ -106,6 +106,12 @@ export const translations = {
       fold: 'Fold 弃牌',
       callCheap: 'Call 跟注 (cheap)',
     },
+    // 对手画像风格标签
+    opponentStyle: {
+      aggressive: '激进 Agg',
+      passive: '被动 Pas',
+      unknown: '未知',
+    },
   },
   chipSummary: {
     title: '筹码变化 Chip Summary',

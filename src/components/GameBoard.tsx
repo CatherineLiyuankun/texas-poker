@@ -9,6 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
+import { calculateOpponentProfile } from '../utils/opponentModel';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
 
@@ -331,6 +332,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           state.players.filter(
                             (p) => !p.folded && p.id !== player.id,
                           ).length
+                        }
+                        opponentProfile={
+                          player.isRealPlayer
+                            ? calculateOpponentProfile(state.players, player.id)
+                            : undefined
                         }
                         potOdds={(() => {
                           const toCall = state.lastBet - player.bet;

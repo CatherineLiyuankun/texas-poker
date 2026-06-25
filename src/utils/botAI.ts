@@ -7,12 +7,11 @@ import {
   canFold,
 } from '../hooks/useGameState';
 import { getPreflopTier } from './preflopHandStrength';
-import { detectDraws } from './drawDetector';
 import { calculateEquity } from './equityCalculator';
 import {
   recordOpponentAction,
-  getOpponentTendency,
-  getOpponentFoldRate,
+  calculateOpponentProfile,
+  getOpponentAdjustments,
 } from './opponentModel';
 import { translations } from './translations';
 
@@ -79,16 +78,6 @@ function getCommunityCardsByPhase(state: GameState): typeof state.communityCards
   }
 }
 
-function getCardsToCome(state: GameState): number {
-  switch (state.phase) {
-    case 'preflop': return 5;
-    case 'flop': return 2;
-    case 'turn': return 1;
-    case 'river': return 0;
-    default: return 0;
-  }
-}
-
 function decidePreflop(
   player: Player,
   state: GameState,
@@ -138,30 +127,8 @@ function decidePreflop(
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
 
-function getOpponentInfo(
-  player: Player,
-  state: GameState,
-): { avgFoldRate: number; hasAggressive: boolean; hasPassive: boolean } {
-  const activeOpponents = state.players.filter(
-    (p) => !p.folded && p.id !== player.id && !p.allIn,
-  );
-  const tendencies = activeOpponents.map((p) => getOpponentTendency(p.id));
-
-  const avgFoldRate =
-    activeOpponents.length > 0
-      ? activeOpponents.reduce(
-          (sum, p) => sum + getOpponentFoldRate(p.id),
-          0,
-        ) / activeOpponents.length
-      : 0.3;
-
-  return {
-    avgFoldRate,
-    hasAggressive: tendencies.some((t) => t === 'aggressive'),
-    hasPassive: tendencies.some((t) => t === 'passive'),
-  };
-}
-
+// 翻后决策：胜率 + 赔率 + 对手画像综合判断
+// Monte Carlo 胜率已包含听牌概率，不再单独叠加听牌
 function decidePostflop(
   player: Player,
   state: GameState,
@@ -169,31 +136,31 @@ function decidePostflop(
   ctx: ContextInfo,
 ): BotDecision {
   const community = getCommunityCardsByPhase(state);
-  const cardsToCome = getCardsToCome(state);
 
   const iterations = state.phase === 'flop' ? 200 : 300;
   const equity = calculateEquity(
     player.hand, community, ctx.numOpponents, iterations,
   );
 
-  const drawInfo = detectDraws(player.hand, community, cardsToCome);
-  const effectiveEquity = equity + drawInfo.estimatedEquity * 0.5;
+  // 获取对手画像和阈值调整量
+  const oppProfile = calculateOpponentProfile(state.players, player.id);
+  const adj = getOpponentAdjustments(oppProfile);
 
-  const oppInfo = getOpponentInfo(player, state);
-
-  if (effectiveEquity >= 0.75) {
+  // 强牌：胜率 >= 75% + 对手画像调整
+  if (equity >= 0.75 + adj.callPenalty) {
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 1.5) {
       return { action: 'allin' };
     }
     if (flags.canRaiseResult) {
-      const mult = effectiveEquity >= 0.85 ? 1.3 : 1.0;
+      const mult = equity >= 0.85 ? 1.3 : 1.0;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
     if (flags.canCallResult) return { action: 'call' };
     if (flags.canCheckResult) return { action: 'check' };
   }
 
-  if (effectiveEquity >= 0.55) {
+  // 中等牌力：胜率 >= 55% + 对手画像调整
+  if (equity >= 0.55 + adj.callPenalty - adj.raiseBonus) {
     if (ctx.isLatePosition && flags.canRaiseResult && Math.random() < 0.4) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
     }
@@ -202,31 +169,19 @@ function decidePostflop(
     if (flags.canCallResult) return { action: 'call' };
   }
 
-  if (drawInfo.totalOuts >= 8 && flags.canRaiseResult && ctx.isLatePosition) {
-    if (Math.random() < 0.35) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.75) };
-    }
-  }
-
-  if (drawInfo.totalOuts > 0) {
-    if (flags.canCheckResult) return { action: 'check' };
-    if (flags.canCallResult && effectiveEquity > ctx.potOdds + 0.05) {
-      return { action: 'call' };
-    }
-    if (flags.canCallResult && ctx.potOdds < 0.15) return { action: 'call' };
-  }
-
-  if (effectiveEquity >= 0.35) {
+  // 边缘牌力：胜率 >= 35% + 对手画像调整
+  if (equity >= 0.35 + adj.callPenalty - adj.raiseBonus) {
     if (flags.canCheckResult) return { action: 'check' };
     if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
     if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
   }
 
+  // 诈唬加注：对手画像影响（平均弃牌率高 + 晚位 + 少对手）
   if (
     flags.canRaiseResult &&
     ctx.isLatePosition &&
     ctx.numOpponents <= 2 &&
-    oppInfo.avgFoldRate > 0.3 &&
+    adj.raiseBonus > 0 &&
     Math.random() < 0.2
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
@@ -237,6 +192,7 @@ function decidePostflop(
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
 
+// 河牌决策：胜率 + 赔率 + 对手画像综合判断
 function decideRiver(
   player: Player,
   state: GameState,
@@ -248,9 +204,12 @@ function decideRiver(
     player.hand, community, ctx.numOpponents, 500,
   );
 
-  const oppInfo = getOpponentInfo(player, state);
+  // 获取对手画像和阈值调整量
+  const oppProfile = calculateOpponentProfile(state.players, player.id);
+  const adj = getOpponentAdjustments(oppProfile);
 
-  if (equity >= 0.70) {
+  // 强牌：胜率 >= 70% + 对手画像调整
+  if (equity >= 0.70 + adj.callPenalty) {
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 1.5) {
       return { action: 'allin' };
     }
@@ -262,23 +221,30 @@ function decideRiver(
     if (flags.canCheckResult) return { action: 'check' };
   }
 
-  if (equity >= 0.50) {
+  // 中等牌力：胜率 >= 50% + 对手画像调整
+  if (equity >= 0.50 + adj.callPenalty - adj.raiseBonus) {
     if (flags.canCheckResult) return { action: 'check' };
     if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
     if (flags.canCallResult && ctx.isHeadsUp) return { action: 'call' };
   }
 
+  // 诈唬加注：对手画像影响
   if (
     flags.canRaiseResult &&
     ctx.isLatePosition &&
     ctx.numOpponents <= 2 &&
-    oppInfo.avgFoldRate > 0.35 &&
+    adj.raiseBonus > 0 &&
     Math.random() < 0.25
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
   }
 
-  if (equity >= 0.30 && flags.canCallResult && equity >= ctx.potOdds + 0.05) {
+  // 边缘跟注：胜率 >= 30% 且超过赔率 + 对手画像调整
+  if (
+    equity >= 0.30 + adj.callPenalty &&
+    flags.canCallResult &&
+    equity >= ctx.potOdds + 0.05
+  ) {
     return { action: 'call' };
   }
 
@@ -288,9 +254,16 @@ function decideRiver(
 }
 
 export function getBotAction(player: Player, state: GameState): BotDecision {
+  // 记录对手行动，传入 all-in 上下文用于区分主动/被迫 all-in
   state.players.forEach((p) => {
     if (p.id !== player.id && p.lastAction) {
-      recordOpponentAction(p.id, p.lastAction);
+      const toCallForP = state.lastBet - p.bet;
+      recordOpponentAction(
+        p.id,
+        p.lastAction,
+        p.lastAction === 'allin' ? p.chips + p.bet : undefined,
+        p.lastAction === 'allin' ? toCallForP : undefined,
+      );
     }
   });
 
