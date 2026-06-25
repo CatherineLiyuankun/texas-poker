@@ -6,7 +6,7 @@ import {
   canAllIn,
   canFold,
 } from '../hooks/useGameState';
-import { getPreflopStrength } from './preflopHandStrength';
+import { getPreflopTier } from './preflopHandStrength';
 import { detectDraws } from './drawDetector';
 import { calculateEquity } from './equityCalculator';
 import {
@@ -95,23 +95,23 @@ function decidePreflop(
   flags: ActionFlags,
   ctx: ContextInfo,
 ): BotDecision {
-  const strength = getPreflopStrength(player.hand);
+  const tier = getPreflopTier(player.hand);
   const isFacingRaise = ctx.toCall > 0;
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
 
-  if (strength >= 0.65) {
+  if (tier <= 2) {
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
       return { action: 'allin' };
     }
     if (flags.canRaiseResult) {
-      const mult = strength >= 0.85 ? 1.5 : 1.2;
+      const mult = tier === 1 ? 1.5 : 1.2;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
     if (flags.canCallResult) return { action: 'call' };
   }
 
-  if (strength >= 0.50) {
-    if (isFacingBigRaise) {
+  if (tier === 3) {
+    if (isFacingBigRaise && !ctx.isLatePosition) {
       if (flags.canFoldResult) return { action: 'fold' };
     }
     if (ctx.isLatePosition && flags.canRaiseResult && !isFacingBigRaise) {
@@ -121,7 +121,7 @@ function decidePreflop(
     if (flags.canCheckResult) return { action: 'check' };
   }
 
-  if (strength >= 0.38) {
+  if (tier === 4) {
     if (isFacingBigRaise) {
       if (flags.canFoldResult) return { action: 'fold' };
     }

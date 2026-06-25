@@ -15,8 +15,8 @@ export const translations = {
     raise: '加注 Raise',
     bet: '下注 Bet',
     fold: '弃牌 Fold',
-    confirm: '确认 Confirm',
-    cancel: '取消 Cancel',
+    confirm: 'Confirm', // 确认
+    cancel: 'Cancel', // 取消
     raisePlaceholder: (toCall: number, minTargetExtra: number, min: number) => `最低${min}=call: ${toCall}+${minTargetExtra}`,
     allin: '全押 All In',
   },

@@ -9,6 +9,7 @@ import type {
   Rank,
   Player,
   PotDistribution,
+  HandRank,
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
@@ -717,27 +718,11 @@ export function useGameState() {
               })),
             ];
 
-            const evaluatedAll = eligiblePlayers.map((p) => ({
-              player: p,
-              eval: evaluateHand(p.hand, state.communityCards),
-            }));
-
-            let bestOverallIdx = 0;
-            for (let i = 1; i < evaluatedAll.length; i++) {
-              if (compareHands(evaluatedAll[i].eval, evaluatedAll[bestOverallIdx].eval) > 0) {
-                bestOverallIdx = i;
-              }
-            }
-
-            const overallWinners = evaluatedAll.filter(
-              (e) => compareHands(e.eval, evaluatedAll[bestOverallIdx].eval) === 0,
-            );
-            const winnerIds = overallWinners.map((w) => w.player.id);
-            const bestRank = evaluatedAll[bestOverallIdx].eval.rank;
-
             const allWinnings: number[][] = allPotLevels.map(() =>
               new Array(state.players.length).fill(0),
             );
+            let bestRank: HandRank | null = null;
+            const finalWinnerIds: PlayerId[] = [];
 
             allPotLevels.forEach((potLevel, potLevelIdx) => {
               let potEligible: Player[];
@@ -772,6 +757,11 @@ export function useGameState() {
                 (e) =>
                   compareHands(e.eval, potEvaluated[potBestIdx].eval) === 0,
               );
+
+              if (potLevel.isMain && bestRank === null) {
+                bestRank = potEvaluated[potBestIdx].eval.rank;
+                finalWinnerIds.push(...potWinners.map(w => w.player.id));
+              }
 
               const potAmount = potLevel.amount;
               if (potWinners.length === 1) {
@@ -815,6 +805,7 @@ export function useGameState() {
               })),
             ];
 
+            const uniqueWinnerIds = [...new Set(finalWinnerIds)];
             const newState = {
               ...state,
               phase: newPhase,
@@ -825,7 +816,7 @@ export function useGameState() {
               raiseRightsOpened: true,
               mainPot: 0,
               sidePots: [],
-              winner: winnerIds.length === 1 ? winnerIds[0] : null,
+              winner: uniqueWinnerIds.length === 1 ? uniqueWinnerIds[0] : null,
               handRank: bestRank,
               chipsBeforeSettlement: preChips,
               potDistribution: potDist,

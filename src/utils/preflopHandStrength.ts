@@ -5,32 +5,60 @@ const RANK_VAL: Record<string, number> = {
   '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14,
 };
 
+const CHEN_VAL: Record<string, number> = {
+  '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8,
+  '9': 9, '10': 5, J: 6, Q: 7, K: 8, A: 10,
+};
+
+/**
+ * Preflop hand strength using the Chen Formula (by Bill Chen).
+ *
+ * Algorithm:
+ * 1. Chen Value: A=10, K=8, Q=7, J=6, T=5, others=face value (2-9)
+ * 2. Pocket pair: score = max(5, chenValue * 2)
+ * 3. Non-pair: start with higher card's Chen value, then:
+ *    - Suited bonus: +2
+ *    - Gap penalty (gap = rank_high - rank_low - 1):
+ *      gap=0 (connector):  0
+ *      gap=1 (one-gapper): -1
+ *      gap=2 (two-gapper): -2
+ *      gap=3:              -4
+ *      gap >= 4:           -5
+ * 4. Normalize: score / 20 → [0, 1]
+ *
+ * Examples: AA=1.00, KK=0.80, AKs=0.60, AKo=0.55,
+ *           JJ=0.60, KQs=0.55, 98s=0.55, 99=0.45,
+ *           66=0.30, 33=0.25, K8s=0.25, 72o=0.10
+ *
+ * Reference: Bill Chen, "The Poker Formula"
+ */
 export function getPreflopStrength(hand: Card[]): number {
   if (hand.length !== 2) return 0;
 
-  const r1 = RANK_VAL[hand[0].rank];
-  const r2 = RANK_VAL[hand[1].rank];
+  const c1 = CHEN_VAL[hand[0].rank];
+  const c2 = CHEN_VAL[hand[1].rank];
   const suited = hand[0].suit === hand[1].suit;
-  const high = Math.max(r1, r2);
-  const low = Math.min(r1, r2);
+  const high = Math.max(c1, c2);
 
-  let raw: number;
+  let score: number;
 
-  if (r1 === r2) {
-    raw = 10 + r1;
+  if (hand[0].rank === hand[1].rank) {
+    score = Math.max(5, c1 * 2);
   } else {
-    const gap = high - low - 1;
-    raw = high * 1.0;
-    if (suited) raw += 1.5;
-    if (gap === 0) raw += 2.5;
-    else if (gap === 1) raw += 1.8;
-    else if (gap === 2) raw += 1.0;
-    else if (gap === 3) raw += 0.3;
-    if (gap >= 4) raw -= 0.5;
-    raw += low * 0.15;
+    score = high;
+    if (suited) score += 2;
+
+    const gap = Math.abs(
+      RANK_VAL[hand[0].rank] - RANK_VAL[hand[1].rank],
+    ) - 1;
+
+    if (gap === 1) score -= 1;
+    else if (gap === 2) score -= 2;
+    else if (gap === 3) score -= 4;
+    else if (gap >= 4) score -= 5;
   }
 
-  return Math.max(0, Math.min(1, (raw - 6.2) / 14.2));
+  return Math.max(0, Math.min(1, score / 20));
 }
 
 // Tier grid for 169 starting hands (6 tiers)

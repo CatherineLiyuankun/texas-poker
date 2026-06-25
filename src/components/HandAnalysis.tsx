@@ -22,9 +22,9 @@ function getRecommendation(
 ): string {
   const { rec } = translations.handAnalysis;
   if (phase === 'preflop') {
-    if (equity >= 0.70) return rec.raise;
-    if (equity >= 0.50) return rec.callRaise;
-    if (equity >= 0.38 && potOdds < 0.25) return rec.call;
+    if (equity >= 0.50) return rec.raise;
+    if (equity >= 0.35) return rec.callRaise;
+    if (equity >= 0.20 && potOdds < 0.25) return rec.call;
     if (potOdds === 0) return rec.check;
     return rec.fold;
   }
@@ -189,15 +189,15 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                 <StrengthBar
                   value={preflopStrength}
                   color={
-                    preflopStrength >= 0.80
+                    preflopStrength >= 0.65
                       ? 'bg-red-400'
-                      : preflopStrength >= 0.60
+                      : preflopStrength >= 0.45
                         ? 'bg-orange-400'
-                        : preflopStrength >= 0.45
+                        : preflopStrength >= 0.35
                           ? 'bg-amber-500'
-                          : preflopStrength >= 0.30
+                          : preflopStrength >= 0.25
                             ? 'bg-green-400'
-                            : preflopStrength >= 0.20
+                            : preflopStrength >= 0.15
                               ? 'bg-blue-400'
                               : 'bg-purple-400'
                   }

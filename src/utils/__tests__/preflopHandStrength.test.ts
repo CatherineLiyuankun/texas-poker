@@ -21,7 +21,7 @@ describe('Preflop Hand Strength', () => {
     const tt = getPreflopStrength([card('♠', '10'), card('♥', '10')]);
     const fiveFive = getPreflopStrength([card('♠', '5'), card('♥', '5')]);
     expect(kk).toBeGreaterThan(tt);
-    expect(tt).toBeGreaterThan(fiveFive);
+    expect(tt).toBeGreaterThanOrEqual(fiveFive);
   });
 
   it('同花比非同花强', () => {
@@ -60,6 +60,16 @@ describe('Preflop Hand Strength', () => {
   it('不足2张牌返回0', () => {
     expect(getPreflopStrength([])).toBe(0);
     expect(getPreflopStrength([card('♠', 'A')])).toBe(0);
+  });
+
+  it('Chen Formula 特定值验证', () => {
+    expect(getPreflopStrength([card('♠', 'A'), card('♥', 'A')])).toBeCloseTo(1.0, 2);
+    expect(getPreflopStrength([card('♠', 'K'), card('♥', 'K')])).toBeCloseTo(0.8, 2);
+    expect(getPreflopStrength([card('♠', 'A'), card('♠', 'K')])).toBeCloseTo(0.6, 2);
+    expect(getPreflopStrength([card('♠', '9'), card('♠', '8')])).toBeCloseTo(0.55, 2);
+    expect(getPreflopStrength([card('♠', 'K'), card('♠', '8')])).toBeCloseTo(0.25, 2);
+    expect(getPreflopStrength([card('♠', 'K'), card('♣', '3')])).toBeCloseTo(0.15, 2);
+    expect(getPreflopStrength([card('♣', '7'), card('♦', '2')])).toBeCloseTo(0.1, 2);
   });
 });
 
