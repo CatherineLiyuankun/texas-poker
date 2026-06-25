@@ -24,11 +24,11 @@ const CHEN_VAL: Record<string, number> = {
  *      gap=2 (two-gapper): -2
  *      gap=3:              -4
  *      gap >= 4:           -5
- * 4. Normalize: score / 20 → [0, 1]
+ * 4. Return raw Chen score (range ~2-20)
  *
- * Examples: AA=1.00, KK=0.80, AKs=0.60, AKo=0.55,
- *           JJ=0.60, KQs=0.55, 98s=0.55, 99=0.45,
- *           66=0.30, 33=0.25, K8s=0.25, 72o=0.10
+ * Examples: AA=20, KK=16, AKs=12, AKo=10,
+ *           JJ=12, KQs=11, 98s=11, 99=9,
+ *           66=6, 33=5, K8s=5, 72o=2
  *
  * Reference: Bill Chen, "The Poker Formula"
  */
@@ -58,7 +58,7 @@ export function getPreflopStrength(hand: Card[]): number {
     else if (gap >= 4) score -= 5;
   }
 
-  return Math.max(0, Math.min(1, score / 20));
+  return Math.max(0, score);
 }
 
 // Tier grid for 169 starting hands (6 tiers)

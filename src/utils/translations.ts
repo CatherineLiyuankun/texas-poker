@@ -10,15 +10,15 @@ export const translations = {
   },
   actionButtons: {
     botThinking: '电脑玩家思考中... Bot Thinking...',
-    check: '看牌 Check',
-    call: '跟注 Call',
-    raise: '加注 Raise',
+    check: 'Check', // 看牌 
+    call: 'Call', // 跟注 
+    raise: 'Raise', // 加注 
     bet: '下注 Bet',
-    fold: '弃牌 Fold',
+    fold: 'Fold', // 弃牌
     confirm: 'Confirm', // 确认
     cancel: 'Cancel', // 取消
     raisePlaceholder: (toCall: number, minTargetExtra: number, min: number) => `最低${min}=call: ${toCall}+${minTargetExtra}`,
-    allin: '全押 All In',
+    allin: 'All In', // 全押
   },
   playerArea: {
     folded: '已弃牌 Folded',

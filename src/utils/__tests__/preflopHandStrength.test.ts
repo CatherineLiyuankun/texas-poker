@@ -8,12 +8,12 @@ function card(suit: string, rank: string): Card {
 describe('Preflop Hand Strength', () => {
   it('AA 是最强的起手牌', () => {
     const strength = getPreflopStrength([card('♠', 'A'), card('♥', 'A')]);
-    expect(strength).toBe(1);
+    expect(strength).toBe(20);
   });
 
   it('72o 是最弱的起手牌之一', () => {
     const strength = getPreflopStrength([card('♣', '7'), card('♦', '2')]);
-    expect(strength).toBeLessThan(0.2);
+    expect(strength).toBeLessThan(4);
   });
 
   it('高对比低对强', () => {
@@ -53,7 +53,7 @@ describe('Preflop Hand Strength', () => {
     for (const hand of hands) {
       const s = getPreflopStrength(hand);
       expect(s).toBeGreaterThanOrEqual(0);
-      expect(s).toBeLessThanOrEqual(1);
+      expect(s).toBeLessThanOrEqual(20);
     }
   });
 
@@ -63,13 +63,13 @@ describe('Preflop Hand Strength', () => {
   });
 
   it('Chen Formula 特定值验证', () => {
-    expect(getPreflopStrength([card('♠', 'A'), card('♥', 'A')])).toBeCloseTo(1.0, 2);
-    expect(getPreflopStrength([card('♠', 'K'), card('♥', 'K')])).toBeCloseTo(0.8, 2);
-    expect(getPreflopStrength([card('♠', 'A'), card('♠', 'K')])).toBeCloseTo(0.6, 2);
-    expect(getPreflopStrength([card('♠', '9'), card('♠', '8')])).toBeCloseTo(0.55, 2);
-    expect(getPreflopStrength([card('♠', 'K'), card('♠', '8')])).toBeCloseTo(0.25, 2);
-    expect(getPreflopStrength([card('♠', 'K'), card('♣', '3')])).toBeCloseTo(0.15, 2);
-    expect(getPreflopStrength([card('♣', '7'), card('♦', '2')])).toBeCloseTo(0.1, 2);
+    expect(getPreflopStrength([card('♠', 'A'), card('♥', 'A')])).toBe(20);
+    expect(getPreflopStrength([card('♠', 'K'), card('♥', 'K')])).toBe(16);
+    expect(getPreflopStrength([card('♠', 'A'), card('♠', 'K')])).toBe(12);
+    expect(getPreflopStrength([card('♠', '9'), card('♠', '8')])).toBe(11);
+    expect(getPreflopStrength([card('♠', 'K'), card('♠', '8')])).toBe(5);
+    expect(getPreflopStrength([card('♠', 'K'), card('♣', '3')])).toBe(3);
+    expect(getPreflopStrength([card('♣', '7'), card('♦', '2')])).toBe(2);
   });
 });
 

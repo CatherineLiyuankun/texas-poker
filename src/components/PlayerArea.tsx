@@ -74,7 +74,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
         p-3 rounded-xl transition-all duration-300 min-w-[200px]
         ${isWinner ? 'bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win' : ''}
         ${isCurrentPlayer && !isWinner ? 'bg-white/10 border-2 border-blue-400' : 'bg-black/20 border-2 border-transparent'}
-        ${player.isRealPlayer ? 'max-w-[380px]' : ''}
+        ${player.isRealPlayer ? 'max-w-[300px]' : ''}
       `}
       >
         <div className="flex items-center justify-between mb-3">
