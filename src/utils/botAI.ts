@@ -9,7 +9,6 @@ import {
 import { getPreflopTier } from './preflopHandStrength';
 import { calculateEquity } from './equityCalculator';
 import {
-  recordOpponentAction,
   calculateOpponentProfile,
   getOpponentAdjustments,
 } from './opponentModel';
@@ -254,19 +253,7 @@ function decideRiver(
 }
 
 export function getBotAction(player: Player, state: GameState): BotDecision {
-  // 记录对手行动，传入 all-in 上下文用于区分主动/被迫 all-in
-  state.players.forEach((p) => {
-    if (p.id !== player.id && p.lastAction) {
-      const toCallForP = state.lastBet - p.bet;
-      recordOpponentAction(
-        p.id,
-        p.lastAction,
-        p.lastAction === 'allin' ? p.chips + p.bet : undefined,
-        p.lastAction === 'allin' ? toCallForP : undefined,
-      );
-    }
-  });
-
+  // 行动记录已移至 GameBoard.tsx 统一管理（每个行动只记录一次）
   const toCall = state.lastBet - player.bet;
   const canCheckResult = canCheck(state.lastBet, player.bet);
   const canCallResult = canCall(state.lastBet, player.bet, player.chips);

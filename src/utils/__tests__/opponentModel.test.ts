@@ -37,8 +37,8 @@ describe('Opponent Model', () => {
     expect(getOpponentTendency(3)).toBe('unknown');
   });
 
-  it('数据不足2次时为 unknown', () => {
-    recordOpponentAction(3, 'raise');
+  it('数据不足5次时为 unknown', () => {
+    for (let i = 0; i < 4; i++) recordOpponentAction(3, 'raise');
     expect(getOpponentTendency(3)).toBe('unknown');
   });
 
@@ -59,9 +59,10 @@ describe('Opponent Model', () => {
   it('fold rate 计算正确', () => {
     recordOpponentAction(6, 'fold');
     recordOpponentAction(6, 'fold');
+    recordOpponentAction(6, 'fold');
     recordOpponentAction(6, 'call');
     recordOpponentAction(6, 'call');
-    expect(getOpponentFoldRate(6)).toBe(0.5);
+    expect(getOpponentFoldRate(6)).toBe(0.6);
   });
 
   it('未知对手的默认 fold rate 为 0.3', () => {
@@ -75,19 +76,18 @@ describe('Opponent Model', () => {
     expect(getOpponentTendency(7)).toBe('unknown');
   });
 
-  it('2次行动即可分类为 aggressive', () => {
-    recordOpponentAction(1, 'raise');
-    recordOpponentAction(1, 'raise');
+  it('5次行动才能分类为 aggressive', () => {
+    for (let i = 0; i < 5; i++) recordOpponentAction(1, 'raise');
     expect(getOpponentTendency(1)).toBe('aggressive');
   });
 
-  it('2次行动即可分类为 passive', () => {
-    recordOpponentAction(2, 'call');
-    recordOpponentAction(2, 'call');
+  it('5次行动才能分类为 passive', () => {
+    for (let i = 0; i < 5; i++) recordOpponentAction(2, 'call');
     expect(getOpponentTendency(2)).toBe('passive');
   });
 
-  it('混合行动但加注率高仍为 aggressive', () => {
+  it('混合行动但加注率高且达到5次仍为 aggressive', () => {
+    recordOpponentAction(3, 'raise');
     recordOpponentAction(3, 'raise');
     recordOpponentAction(3, 'raise');
     recordOpponentAction(3, 'call');
@@ -95,7 +95,8 @@ describe('Opponent Model', () => {
     expect(getOpponentTendency(3)).toBe('aggressive');
   });
 
-  it('参与率低时为 unknown', () => {
+  it('参与率低且达到5次时为 unknown', () => {
+    recordOpponentAction(4, 'fold');
     recordOpponentAction(4, 'fold');
     recordOpponentAction(4, 'fold');
     recordOpponentAction(4, 'fold');
@@ -105,13 +106,13 @@ describe('Opponent Model', () => {
 
   it('all-in 金额 <= 当前下注时算 call（被迫）', () => {
     recordOpponentAction(5, 'allin', 40, 50);
-    recordOpponentAction(5, 'call');
+    for (let i = 0; i < 4; i++) recordOpponentAction(5, 'call');
     expect(getOpponentTendency(5)).toBe('passive');
   });
 
   it('all-in 金额 > 当前下注时算 raise（主动）', () => {
     recordOpponentAction(6, 'allin', 100, 50);
-    recordOpponentAction(6, 'raise');
+    for (let i = 0; i < 4; i++) recordOpponentAction(6, 'raise');
     expect(getOpponentTendency(6)).toBe('aggressive');
   });
 });
@@ -133,8 +134,8 @@ describe('calculateOpponentProfile', () => {
   });
 
   it('汇总对手风格和弃牌率', () => {
-    for (let i = 0; i < 3; i++) recordOpponentAction(2, 'raise');
-    for (let i = 0; i < 3; i++) recordOpponentAction(3, 'call');
+    for (let i = 0; i < 5; i++) recordOpponentAction(2, 'raise');
+    for (let i = 0; i < 5; i++) recordOpponentAction(3, 'call');
 
     const players = [
       createMockPlayer(1),

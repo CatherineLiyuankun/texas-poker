@@ -9,7 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile } from '../utils/opponentModel';
+import { calculateOpponentProfile, recordOpponentAction } from '../utils/opponentModel';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
 
@@ -80,13 +80,33 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     const timer = setTimeout(() => {
       playerAction(currentPlayer.id, decision.action, decision.amount);
+      // 统一记录 bot 行动（all-in 时传入上下文区分主动/被迫）
+      const toCall = state.lastBet - currentPlayer.bet;
+      recordOpponentAction(
+        currentPlayer.id,
+        decision.action,
+        decision.action === 'allin' ? currentPlayer.chips + currentPlayer.bet : undefined,
+        decision.action === 'allin' ? toCall : undefined,
+      );
     }, delay);
 
     return () => clearTimeout(timer);
   }, [currentPlayer, roundSettled, state, playerAction, noRealCanAct]);
 
   const handleAction = (action: Action, amount?: number) => {
-    playerAction(state.currentPlayer, action, amount);
+    const playerId = state.currentPlayer;
+    playerAction(playerId, action, amount);
+    // 统一记录真人行动（all-in 时传入上下文区分主动/被迫）
+    const player = state.players.find((p) => p.id === playerId);
+    if (player) {
+      const toCall = state.lastBet - player.bet;
+      recordOpponentAction(
+        playerId,
+        action,
+        action === 'allin' ? player.chips + player.bet : undefined,
+        action === 'allin' ? toCall : undefined,
+      );
+    }
   };
 
   const handleNextPhase = () => {

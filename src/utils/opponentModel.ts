@@ -109,9 +109,10 @@ export function recordOpponentAction(
  *  Loose (VPIP > 30%)	LAG (松凶)	Calling Station (松被动)
 */
 
+// 至少 5 次行动才开始分类，避免早期数据噪声导致误判
 export function getOpponentTendency(playerId: PlayerId): OpponentTendency {
   const stats = opponentCache.get(getKey(playerId));
-  if (!stats || stats.totalActions < 2) return 'unknown';
+  if (!stats || stats.totalActions < 5) return 'unknown';
   
   const voluntaryActions = stats.raises + stats.calls;
   const voluntaryRate = voluntaryActions / stats.totalActions;
@@ -130,7 +131,7 @@ export function getOpponentTendency(playerId: PlayerId): OpponentTendency {
 
 export function getOpponentFoldRate(playerId: PlayerId): number {
   const stats = opponentCache.get(getKey(playerId));
-  if (!stats || stats.totalActions < 2) return 0.3;
+  if (!stats || stats.totalActions < 5) return 0.3;
   return stats.folds / stats.totalActions;
 }
 
