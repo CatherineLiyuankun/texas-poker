@@ -9,6 +9,7 @@ import type {
   Rank,
   Player,
   PotDistribution,
+  HandRank,
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
@@ -701,137 +702,110 @@ export function useGameState() {
               return newState;
             }
 
-            const evaluated = eligiblePlayers.map((p) => ({
-              player: p,
-              eval: evaluateHand(p.hand, state.communityCards),
+            const tempPlayersForPot = state.players.map(p => ({
+              ...p, folded: false, bet: p.totalBet,
             }));
+            const correctPotCalc = calculatePots(tempPlayersForPot, 0);
+            const contribs = computeContributions(tempPlayersForPot, correctPotCalc);
 
-            let bestIdx = 0;
-            for (let i = 1; i < evaluated.length; i++) {
-              if (
-                compareHands(evaluated[i].eval, evaluated[bestIdx].eval) > 0
-              ) {
-                bestIdx = i;
-              }
-            }
+            const allPotLevels = [
+              { amount: correctPotCalc.mainPot, threshold: 0, isMain: true },
+              ...correctPotCalc.sidePots.map((sp, i) => ({
+                amount: sp.amount,
+                threshold: sp.threshold ?? 0,
+                isMain: false,
+                index: i,
+              })),
+            ];
 
-            const winners = evaluated.filter(
-              (e) => compareHands(e.eval, evaluated[bestIdx].eval) === 0,
-            );
-
-            const winnerIds = winners.map((w) => w.player.id);
-
-            let mainPotWinners = winners;
-            if (winners.length > 1 && state.mainPot > 0) {
-              const mainPotEligible = eligiblePlayers;
-              mainPotWinners = winners.filter((w) =>
-                mainPotEligible.some((e) => e.id === w.player.id),
-              );
-            }
-
-            if (mainPotWinners.length === 0 && winners.length > 0) {
-              mainPotWinners = winners;
-            }
-
-            const mainWinnings = new Array(state.players.length).fill(0);
-            if (mainPotWinners.length === 1) {
-              const winnerIdx = getPlayerIndex(mainPotWinners[0].player.id);
-              mainWinnings[winnerIdx] += state.mainPot;
-              newPlayers[winnerIdx] = {
-                ...newPlayers[winnerIdx],
-                chips: newPlayers[winnerIdx].chips + state.mainPot,
-              };
-            } else if (mainPotWinners.length > 1) {
-              const each = Math.floor(state.mainPot / mainPotWinners.length);
-              mainPotWinners.forEach((w) => {
-                const idx = getPlayerIndex(w.player.id);
-                mainWinnings[idx] += each;
-                newPlayers[idx] = {
-                  ...newPlayers[idx],
-                  chips: newPlayers[idx].chips + each,
-                };
-              });
-              const remainder = state.mainPot - each * mainPotWinners.length;
-              if (remainder > 0) {
-                const firstIdx = getPlayerIndex(mainPotWinners[0].player.id);
-                mainWinnings[firstIdx] += remainder;
-                newPlayers[firstIdx].chips += remainder;
-              }
-            }
-
-            const sideWinnings: number[][] = state.sidePots.map(() =>
+            const allWinnings: number[][] = allPotLevels.map(() =>
               new Array(state.players.length).fill(0),
             );
-            state.sidePots.forEach((sp, spIndex) => {
-              const sidePotEligible = sp.eligiblePlayers
-                .map((id) => eligiblePlayers.find((p) => p.id === id))
-                .filter((p) => p !== undefined);
+            let bestRank: HandRank | null = null;
+            const finalWinnerIds: PlayerId[] = [];
 
-              if (sidePotEligible.length === 0) return;
+            allPotLevels.forEach((potLevel, potLevelIdx) => {
+              let potEligible: Player[];
+              if (potLevel.isMain) {
+                potEligible = eligiblePlayers;
+              } else {
+                const spIndex = (potLevel as typeof potLevel & { index: number }).index;
+                const threshold = correctPotCalc.sidePots[spIndex]?.threshold ?? 0;
+                potEligible = eligiblePlayers.filter(p => p.totalBet >= threshold);
+              }
 
-              const sideEvaluated = sidePotEligible.map((p) => ({
+              if (potEligible.length === 0) return;
+
+              const potEvaluated = potEligible.map((p) => ({
                 player: p,
                 eval: evaluateHand(p.hand, state.communityCards),
               }));
 
-              let sideBestIdx = 0;
-              for (let i = 1; i < sideEvaluated.length; i++) {
+              let potBestIdx = 0;
+              for (let i = 1; i < potEvaluated.length; i++) {
                 if (
                   compareHands(
-                    sideEvaluated[i].eval,
-                    sideEvaluated[sideBestIdx].eval,
+                    potEvaluated[i].eval,
+                    potEvaluated[potBestIdx].eval,
                   ) > 0
                 ) {
-                  sideBestIdx = i;
+                  potBestIdx = i;
                 }
               }
 
-              const sideWinners = sideEvaluated.filter(
+              const potWinners = potEvaluated.filter(
                 (e) =>
-                  compareHands(e.eval, sideEvaluated[sideBestIdx].eval) === 0,
+                  compareHands(e.eval, potEvaluated[potBestIdx].eval) === 0,
               );
 
-              if (sideWinners.length === 1) {
-                const winnerIdx = getPlayerIndex(sideWinners[0].player.id);
-                sideWinnings[spIndex][winnerIdx] += sp.amount;
+              if (potLevel.isMain && bestRank === null) {
+                bestRank = potEvaluated[potBestIdx].eval.rank;
+                finalWinnerIds.push(...potWinners.map(w => w.player.id));
+              }
+
+              const potAmount = potLevel.amount;
+              if (potWinners.length === 1) {
+                const winnerIdx = getPlayerIndex(potWinners[0].player.id);
+                allWinnings[potLevelIdx][winnerIdx] += potAmount;
                 newPlayers[winnerIdx] = {
                   ...newPlayers[winnerIdx],
-                  chips: newPlayers[winnerIdx].chips + sp.amount,
+                  chips: newPlayers[winnerIdx].chips + potAmount,
                 };
-              } else if (sideWinners.length > 1) {
-                const each = Math.floor(sp.amount / sideWinners.length);
-                sideWinners.forEach((w) => {
+              } else if (potWinners.length > 1) {
+                const each = Math.floor(potAmount / potWinners.length);
+                potWinners.forEach((w) => {
                   const idx = getPlayerIndex(w.player.id);
-                  sideWinnings[spIndex][idx] += each;
+                  allWinnings[potLevelIdx][idx] += each;
                   newPlayers[idx] = {
                     ...newPlayers[idx],
                     chips: newPlayers[idx].chips + each,
                   };
                 });
-                const remainder = sp.amount - each * sideWinners.length;
+                const remainder = potAmount - each * potWinners.length;
                 if (remainder > 0) {
-                  const firstIdx = getPlayerIndex(sideWinners[0].player.id);
-                  sideWinnings[spIndex][firstIdx] += remainder;
+                  const firstIdx = getPlayerIndex(potWinners[0].player.id);
+                  allWinnings[potLevelIdx][firstIdx] += remainder;
                   newPlayers[firstIdx].chips += remainder;
                 }
               }
             });
 
-            const tempPlayersForContrib = state.players.map(p => ({
-              ...p, folded: false, bet: p.totalBet,
-            }));
-            const contribCalc = calculatePots(tempPlayersForContrib, 0);
-            const contribs = computeContributions(tempPlayersForContrib, contribCalc);
             const potDist: PotDistribution[] = [
-              { potType: '主池', amount: state.mainPot, winnings: mainWinnings, contributions: contribs.mainContributions },
-              ...state.sidePots.map((sp, i) => ({
+              {
+                potType: '主池',
+                amount: correctPotCalc.mainPot,
+                winnings: allWinnings[0],
+                contributions: contribs.mainContributions,
+              },
+              ...correctPotCalc.sidePots.map((sp, i) => ({
                 potType: `边池${i + 1}`,
                 amount: sp.amount,
-                winnings: sideWinnings[i],
+                winnings: allWinnings[i + 1],
                 contributions: contribs.sideContributions[i],
               })),
             ];
 
+            const uniqueWinnerIds = [...new Set(finalWinnerIds)];
             const newState = {
               ...state,
               phase: newPhase,
@@ -842,8 +816,8 @@ export function useGameState() {
               raiseRightsOpened: true,
               mainPot: 0,
               sidePots: [],
-              winner: winnerIds.length === 1 ? winnerIds[0] : null,
-              handRank: winners[0].eval.rank,
+              winner: uniqueWinnerIds.length === 1 ? uniqueWinnerIds[0] : null,
+              handRank: bestRank,
               chipsBeforeSettlement: preChips,
               potDistribution: potDist,
             };
