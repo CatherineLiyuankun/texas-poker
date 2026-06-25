@@ -14,9 +14,8 @@ describe('Opponent Model', () => {
     expect(getOpponentTendency(3)).toBe('unknown');
   });
 
-  it('数据不足3次时为 unknown', () => {
+  it('数据不足2次时为 unknown', () => {
     recordOpponentAction(3, 'raise');
-    recordOpponentAction(3, 'call');
     expect(getOpponentTendency(3)).toBe('unknown');
   });
 
@@ -51,5 +50,33 @@ describe('Opponent Model', () => {
     expect(getOpponentTendency(7)).toBe('aggressive');
     resetOpponentStats();
     expect(getOpponentTendency(7)).toBe('unknown');
+  });
+
+  it('2次行动即可分类为 aggressive', () => {
+    recordOpponentAction(1, 'raise');
+    recordOpponentAction(1, 'raise');
+    expect(getOpponentTendency(1)).toBe('aggressive');
+  });
+
+  it('2次行动即可分类为 passive', () => {
+    recordOpponentAction(2, 'call');
+    recordOpponentAction(2, 'call');
+    expect(getOpponentTendency(2)).toBe('passive');
+  });
+
+  it('混合行动但加注率高仍为 aggressive', () => {
+    recordOpponentAction(3, 'raise');
+    recordOpponentAction(3, 'raise');
+    recordOpponentAction(3, 'call');
+    recordOpponentAction(3, 'fold');
+    expect(getOpponentTendency(3)).toBe('aggressive');
+  });
+
+  it('参与率低时为 unknown', () => {
+    recordOpponentAction(4, 'fold');
+    recordOpponentAction(4, 'fold');
+    recordOpponentAction(4, 'fold');
+    recordOpponentAction(4, 'raise');
+    expect(getOpponentTendency(4)).toBe('unknown');
   });
 });

@@ -50,19 +50,46 @@ export function recordOpponentAction(playerId: PlayerId, action: Action): void {
   }
 }
 
+/** 1. VPIP (Voluntarily Put money In Pot)
+ *  - 玩家主动入池的频率 = (raises + calls) / totalActions
+ *  - Tight (紧): < 20%
+ *  - Normal: 20-30%
+ *  - Loose (松): > 30%
+ * 
+ * 2. Aggression Frequency / PFR
+ *  - 主动加注频率 = raises / (raises + calls)
+ *  - Passive (被动): < 20%
+ *  - Normal: 20-40%
+ *  - Aggressive (激进): > 40%
+ * 
+ * Classic Player Types
+ *  Aggressive (>40%)	Passive (<20%)
+ *  Tight (VPIP < 25%)	TAG (紧凶)	Nit (紧弱)
+ *  Loose (VPIP > 30%)	LAG (松凶)	Calling Station (松被动)
+*/
+
 export function getOpponentTendency(playerId: PlayerId): OpponentTendency {
   const stats = opponentCache.get(getKey(playerId));
-  if (!stats || stats.totalActions < 3) return 'unknown';
-  const raiseRate = stats.raises / stats.totalActions;
-  const callRate = stats.calls / stats.totalActions;
-  if (raiseRate > 0.25) return 'aggressive';
-  if (callRate > 0.4) return 'passive';
+  if (!stats || stats.totalActions < 2) return 'unknown';
+  
+  const voluntaryActions = stats.raises + stats.calls;
+  const voluntaryRate = voluntaryActions / stats.totalActions;
+  const aggressionRate = stats.raises / (voluntaryActions || 1);
+  
+  if (aggressionRate > 0.40 && voluntaryRate > 0.25) {
+    return 'aggressive';
+  }
+  
+  if (aggressionRate < 0.20 && voluntaryRate > 0.30) {
+    return 'passive';
+  }
+  
   return 'unknown';
 }
 
 export function getOpponentFoldRate(playerId: PlayerId): number {
   const stats = opponentCache.get(getKey(playerId));
-  if (!stats || stats.totalActions < 3) return 0.3;
+  if (!stats || stats.totalActions < 2) return 0.3;
   return stats.folds / stats.totalActions;
 }
 
