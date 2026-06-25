@@ -68,52 +68,52 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   }
 
   return (
-    <div
-      className={`
-      p-3 rounded-xl transition-all duration-300 min-w-[200px]
-      ${isWinner ? 'bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win' : ''}
-      ${isCurrentPlayer && !isWinner ? 'bg-white/10 border-2 border-blue-400' : 'bg-black/20 border-2 border-transparent'}
-      ${player.isRealPlayer ? 'max-w-[380px]' : ''}
-    `}
-    >
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-white">
-            {displayName || translations.gameBoard.player(player.id)}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {positionLabel && (
-            <span className="bg-purple-600 text-white text-sm px-2 py-0.5 rounded-full font-medium">
-              {positionLabel}
+    <div className="flex items-start gap-2">
+      <div
+        className={`
+        p-3 rounded-xl transition-all duration-300 min-w-[200px]
+        ${isWinner ? 'bg-yellow-500/20 border-2 border-yellow-400 animate-pulse-win' : ''}
+        ${isCurrentPlayer && !isWinner ? 'bg-white/10 border-2 border-blue-400' : 'bg-black/20 border-2 border-transparent'}
+        ${player.isRealPlayer ? 'max-w-[380px]' : ''}
+      `}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-bold text-white">
+              {displayName || translations.gameBoard.player(player.id)}
             </span>
-          )}
-        </div>
-        <div className="text-right">
-          <div className="text-xl font-bold text-green-400">
-            ${player.chips}
-            {player.buyInCount > 0 && (
-              <span className="text-sm text-orange-400 ml-1">
-                (-{player.buyInCount * INITIAL_CHIPS})
-              </span>
-            )}
-            {chipChange !== undefined && chipChange !== 0 && (
-              <span className={`text-sm ml-1 ${chipChange > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {chipChange > 0 ? '+' : ''}{chipChange}
+          </div>
+          <div className="flex items-center gap-2">
+            {positionLabel && (
+              <span className="bg-purple-600 text-white text-sm px-2 py-0.5 rounded-full font-medium">
+                {positionLabel}
               </span>
             )}
           </div>
-          <div className="text-sm text-white/60">
-            {translations.playerArea.thisRoundBet} ${player.bet}
-          </div>
-          <div className="text-sm text-white/60">
-            {translations.playerArea.totalBet} ${player.totalBet}
+          <div className="text-right">
+            <div className="text-xl font-bold text-green-400">
+              ${player.chips}
+              {player.buyInCount > 0 && (
+                <span className="text-sm text-orange-400 ml-1">
+                  (-{player.buyInCount * INITIAL_CHIPS})
+                </span>
+              )}
+              {chipChange !== undefined && chipChange !== 0 && (
+                <span className={`text-sm ml-1 ${chipChange > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {chipChange > 0 ? '+' : ''}{chipChange}
+                </span>
+              )}
+            </div>
+            <div className="text-sm text-white/60">
+              {translations.playerArea.thisRoundBet} ${player.bet}
+            </div>
+            <div className="text-sm text-white/60">
+              {translations.playerArea.totalBet} ${player.totalBet}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex items-start gap-2 mb-3">
-        <div className="relative flex gap-2 justify-center">
+        <div className="relative flex gap-2 justify-center mb-3">
           {player.hand.map((card, index) => (
             <Card
               key={index}
@@ -123,19 +123,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
             />
           ))}
         </div>
-        {canShowHand && player.isRealPlayer && !isShowdown && phase && (
-          <HandAnalysis
-            holeCards={player.hand}
-            communityCards={communityCards || []}
-            phase={phase}
-            numOpponents={numActiveOpponents || 0}
-            potOdds={potOdds || 0}
-            opponentProfile={opponentProfile}
-          />
-        )}
-      </div>
 
-      <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
         <div
           className={`
            px-3 py-1 rounded-full text-sm
@@ -210,7 +199,18 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
         )}
       </div>
 
-      {actionButtons && <div className="mt-3">{actionButtons}</div>}
+        {actionButtons && <div className="mt-3">{actionButtons}</div>}
+      </div>
+      {canShowHand && player.isRealPlayer && !isShowdown && phase && (
+        <HandAnalysis
+          holeCards={player.hand}
+          communityCards={communityCards || []}
+          phase={phase}
+          numOpponents={numActiveOpponents || 0}
+          potOdds={potOdds || 0}
+          opponentProfile={opponentProfile}
+        />
+      )}
     </div>
   );
 };
