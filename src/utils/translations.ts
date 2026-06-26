@@ -47,7 +47,7 @@ export const translations = {
     showdown: '摊牌 Showdown',
   },
   gameBoard: {
-    backToMenu: '返回菜单 Back',
+    backToMenu: 'Back', // 返回菜单 
     realPlayers: '真人',
     botPlayers: '电脑',
     startGame: 'Start Game',
@@ -137,6 +137,7 @@ export const translations = {
     af: 'AF',
     cbet: 'CBet',
     wtsd: 'WTSD', // 摊牌率
+    checkRaise: 'C/R',
     type: 'Type', // 类型
     name: 'Name', // 选手名称
     resetStats: '重置数据 Reset Stats',

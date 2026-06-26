@@ -124,6 +124,8 @@ export interface PostflopStats {
   cbetCount: number;
   flopsSeen: number;
   showdownsReached: number;
+  checkRaiseOpportunities: number;
+  checkRaises: number;
 }
 
 export function createPostflopStats(): PostflopStats {
@@ -135,6 +137,8 @@ export function createPostflopStats(): PostflopStats {
     cbetCount: 0,
     flopsSeen: 0,
     showdownsReached: 0,
+    checkRaiseOpportunities: 0,
+    checkRaises: 0,
   };
 }
 
@@ -177,6 +181,11 @@ export function calculateWTSD(stats: PostflopStats): number | null {
   return (stats.showdownsReached / stats.flopsSeen) * 100;
 }
 
+export function calculateCheckRaise(stats: PostflopStats): number | null {
+  if (stats.checkRaiseOpportunities === 0) return null;
+  return (stats.checkRaises / stats.checkRaiseOpportunities) * 100;
+}
+
 let currentPreflopAggressor: PlayerId | null = null;
 let flopFirstActionRecorded = false;
 
@@ -200,4 +209,28 @@ export function isFlopFirstActionRecorded(): boolean {
 
 export function markFlopFirstActionRecorded(): void {
   flopFirstActionRecorded = true;
+}
+
+const checkedPlayers = new Set<PlayerId>();
+let currentStreet: 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'ended' | null = null;
+
+export function recordPlayerCheck(playerId: PlayerId, street: 'flop' | 'turn' | 'river'): void {
+  if (currentStreet !== street) {
+    checkedPlayers.clear();
+    currentStreet = street;
+  }
+  checkedPlayers.add(playerId);
+}
+
+export function getCheckedPlayers(): Set<PlayerId> {
+  return checkedPlayers;
+}
+
+export function clearCheckedPlayers(): void {
+  checkedPlayers.clear();
+  currentStreet = null;
+}
+
+export function isPlayerChecked(playerId: PlayerId): boolean {
+  return checkedPlayers.has(playerId);
 }

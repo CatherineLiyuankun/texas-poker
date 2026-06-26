@@ -12,6 +12,7 @@ import {
   calculateAF,
   calculateCBet,
   calculateWTSD,
+  calculateCheckRaise,
 } from './opponentModelUtil';
 
 export type OpponentTendency = 'aggressive' | 'passive' | 'unknown';
@@ -27,6 +28,7 @@ export interface BotStatsWithAF extends VpipPfrStats {
   af: number | null;
   cbet: number | null;
   wtsd: number | null;
+  checkRaise: number | null;
 }
 
 // 所有对手的综合画像
@@ -196,6 +198,7 @@ export function calculateOpponentProfile(
         af: getOpponentAF(p.id),
         cbet: getOpponentCBet(p.id),
         wtsd: getOpponentWTSD(p.id),
+        checkRaise: getOpponentCheckRaise(p.id),
       };
     }),
     avgFoldRate,
@@ -306,6 +309,22 @@ export function getOpponentWTSD(playerId: PlayerId): number | null {
   const stats = opponentCache.get(getKey(playerId));
   if (!stats) return null;
   return calculateWTSD(stats.postflop);
+}
+
+export function recordOpponentCheckRaiseOpportunity(playerId: PlayerId): void {
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.checkRaiseOpportunities++;
+}
+
+export function recordOpponentCheckRaise(playerId: PlayerId): void {
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.checkRaises++;
+}
+
+export function getOpponentCheckRaise(playerId: PlayerId): number | null {
+  const stats = opponentCache.get(getKey(playerId));
+  if (!stats) return null;
+  return calculateCheckRaise(stats.postflop);
 }
 
 export function resetOpponentStats(): void {

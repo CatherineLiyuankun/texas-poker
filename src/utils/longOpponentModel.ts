@@ -12,6 +12,7 @@ import {
   calculateAF,
   calculateCBet,
   calculateWTSD,
+  calculateCheckRaise,
 } from './opponentModelUtil';
 
 export type { PlayerType, VpipPfrStats } from './opponentModelUtil';
@@ -20,6 +21,7 @@ export interface PlayerLongStats extends VpipPfrStats {
   af: number | null;
   cbet: number | null;
   wtsd: number | null;
+  checkRaise: number | null;
 }
 
 interface PersistentStats {
@@ -40,6 +42,8 @@ interface StoredData {
     cbetCount?: number;
     flopsSeen?: number;
     showdownsReached?: number;
+    checkRaiseOpportunities?: number;
+    checkRaises?: number;
   }>;
 }
 
@@ -81,6 +85,8 @@ function loadFromStorage(): void {
         if (typeof value.cbetCount === 'number') postflop.cbetCount = value.cbetCount;
         if (typeof value.flopsSeen === 'number') postflop.flopsSeen = value.flopsSeen;
         if (typeof value.showdownsReached === 'number') postflop.showdownsReached = value.showdownsReached;
+        if (typeof value.checkRaiseOpportunities === 'number') postflop.checkRaiseOpportunities = value.checkRaiseOpportunities;
+        if (typeof value.checkRaises === 'number') postflop.checkRaises = value.checkRaises;
 
         statsCache.set(key, { handStats, postflop });
       }
@@ -104,6 +110,8 @@ function saveToStorage(): void {
       cbetCount: stats.postflop.cbetCount,
       flopsSeen: stats.postflop.flopsSeen,
       showdownsReached: stats.postflop.showdownsReached,
+      checkRaiseOpportunities: stats.postflop.checkRaiseOpportunities,
+      checkRaises: stats.postflop.checkRaises,
     };
   }
   const data: StoredData = { version: 1, players };
@@ -196,13 +204,31 @@ export function recordRealPlayerShowdownReached(playerId: PlayerId): void {
   saveToStorage();
 }
 
+export function recordRealPlayerCheckRaiseOpportunity(playerId: PlayerId): void {
+  loadFromStorage();
+
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.checkRaiseOpportunities++;
+
+  saveToStorage();
+}
+
+export function recordRealPlayerCheckRaise(playerId: PlayerId): void {
+  loadFromStorage();
+
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.checkRaises++;
+
+  saveToStorage();
+}
+
 export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
   loadFromStorage();
 
   const stats = statsCache.get(getKey(playerId));
   if (!stats) {
     const base = computeVpipPfr(playerId, createHandStats());
-    return { ...base, af: null, cbet: null, wtsd: null };
+    return { ...base, af: null, cbet: null, wtsd: null, checkRaise: null };
   }
   const base = computeVpipPfr(playerId, stats.handStats);
   return {
@@ -210,6 +236,7 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
     af: calculateAF(stats.postflop),
     cbet: calculateCBet(stats.postflop),
     wtsd: calculateWTSD(stats.postflop),
+    checkRaise: calculateCheckRaise(stats.postflop),
   };
 }
 
@@ -239,6 +266,8 @@ export function exportStats(): void {
       cbetCount: stats.postflop.cbetCount,
       flopsSeen: stats.postflop.flopsSeen,
       showdownsReached: stats.postflop.showdownsReached,
+      checkRaiseOpportunities: stats.postflop.checkRaiseOpportunities,
+      checkRaises: stats.postflop.checkRaises,
     };
   }
 
@@ -278,6 +307,8 @@ export async function importStats(file: File): Promise<boolean> {
         cbetCount?: number;
         flopsSeen?: number;
         showdownsReached?: number;
+        checkRaiseOpportunities?: number;
+        checkRaises?: number;
       };
       if (
         typeof imported.handsDealt !== 'number' ||
@@ -313,6 +344,12 @@ export async function importStats(file: File): Promise<boolean> {
         if (typeof imported.showdownsReached === 'number') {
           existing.postflop.showdownsReached = Math.max(existing.postflop.showdownsReached, imported.showdownsReached);
         }
+        if (typeof imported.checkRaiseOpportunities === 'number') {
+          existing.postflop.checkRaiseOpportunities = Math.max(existing.postflop.checkRaiseOpportunities, imported.checkRaiseOpportunities);
+        }
+        if (typeof imported.checkRaises === 'number') {
+          existing.postflop.checkRaises = Math.max(existing.postflop.checkRaises, imported.checkRaises);
+        }
       } else {
         const handStats = createHandStats();
         handStats.handsDealt = imported.handsDealt;
@@ -327,6 +364,8 @@ export async function importStats(file: File): Promise<boolean> {
         if (typeof imported.cbetCount === 'number') postflop.cbetCount = imported.cbetCount;
         if (typeof imported.flopsSeen === 'number') postflop.flopsSeen = imported.flopsSeen;
         if (typeof imported.showdownsReached === 'number') postflop.showdownsReached = imported.showdownsReached;
+        if (typeof imported.checkRaiseOpportunities === 'number') postflop.checkRaiseOpportunities = imported.checkRaiseOpportunities;
+        if (typeof imported.checkRaises === 'number') postflop.checkRaises = imported.checkRaises;
 
         statsCache.set(key, { handStats, postflop });
       }

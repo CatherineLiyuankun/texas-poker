@@ -9,7 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats, markOpponentNewHand, recordOpponentPreflopAction, recordOpponentPostflopAction, recordOpponentCbetOpportunity, recordOpponentCbetAction, recordOpponentFlopSeen, recordOpponentShowdownReached } from '../utils/opponentModel';
+import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats, markOpponentNewHand, recordOpponentPreflopAction, recordOpponentPostflopAction, recordOpponentCbetOpportunity, recordOpponentCbetAction, recordOpponentFlopSeen, recordOpponentShowdownReached, recordOpponentCheckRaiseOpportunity, recordOpponentCheckRaise } from '../utils/opponentModel';
 import {
   markNewHand,
   recordPreflopAction,
@@ -18,6 +18,8 @@ import {
   recordRealPlayerCbetAction,
   recordRealPlayerFlopSeen,
   recordRealPlayerShowdownReached,
+  recordRealPlayerCheckRaiseOpportunity,
+  recordRealPlayerCheckRaise,
   getAllRealPlayerStats,
   resetLongTermStats,
   exportStats,
@@ -29,6 +31,10 @@ import {
   clearPreflopAggressor,
   isFlopFirstActionRecorded,
   markFlopFirstActionRecorded,
+  recordPlayerCheck,
+  getCheckedPlayers,
+  clearCheckedPlayers,
+  isPlayerChecked,
 } from '../utils/opponentModelUtil';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
@@ -98,6 +104,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       if (keyRef.current !== currentHandKey) {
         keyRef.current = currentHandKey;
         clearPreflopAggressor();
+        clearCheckedPlayers();
         const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
         if (realPlayerIds.length > 0) {
           markNewHand(realPlayerIds);
@@ -205,6 +212,30 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             markFlopFirstActionRecorded();
           }
         }
+        // Check-raise 追踪
+        if (decision.action === 'check') {
+          recordPlayerCheck(currentPlayer.id, state.phase);
+        } else if (decision.action === 'raise' || decision.action === 'allin') {
+          if (isPlayerChecked(currentPlayer.id)) {
+            if (currentPlayer.isRealPlayer) {
+              recordRealPlayerCheckRaise(currentPlayer.id);
+            } else {
+              recordOpponentCheckRaise(currentPlayer.id);
+            }
+          }
+          // 有人加注后，所有 check 过的玩家都获得 check-raise 机会
+          const checked = getCheckedPlayers();
+          checked.forEach((checkedId) => {
+            const checkedPlayer = state.players.find((p) => p.id === checkedId);
+            if (checkedPlayer && !checkedPlayer.folded && checkedId !== currentPlayer.id) {
+              if (checkedPlayer.isRealPlayer) {
+                recordRealPlayerCheckRaiseOpportunity(checkedId);
+              } else {
+                recordOpponentCheckRaiseOpportunity(checkedId);
+              }
+            }
+          });
+        }
       }
     }, delay);
 
@@ -250,6 +281,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             recordRealPlayerCbetAction(playerId, didCbet);
             markFlopFirstActionRecorded();
           }
+        }
+        // Check-raise 追踪
+        if (action === 'check') {
+          recordPlayerCheck(playerId, state.phase);
+        } else if (action === 'raise' || action === 'allin') {
+          if (isPlayerChecked(playerId)) {
+            recordRealPlayerCheckRaise(playerId);
+          }
+          // 有人加注后，所有 check 过的玩家都获得 check-raise 机会
+          const checked = getCheckedPlayers();
+          checked.forEach((checkedId) => {
+            const checkedPlayer = state.players.find((p) => p.id === checkedId);
+            if (checkedPlayer && !checkedPlayer.folded && checkedId !== playerId) {
+              if (checkedPlayer.isRealPlayer) {
+                recordRealPlayerCheckRaiseOpportunity(checkedId);
+              } else {
+                recordOpponentCheckRaiseOpportunity(checkedId);
+              }
+            }
+          });
         }
       }
     }
