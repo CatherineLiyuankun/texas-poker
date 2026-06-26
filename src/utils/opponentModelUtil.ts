@@ -122,6 +122,8 @@ export interface PostflopStats {
   calls: number;
   cbetOpportunities: number;
   cbetCount: number;
+  flopsSeen: number;
+  showdownsReached: number;
 }
 
 export function createPostflopStats(): PostflopStats {
@@ -131,6 +133,8 @@ export function createPostflopStats(): PostflopStats {
     calls: 0,
     cbetOpportunities: 0,
     cbetCount: 0,
+    flopsSeen: 0,
+    showdownsReached: 0,
   };
 }
 
@@ -166,6 +170,11 @@ export function getAFLabel(af: number | null): string {
 export function calculateCBet(stats: PostflopStats): number | null {
   if (stats.cbetOpportunities === 0) return null;
   return (stats.cbetCount / stats.cbetOpportunities) * 100;
+}
+
+export function calculateWTSD(stats: PostflopStats): number | null {
+  if (stats.flopsSeen === 0) return null;
+  return (stats.showdownsReached / stats.flopsSeen) * 100;
 }
 
 let currentPreflopAggressor: PlayerId | null = null;

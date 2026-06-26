@@ -11,6 +11,7 @@ import {
   computeVpipPfr,
   calculateAF,
   calculateCBet,
+  calculateWTSD,
 } from './opponentModelUtil';
 
 export type OpponentTendency = 'aggressive' | 'passive' | 'unknown';
@@ -25,6 +26,7 @@ export interface OpponentInfo {
 export interface BotStatsWithAF extends VpipPfrStats {
   af: number | null;
   cbet: number | null;
+  wtsd: number | null;
 }
 
 // 所有对手的综合画像
@@ -189,7 +191,12 @@ export function calculateOpponentProfile(
     opponents: opponentInfos,
     botStats: opponents.map((p) => {
       const vpipPfr = getOpponentVpipPfr(p.id);
-      return { ...vpipPfr, af: getOpponentAF(p.id), cbet: getOpponentCBet(p.id) };
+      return {
+        ...vpipPfr,
+        af: getOpponentAF(p.id),
+        cbet: getOpponentCBet(p.id),
+        wtsd: getOpponentWTSD(p.id),
+      };
     }),
     avgFoldRate,
     hasAggressive,
@@ -283,6 +290,22 @@ export function getOpponentCBet(playerId: PlayerId): number | null {
   const stats = opponentCache.get(getKey(playerId));
   if (!stats) return null;
   return calculateCBet(stats.postflop);
+}
+
+export function recordOpponentFlopSeen(playerId: PlayerId): void {
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.flopsSeen++;
+}
+
+export function recordOpponentShowdownReached(playerId: PlayerId): void {
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.showdownsReached++;
+}
+
+export function getOpponentWTSD(playerId: PlayerId): number | null {
+  const stats = opponentCache.get(getKey(playerId));
+  if (!stats) return null;
+  return calculateWTSD(stats.postflop);
 }
 
 export function resetOpponentStats(): void {

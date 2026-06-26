@@ -9,13 +9,15 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats, markOpponentNewHand, recordOpponentPreflopAction, recordOpponentPostflopAction, recordOpponentCbetOpportunity, recordOpponentCbetAction } from '../utils/opponentModel';
+import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats, markOpponentNewHand, recordOpponentPreflopAction, recordOpponentPostflopAction, recordOpponentCbetOpportunity, recordOpponentCbetAction, recordOpponentFlopSeen, recordOpponentShowdownReached } from '../utils/opponentModel';
 import {
   markNewHand,
   recordPreflopAction,
   recordRealPlayerPostflopAction,
   recordRealPlayerCbetOpportunity,
   recordRealPlayerCbetAction,
+  recordRealPlayerFlopSeen,
+  recordRealPlayerShowdownReached,
   getAllRealPlayerStats,
   resetLongTermStats,
   exportStats,
@@ -122,6 +124,36 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           }
         }
       }
+    }
+  }, [state.phase, state.players]);
+
+  // 检测玩家看到翻牌（flop seen）
+  useEffect(() => {
+    if (state.phase === 'flop') {
+      state.players.forEach((player) => {
+        if (!player.folded) {
+          if (player.isRealPlayer) {
+            recordRealPlayerFlopSeen(player.id);
+          } else {
+            recordOpponentFlopSeen(player.id);
+          }
+        }
+      });
+    }
+  }, [state.phase]);
+
+  // 检测玩家到达摊牌（showdown reached）
+  useEffect(() => {
+    if (state.phase === 'showdown') {
+      state.players.forEach((player) => {
+        if (!player.folded) {
+          if (player.isRealPlayer) {
+            recordRealPlayerShowdownReached(player.id);
+          } else {
+            recordOpponentShowdownReached(player.id);
+          }
+        }
+      });
     }
   }, [state.phase, state.players]);
 

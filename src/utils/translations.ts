@@ -136,6 +136,7 @@ export const translations = {
     pfr: 'PFR',
     af: 'AF',
     cbet: 'CBet',
+    wtsd: 'WTSD', // 摊牌率
     type: 'Type', // 类型
     name: 'Name', // 选手名称
     resetStats: '重置数据 Reset Stats',
