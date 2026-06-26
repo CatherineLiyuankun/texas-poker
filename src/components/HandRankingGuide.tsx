@@ -18,12 +18,14 @@ export const HandRankingGuide: React.FC = () => {
   return (
     <div className="fixed bottom-4 right-4 bg-black/80 backdrop-blur-sm rounded-lg p-3 text-white text-xs shadow-lg border border-white/20">
       <div className="font-bold mb-2 text-yellow-400 text-sm">牌型大小 Hand Rankings</div>
-      {HAND_RANKS_IN_ORDER.map((rank, index) => (
-        <div key={rank} className="flex items-center gap-2 py-0.5">
-          <span className="text-yellow-300 w-4">{1 + index}.</span>
-          <span>{HAND_RANK_NAMES[rank]}</span>
-        </div>
-      ))}
+      <div className="grid grid-cols-2 grid-rows-5 grid-flow-col min-[1330px]:grid-cols-1 min-[1330px]:grid-flow-row gap-x-4">
+        {HAND_RANKS_IN_ORDER.map((rank, index) => (
+          <div key={rank} className="flex items-center gap-2 py-0.5">
+            <span className="text-yellow-300 w-4">{1 + index}.</span>
+            <span>{HAND_RANK_NAMES[rank]}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
