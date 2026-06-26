@@ -5,6 +5,9 @@ import {
   resetOpponentStats,
   calculateOpponentProfile,
   getOpponentAdjustments,
+  markOpponentNewHand,
+  recordOpponentPreflopAction,
+  getOpponentVpipPfr,
 } from '../opponentModel';
 import type { Player } from '../../types/poker';
 
@@ -154,6 +157,7 @@ describe('getOpponentAdjustments', () => {
   it('无对手时返回零调整', () => {
     const adj = getOpponentAdjustments({
       opponents: [],
+      botStats: [],
       avgFoldRate: 0.3,
       hasAggressive: false,
       hasPassive: false,
@@ -167,6 +171,7 @@ describe('getOpponentAdjustments', () => {
   it('激进对手提高 callPenalty', () => {
     const adj = getOpponentAdjustments({
       opponents: [{ id: 2, tendency: 'aggressive', foldRate: 0.2 }],
+      botStats: [],
       avgFoldRate: 0.2,
       hasAggressive: true,
       hasPassive: false,
@@ -178,6 +183,7 @@ describe('getOpponentAdjustments', () => {
   it('对手高弃牌率提高 raiseBonus', () => {
     const adj = getOpponentAdjustments({
       opponents: [{ id: 2, tendency: 'unknown', foldRate: 0.4 }],
+      botStats: [],
       avgFoldRate: 0.4,
       hasAggressive: false,
       hasPassive: false,
@@ -189,6 +195,7 @@ describe('getOpponentAdjustments', () => {
   it('被动对手提高 foldPenalty', () => {
     const adj = getOpponentAdjustments({
       opponents: [{ id: 2, tendency: 'passive', foldRate: 0.3 }],
+      botStats: [],
       avgFoldRate: 0.3,
       hasAggressive: false,
       hasPassive: true,
@@ -204,11 +211,110 @@ describe('getOpponentAdjustments', () => {
         { id: 3, tendency: 'aggressive', foldRate: 0.2 },
         { id: 4, tendency: 'aggressive', foldRate: 0.2 },
       ],
+      botStats: [],
       avgFoldRate: 0.2,
       hasAggressive: true,
       hasPassive: false,
       opponentCount: 3,
     });
     expect(adj.callPenalty).toBe(0.10);
+  });
+});
+
+describe('per-hand VPIP/PFR tracking', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  it('markOpponentNewHand 增加 handsDealt', () => {
+    markOpponentNewHand([3]);
+    markOpponentNewHand([3]);
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.handsDealt).toBe(2);
+  });
+
+  it('recordOpponentPreflopAction raise 计入 VPIP 和 PFR', () => {
+    markOpponentNewHand([3]);
+    recordOpponentPreflopAction(3, 'raise');
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(1);
+  });
+
+  it('recordOpponentPreflopAction call 只计入 VPIP', () => {
+    markOpponentNewHand([3]);
+    recordOpponentPreflopAction(3, 'call');
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(0);
+  });
+
+  it('recordOpponentPreflopAction fold 不计入 VPIP 和 PFR', () => {
+    markOpponentNewHand([3]);
+    recordOpponentPreflopAction(3, 'fold');
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(0);
+    expect(stats.pfr).toBe(0);
+  });
+
+  it('每手牌只记录首次翻牌前动作', () => {
+    markOpponentNewHand([3]);
+    recordOpponentPreflopAction(3, 'call');
+    recordOpponentPreflopAction(3, 'raise');
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(0);
+  });
+
+  it('allin 金额 > 当前下注时计入 PFR', () => {
+    markOpponentNewHand([3]);
+    recordOpponentPreflopAction(3, 'allin', 100, 50);
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(1);
+  });
+
+  it('allin 金额 <= 当前下注时不计入 PFR', () => {
+    markOpponentNewHand([3]);
+    recordOpponentPreflopAction(3, 'allin', 40, 50);
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(0);
+  });
+
+  it('数据不足 10 手时分类为 Unknown', () => {
+    for (let i = 0; i < 5; i++) {
+      markOpponentNewHand([3]);
+      recordOpponentPreflopAction(3, 'raise');
+    }
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.playerType).toBe('Unknown');
+  });
+
+  it('10 手后正确分类', () => {
+    for (let i = 0; i < 10; i++) {
+      markOpponentNewHand([3]);
+      recordOpponentPreflopAction(3, 'raise');
+    }
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.handsDealt).toBe(10);
+    expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(1);
+    expect(stats.playerType).not.toBe('Unknown');
+  });
+
+  it('calculateOpponentProfile 包含 botStats', () => {
+    markOpponentNewHand([2, 3]);
+    recordOpponentPreflopAction(2, 'raise');
+    recordOpponentPreflopAction(3, 'call');
+
+    const players = [
+      createMockPlayer(1),
+      createMockPlayer(2),
+      createMockPlayer(3),
+    ];
+    const profile = calculateOpponentProfile(players, 1);
+    expect(profile.botStats).toBeDefined();
+    expect(profile.botStats.length).toBe(2);
   });
 });

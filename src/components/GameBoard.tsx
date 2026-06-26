@@ -9,7 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats } from '../utils/opponentModel';
+import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats, markOpponentNewHand, recordOpponentPreflopAction } from '../utils/opponentModel';
 import {
   markNewHand,
   recordPreflopAction,
@@ -89,6 +89,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         if (realPlayerIds.length > 0) {
           markNewHand(realPlayerIds);
         }
+        const botPlayerIds = state.players.filter((p) => !p.isRealPlayer).map((p) => p.id);
+        if (botPlayerIds.length > 0) {
+          markOpponentNewHand(botPlayerIds);
+        }
       }
     }
   }, [state.phase, state.players, state.dealer]);
@@ -116,6 +120,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         decision.action === 'allin' ? currentPlayer.chips + currentPlayer.bet : undefined,
         decision.action === 'allin' ? toCall : undefined,
       );
+      // 记录 bot 翻牌前动作用于 per-hand VPIP/PFR 统计
+      if (state.phase === 'preflop') {
+        recordOpponentPreflopAction(
+          currentPlayer.id,
+          decision.action,
+          decision.action === 'allin' ? currentPlayer.chips + currentPlayer.bet : undefined,
+          decision.action === 'allin' ? toCall : undefined,
+        );
+      }
     }, delay);
 
     return () => clearTimeout(timer);

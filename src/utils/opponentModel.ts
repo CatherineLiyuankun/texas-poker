@@ -1,4 +1,12 @@
 import type { PlayerId, Action, Player } from '../types/poker';
+import {
+  type VpipPfrStats,
+  type HandStats,
+  createHandStats,
+  incrementHandCount,
+  applyPreflopAction,
+  computeVpipPfr,
+} from './opponentModelUtil';
 
 export type OpponentTendency = 'aggressive' | 'passive' | 'unknown';
 
@@ -12,6 +20,7 @@ export interface OpponentInfo {
 // 所有对手的综合画像
 export interface OpponentProfile {
   opponents: OpponentInfo[];
+  botStats: VpipPfrStats[];
   avgFoldRate: number;
   hasAggressive: boolean;
   hasPassive: boolean;
@@ -31,6 +40,7 @@ interface OpponentStats {
   calls: number;
   folds: number;
   checks: number;
+  handStats: HandStats;
 }
 
 const opponentCache = new Map<string, OpponentStats>();
@@ -48,6 +58,7 @@ function getOrCreateStats(playerId: PlayerId): OpponentStats {
       calls: 0,
       folds: 0,
       checks: 0,
+      handStats: createHandStats(),
     });
   }
   return opponentCache.get(key)!;
@@ -164,6 +175,7 @@ export function calculateOpponentProfile(
 
   return {
     opponents: opponentInfos,
+    botStats: opponents.map((p) => getOpponentVpipPfr(p.id)),
     avgFoldRate,
     hasAggressive,
     hasPassive,
@@ -199,6 +211,31 @@ export function getOpponentAdjustments(
   const foldPenalty = Math.min(passiveCount * 0.04, 0.08);
 
   return { raiseBonus, callPenalty, foldPenalty };
+}
+
+export function getOpponentVpipPfr(playerId: PlayerId): VpipPfrStats {
+  const stats = opponentCache.get(getKey(playerId));
+  if (!stats) {
+    return computeVpipPfr(playerId, createHandStats());
+  }
+  return computeVpipPfr(playerId, stats.handStats);
+}
+
+export function markOpponentNewHand(playerIds: PlayerId[]): void {
+  for (const playerId of playerIds) {
+    const stats = getOrCreateStats(playerId);
+    incrementHandCount(stats.handStats);
+  }
+}
+
+export function recordOpponentPreflopAction(
+  playerId: PlayerId,
+  action: Action,
+  allInAmount?: number,
+  currentBet?: number,
+): void {
+  const stats = getOrCreateStats(playerId);
+  applyPreflopAction(stats.handStats, action, allInAmount, currentBet);
 }
 
 export function resetOpponentStats(): void {

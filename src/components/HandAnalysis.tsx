@@ -8,6 +8,7 @@ import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
 import type { OpponentProfile } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { VpipPfrStats } from '../utils/opponentModelUtil';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -287,75 +288,72 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* 对手画像展示：每个对手的单独风格和弃牌率 */}
-      {opponentProfile && opponentProfile.opponents.length > 0 && (
-        <div className="space-y-0.5">
-          {opponentProfile.opponents.map((opp) => {
-            const { opponentStyle } = translations.handAnalysis;
-            const tendencyLabel =
-              opp.tendency === 'aggressive'
-                ? opponentStyle.aggressive
-                : opp.tendency === 'passive'
-                  ? opponentStyle.passive
-                  : opponentStyle.unknown;
-            const tendencyColor =
-              opp.tendency === 'aggressive'
-                ? 'text-red-300'
-                : opp.tendency === 'passive'
-                  ? 'text-blue-300'
-                  : 'text-white/50';
-            return (
-              <Row
-                key={opp.id}
-                label={`${translations.playerArea.bot}${opp.id}`}
-                value={`${tendencyLabel} (${(opp.foldRate * 100).toFixed(0)}%)`}
-                color={tendencyColor}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {/* 长期玩家统计 VPIP/PFR */}
-      {longStats && longStats.length > 0 && (
-        <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
-          <div className="text-white/50 font-medium text-center tracking-wide">
-            {translations.playerStats.title}
+      {/* 统一玩家统计 VPIP/PFR 表格 */}
+      {(() => {
+        const botStats: VpipPfrStats[] = opponentProfile?.botStats ?? [];
+        const realStats: VpipPfrStats[] = longStats ?? [];
+        const allStats = [...botStats, ...realStats];
+        if (allStats.length === 0) return null;
+        return (
+          <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
+            <div className="text-white/50 font-medium text-center tracking-wide">
+              {translations.playerStats.title}
+            </div>
+            <table className="w-full text-[10px]">
+              <thead>
+                <tr className="text-white/50">
+                  <th className="text-left">Name</th>
+                  <th className="text-right">{translations.playerStats.vpip}</th>
+                  <th className="text-right">{translations.playerStats.pfr}</th>
+                  <th className="text-right">{translations.playerStats.type}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {botStats.map((stat) => {
+                  const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
+                  const typeColor = getPlayerTypeColor(stat.playerType);
+                  return (
+                    <tr key={`bot-${stat.playerId}`} className="text-white">
+                      <td className="text-left">{translations.playerArea.bot}{stat.playerId}</td>
+                      <td className="text-right">
+                        {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
+                      </td>
+                      <td className="text-right">
+                        {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right font-medium ${typeColor}`}>
+                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
+                          ? translations.playerStats.insufficientData
+                          : typeLabel}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {realStats.map((stat) => {
+                  const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
+                  const typeColor = getPlayerTypeColor(stat.playerType);
+                  return (
+                    <tr key={`real-${stat.playerId}`} className="text-white">
+                      <td className="text-left">P{stat.playerId}</td>
+                      <td className="text-right">
+                        {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
+                      </td>
+                      <td className="text-right">
+                        {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right font-medium ${typeColor}`}>
+                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
+                          ? translations.playerStats.insufficientData
+                          : typeLabel}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-          <table className="w-full text-[10px]">
-            <thead>
-              <tr className="text-white/50">
-                <th className="text-left">{translations.playerStats.hands}</th>
-                <th className="text-right">{translations.playerStats.vpip}</th>
-                <th className="text-right">{translations.playerStats.pfr}</th>
-                <th className="text-right">{translations.playerStats.type}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {longStats.map((stat) => {
-                const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
-                const typeColor = getPlayerTypeColor(stat.playerType);
-                return (
-                  <tr key={stat.playerId} className="text-white">
-                    <td className="text-left">P{stat.playerId}</td>
-                    <td className="text-right">
-                      {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
-                    </td>
-                    <td className="text-right">
-                      {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
-                    </td>
-                    <td className={`text-right font-medium ${typeColor}`}>
-                      {stat.playerType === 'Unknown' && stat.handsDealt < 10
-                        ? translations.playerStats.insufficientData
-                        : typeLabel}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+        );
+      })()}
 
       {displayEquity !== null && recommendation && (
         <div className="border-t border-white/10 pt-1 mt-1">

@@ -23,11 +23,12 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **VPIP** (Voluntarily Put Money In Pot): Percentage of hands where a player voluntarily enters the pot preflop
   - **PFR** (Pre-Flop Raise): Percentage of hands where a player raises preflop
   - **Player Type Classification**: Automatically classifies players based on VPIP/PFR ranges:
-    - **Nit** (Tight-Passive): VPIP < 20%, PFR < 12%
-    - **TAG** (Tight-Aggressive): VPIP 20%-28%, PFR 16%-25%
-    - **LAG** (Loose-Aggressive): VPIP 28%-38%, PFR 20%-32%
-    - **Calling Station** (Loose-Passive): VPIP > 35%, PFR < 15%
-    - **Maniac**: VPIP >= 50%, PFR >= 35%
+    - **Nit** (Tight-Passive): VPIP <= 20%, PFR < 12%, Gap > 8%
+    - **TAG** (Tight-Aggressive): VPIP 20%-28%, PFR 16%-32%, Gap <= 8%
+    - **LAG** (Loose-Aggressive): VPIP <= 38%, PFR 20%-32%, Gap <= 8%
+    - **Calling Station** (Loose-Passive): VPIP > 35%, PFR < 15%, Gap > 20%
+    - **Maniac**: VPIP >= 45%, PFR >= 35%
+    - **Others**: Does not fit any of the above categories
   - **Persistent Storage**: Data saved in localStorage, survives browser restarts
   - **Export/Import**: Backup stats to JSON file and restore later
   - **Stats Table**: Displayed in AI Analysis panel showing VPIP, PFR, and player type per real player
@@ -125,11 +126,12 @@ npm run build
   - **VPIP** (主动入池率): 玩家翻牌前自愿入池的手牌百分比
   - **PFR** (翻牌前加注率): 玩家翻牌前加注的手牌百分比
   - **玩家类型分类**: 基于 VPIP/PFR 区间自动分类：
-    - **Nit** (紧弱): VPIP < 20%, PFR < 12%
-    - **TAG** (紧凶): VPIP 20%-28%, PFR 16%-25%
-    - **LAG** (松凶): VPIP 28%-38%, PFR 20%-32%
-    - **Calling Station** (跟注站): VPIP > 35%, PFR < 15%
-    - **Maniac** (疯子): VPIP >= 50%, PFR >= 35%
+    - **Nit** (紧弱): VPIP <= 20%, PFR < 12%, Gap > 8%
+    - **TAG** (紧凶): VPIP 20%-28%, PFR 16%-32%, Gap <= 8%
+    - **LAG** (松凶): VPIP <= 38%, PFR 20%-32%, Gap <= 8%
+    - **Calling Station** (跟注站): VPIP > 35%, PFR < 15%, Gap > 20%
+    - **Maniac** (疯子): VPIP >= 45%, PFR >= 35%
+    - **Others** (其他): 不属于以上类型
   - **持久化存储**: 数据保存在 localStorage，浏览器重启后数据保留
   - **导出/导入**: 支持将统计数据备份为 JSON 文件并恢复
   - **统计表格**: 在 AI 分析面板中显示每位真人玩家的 VPIP、PFR 和玩家类型
