@@ -706,9 +706,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               </div>
             )}
 
-            <div className="fixed top-20 right-30 z-50 flex flex-col items-end gap-3">
+            <div className="fixed top-[60px] right-30 z-50 flex flex-col items-start gap-3">
               {roundSettled && (
-                <div className="text-right">
+                <div className="text-left">
+                  <button
+                    onClick={() => {
+                      resetRound();
+                    }}
+                    className="mb-4 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
+                  >
+                    {translations.gameBoard.nextRound}
+                  </button>
+
                   <div className="text-3xl font-bold text-yellow-400 mb-2">
                     {state.winner !== null
                       ? translations.gameBoard.playerWins(
@@ -736,15 +745,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                       })}
                     </div>
                   )}
-
-                  <button
-                    onClick={() => {
-                      resetRound();
-                    }}
-                    className="mt-4 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
-                  >
-                    {translations.gameBoard.nextRound}
-                  </button>
                 </div>
               )}
 

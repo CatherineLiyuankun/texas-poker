@@ -53,7 +53,7 @@ export const translations = {
     startGame: 'Start Game',
     playerWins: (name: string) => `${name} 获胜！ Wins!`,
     splitPot: '平局，平分底池 Split Pot',
-    nextRound: '下一局 Next Round',
+    nextRound: 'Next Round', // 下一局 
     dealFlop: '发翻牌 Deal Flop',
     dealTurn: '发转牌 Deal Turn',
     dealRiver: '发河牌 Deal River',
