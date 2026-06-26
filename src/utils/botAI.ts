@@ -11,6 +11,7 @@ import { calculateEquity } from './equityCalculator';
 import {
   calculateOpponentProfile,
   getOpponentAdjustments,
+  type OpponentAdjustments,
 } from './opponentModel';
 import { translations } from './translations';
 
@@ -82,12 +83,20 @@ function decidePreflop(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
+  adj: OpponentAdjustments,
 ): BotDecision {
   const tier = getPreflopTier(player.hand);
   const isFacingRaise = ctx.toCall > 0;
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
+  const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
+  const tightenCall = adj.callPenalty;
+  const foldBoost = adj.foldPenalty > 0 ? 0.10 : 0;
 
+  // Tier 1-2: Premium/Strong (~100% VPIP)
   if (tier <= 2) {
+    if (tier === 2 && Math.random() < 0.10 && flags.canCallResult) {
+      return { action: 'call' };
+    }
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
       return { action: 'allin' };
     }
@@ -98,30 +107,84 @@ function decidePreflop(
     if (flags.canCallResult) return { action: 'call' };
   }
 
+  // Tier 3: Playable (~85% VPIP)
   if (tier === 3) {
-    if (isFacingBigRaise && !ctx.isLatePosition) {
-      if (flags.canFoldResult) return { action: 'fold' };
+    if (isFacingBigRaise) {
+      if (ctx.isLatePosition) {
+        if (flags.canRaiseResult && Math.random() < 0.15) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
+        }
+        if (flags.canCallResult && Math.random() < 0.50) {
+          return { action: 'call' };
+        }
+        if (flags.canFoldResult) return { action: 'fold' };
+      } else {
+        if (flags.canFoldResult && Math.random() < (0.60 + foldBoost)) {
+          return { action: 'fold' };
+        }
+        if (flags.canCallResult) return { action: 'call' };
+      }
     }
-    if (ctx.isLatePosition && flags.canRaiseResult && !isFacingBigRaise) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+    if (ctx.isLatePosition && !isFacingBigRaise && flags.canRaiseResult) {
+      if (Math.random() < (0.42 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+      }
     }
     if (flags.canCallResult) return { action: 'call' };
     if (flags.canCheckResult) return { action: 'check' };
   }
 
+  // Tier 4: Speculative (~50% VPIP)
   if (tier === 4) {
     if (isFacingBigRaise) {
+      if (flags.canFoldResult && Math.random() < (0.65 + foldBoost)) {
+        return { action: 'fold' };
+      }
+      if (flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
     }
     if (flags.canCheckResult) return { action: 'check' };
-    if (flags.canCallResult && ctx.potOdds < 0.25) return { action: 'call' };
+    if (ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult) {
+      if (Math.random() < (0.50 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+      }
+    }
+    if (ctx.isLatePosition && isFacingRaise && !isFacingBigRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.12) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
+      }
+    }
+    if (flags.canCallResult && ctx.potOdds < (0.30 - tightenCall)) {
+      return { action: 'call' };
+    }
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.40 - tightenCall)) {
+      return { action: 'call' };
+    }
     if (flags.canCallResult && ctx.isLatePosition && !isFacingRaise) {
       return { action: 'call' };
     }
   }
 
+  // Tier 5-6: Marginal/Trash (~9.5% VPIP, position-driven)
   if (flags.canCheckResult) return { action: 'check' };
-  if (flags.canCallResult && ctx.potOdds < 0.08) return { action: 'call' };
+
+  if (ctx.isLatePosition && !isFacingRaise) {
+    if (flags.canRaiseResult && Math.random() < (0.33 + stealBoost)) {
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+    }
+    if (flags.canCallResult && Math.random() < 0.45) {
+      return { action: 'call' };
+    }
+  }
+
+  if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.10 - tightenCall)) {
+    return { action: 'call' };
+  }
+
+  if (flags.canCallResult && ctx.potOdds < (0.06 - tightenCall)) {
+    return { action: 'call' };
+  }
+
   if (flags.canFoldResult) return { action: 'fold' };
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
@@ -299,9 +362,12 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     isLatePosition: position >= Math.floor(state.players.length * 0.6),
   };
 
+  const oppProfile = calculateOpponentProfile(state.players, player.id);
+  const adj = getOpponentAdjustments(oppProfile);
+
   switch (state.phase) {
     case 'preflop':
-      return decidePreflop(player, state, flags, ctx);
+      return decidePreflop(player, state, flags, ctx, adj);
     case 'flop':
     case 'turn':
       return decidePostflop(player, state, flags, ctx);

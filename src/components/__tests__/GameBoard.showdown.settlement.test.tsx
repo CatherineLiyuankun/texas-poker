@@ -29,9 +29,8 @@ describe('showdown结算', () => {
 
       const progressed = clickFirstEnabled([
         /发翻牌|发转牌|发河牌|摊牌/,
-        /跟注/,
-        /看牌/,
-        /看牌 \(Check\)/,
+        /Call/,
+        /Check/,
       ]);
 
       if (!progressed) {
