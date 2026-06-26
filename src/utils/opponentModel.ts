@@ -2,10 +2,15 @@ import type { PlayerId, Action, Player } from '../types/poker';
 import {
   type VpipPfrStats,
   type HandStats,
+  type PostflopStats,
   createHandStats,
+  createPostflopStats,
   incrementHandCount,
   applyPreflopAction,
+  recordPostflopAction,
   computeVpipPfr,
+  calculateAF,
+  calculateCBet,
 } from './opponentModelUtil';
 
 export type OpponentTendency = 'aggressive' | 'passive' | 'unknown';
@@ -17,10 +22,15 @@ export interface OpponentInfo {
   foldRate: number;
 }
 
+export interface BotStatsWithAF extends VpipPfrStats {
+  af: number | null;
+  cbet: number | null;
+}
+
 // 所有对手的综合画像
 export interface OpponentProfile {
   opponents: OpponentInfo[];
-  botStats: VpipPfrStats[];
+  botStats: BotStatsWithAF[];
   avgFoldRate: number;
   hasAggressive: boolean;
   hasPassive: boolean;
@@ -41,6 +51,7 @@ interface OpponentStats {
   folds: number;
   checks: number;
   handStats: HandStats;
+  postflop: PostflopStats;
 }
 
 const opponentCache = new Map<string, OpponentStats>();
@@ -59,6 +70,7 @@ function getOrCreateStats(playerId: PlayerId): OpponentStats {
       folds: 0,
       checks: 0,
       handStats: createHandStats(),
+      postflop: createPostflopStats(),
     });
   }
   return opponentCache.get(key)!;
@@ -175,7 +187,10 @@ export function calculateOpponentProfile(
 
   return {
     opponents: opponentInfos,
-    botStats: opponents.map((p) => getOpponentVpipPfr(p.id)),
+    botStats: opponents.map((p) => {
+      const vpipPfr = getOpponentVpipPfr(p.id);
+      return { ...vpipPfr, af: getOpponentAF(p.id), cbet: getOpponentCBet(p.id) };
+    }),
     avgFoldRate,
     hasAggressive,
     hasPassive,
@@ -236,6 +251,38 @@ export function recordOpponentPreflopAction(
 ): void {
   const stats = getOrCreateStats(playerId);
   applyPreflopAction(stats.handStats, action, allInAmount, currentBet);
+}
+
+export function recordOpponentPostflopAction(
+  playerId: PlayerId,
+  action: Action,
+): void {
+  const stats = getOrCreateStats(playerId);
+  recordPostflopAction(stats.postflop, action);
+}
+
+export function getOpponentAF(playerId: PlayerId): number | null {
+  const stats = opponentCache.get(getKey(playerId));
+  if (!stats) return null;
+  return calculateAF(stats.postflop);
+}
+
+export function recordOpponentCbetOpportunity(playerId: PlayerId): void {
+  const stats = getOrCreateStats(playerId);
+  stats.postflop.cbetOpportunities++;
+}
+
+export function recordOpponentCbetAction(playerId: PlayerId, didCbet: boolean): void {
+  const stats = getOrCreateStats(playerId);
+  if (didCbet) {
+    stats.postflop.cbetCount++;
+  }
+}
+
+export function getOpponentCBet(playerId: PlayerId): number | null {
+  const stats = opponentCache.get(getKey(playerId));
+  if (!stats) return null;
+  return calculateCBet(stats.postflop);
 }
 
 export function resetOpponentStats(): void {

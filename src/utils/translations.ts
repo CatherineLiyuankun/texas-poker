@@ -134,12 +134,14 @@ export const translations = {
     title: '玩家数据 Player Stats',
     vpip: 'VPIP',
     pfr: 'PFR',
-    type: '类型 Type',
-    hands: '手牌',
+    af: 'AF',
+    cbet: 'CBet',
+    type: 'Type', // 类型
+    name: 'Name', // 选手名称
     resetStats: '重置数据 Reset Stats',
     exportStats: 'Export', // 导出 
     importStats: 'Import', // 导入 
-    insufficientData: '— 数据不足',
+    insufficientData: '--', // 数据不足
     importSuccess: 'Import Success', // 导入成功
     importFailed: 'Import Failed', // 导入失败
     types: {

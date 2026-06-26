@@ -115,3 +115,80 @@ export function computeVpipPfr(
     playerType: classifyPlayerType(vpip, pfr, handsDealt),
   };
 }
+
+export interface PostflopStats {
+  bets: number;
+  raises: number;
+  calls: number;
+  cbetOpportunities: number;
+  cbetCount: number;
+}
+
+export function createPostflopStats(): PostflopStats {
+  return {
+    bets: 0,
+    raises: 0,
+    calls: 0,
+    cbetOpportunities: 0,
+    cbetCount: 0,
+  };
+}
+
+export function recordPostflopAction(stats: PostflopStats, action: Action): void {
+  switch (action) {
+    case 'raise':
+      stats.raises++;
+      break;
+    case 'call':
+      stats.calls++;
+      break;
+    case 'allin':
+      stats.raises++;
+      break;
+    case 'check':
+    case 'fold':
+      break;
+  }
+}
+
+export function calculateAF(stats: PostflopStats): number | null {
+  if (stats.calls === 0) return null;
+  return (stats.bets + stats.raises) / stats.calls;
+}
+
+export function getAFLabel(af: number | null): string {
+  if (af === null) return '—';
+  if (af > 3) return '激进 Agg';
+  if (af >= 1) return '平衡 Bal';
+  return '被动 Pas';
+}
+
+export function calculateCBet(stats: PostflopStats): number | null {
+  if (stats.cbetOpportunities === 0) return null;
+  return (stats.cbetCount / stats.cbetOpportunities) * 100;
+}
+
+let currentPreflopAggressor: PlayerId | null = null;
+let flopFirstActionRecorded = false;
+
+export function setPreflopAggressor(playerId: PlayerId): void {
+  currentPreflopAggressor = playerId;
+  flopFirstActionRecorded = false;
+}
+
+export function getPreflopAggressor(): PlayerId | null {
+  return currentPreflopAggressor;
+}
+
+export function clearPreflopAggressor(): void {
+  currentPreflopAggressor = null;
+  flopFirstActionRecorded = false;
+}
+
+export function isFlopFirstActionRecorded(): boolean {
+  return flopFirstActionRecorded;
+}
+
+export function markFlopFirstActionRecorded(): void {
+  flopFirstActionRecorded = true;
+}

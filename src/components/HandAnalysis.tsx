@@ -6,9 +6,8 @@ import { detectDraws, type DrawInfo } from '../utils/drawDetector';
 import { calculateEquity } from '../utils/equityCalculator';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
-import type { OpponentProfile } from '../utils/opponentModel';
+import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
-import type { VpipPfrStats } from '../utils/opponentModelUtil';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -288,12 +287,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* 统一玩家统计 VPIP/PFR 表格 */}
+      {/* 统一玩家统计 VPIP/PFR/AF 表格 */}
       {(() => {
-        const botStats: VpipPfrStats[] = opponentProfile?.botStats ?? [];
-        const realStats: VpipPfrStats[] = longStats ?? [];
-        const allStats = [...botStats, ...realStats];
-        if (allStats.length === 0) return null;
+        const botStats: BotStatsWithAF[] = opponentProfile?.botStats ?? [];
+        const realStats: PlayerLongStats[] = longStats ?? [];
+        if (botStats.length === 0 && realStats.length === 0) return null;
         return (
           <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
             <div className="text-white/50 font-medium text-center tracking-wide">
@@ -302,9 +300,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             <table className="w-full text-[10px]">
               <thead>
                 <tr className="text-white/50">
-                  <th className="text-left">Name</th>
+                  <th className="text-left">{translations.playerStats.name}</th>
                   <th className="text-right">{translations.playerStats.vpip}</th>
                   <th className="text-right">{translations.playerStats.pfr}</th>
+                  <th className="text-right">{translations.playerStats.af}</th>
+                  <th className="text-right">{translations.playerStats.cbet}</th>
                   <th className="text-right">{translations.playerStats.type}</th>
                 </tr>
               </thead>
@@ -320,6 +320,12 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       </td>
                       <td className="text-right">
                         {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
+                      </td>
+                      <td className="text-right">
+                        {stat.af !== null ? stat.af.toFixed(1) : '—'}
+                      </td>
+                      <td className="text-right">
+                        {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
                       </td>
                       <td className={`text-right font-medium ${typeColor}`}>
                         {stat.playerType === 'Unknown' && stat.handsDealt < 10
@@ -340,6 +346,12 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       </td>
                       <td className="text-right">
                         {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
+                      </td>
+                      <td className="text-right">
+                        {stat.af !== null ? stat.af.toFixed(1) : '—'}
+                      </td>
+                      <td className="text-right">
+                        {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
                       </td>
                       <td className={`text-right font-medium ${typeColor}`}>
                         {stat.playerType === 'Unknown' && stat.handsDealt < 10
