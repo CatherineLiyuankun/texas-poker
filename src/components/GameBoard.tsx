@@ -10,6 +10,14 @@ import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositi
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats } from '../utils/opponentModel';
+import {
+  markNewHand,
+  recordPreflopAction,
+  getAllRealPlayerStats,
+  resetLongTermStats,
+  exportStats,
+  importStats,
+} from '../utils/longOpponentModel';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import { translations } from '../utils/translations';
 
@@ -41,6 +49,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const gameInitialized = useRef(false);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasBettingCompleteRef = useRef(false);
+  const handNumberRef = useRef(0);
+  const importFileRef = useRef<HTMLInputElement | null>(null);
+  const [importMessage, setImportMessage] = React.useState<string | null>(null);
 
   useEffect(() => {
     if (
@@ -66,6 +77,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       collectPot(state.winner);
     }
   }, [state.players, state.winner, state.mainPot, collectPot]);
+
+  // 检测新牌局开始，记录长期统计
+  useEffect(() => {
+    if (state.phase === 'preflop' && state.players.length > 0 && state.players[0].hand.length > 0) {
+      const currentHandKey = `${state.dealer}-${state.players[0].hand[0]?.rank}`;
+      const keyRef = handNumberRef as React.MutableRefObject<string | number>;
+      if (keyRef.current !== currentHandKey) {
+        keyRef.current = currentHandKey;
+        const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
+        if (realPlayerIds.length > 0) {
+          markNewHand(realPlayerIds);
+        }
+      }
+    }
+  }, [state.phase, state.players, state.dealer]);
 
   const noRealCanAct = !state.players.some(
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
@@ -98,7 +124,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleAction = (action: Action, amount?: number) => {
     const playerId = state.currentPlayer;
     playerAction(playerId, action, amount);
-    // 统一记录真人行动（all-in 时传入上下文区分主动/被迫）
     const player = state.players.find((p) => p.id === playerId);
     if (player) {
       const toCall = state.lastBet - player.bet;
@@ -108,6 +133,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         action === 'allin' ? player.chips + player.bet : undefined,
         action === 'allin' ? toCall : undefined,
       );
+      // 记录真人翻牌前动作用于长期统计
+      if (state.phase === 'preflop' && player.isRealPlayer) {
+        recordPreflopAction(
+          playerId,
+          action,
+          action === 'allin' ? player.chips + player.bet : undefined,
+          action === 'allin' ? toCall : undefined,
+        );
+      }
     }
   };
 
@@ -242,19 +276,75 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   };
 
+  const handleExport = () => {
+    exportStats();
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const success = await importStats(file);
+    setImportMessage(
+      success ? translations.playerStats.importSuccess : translations.playerStats.importFailed,
+    );
+    setTimeout(() => setImportMessage(null), 3000);
+    e.target.value = '';
+  };
+
+  const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
+  const longStats = realPlayerIds.length > 0 ? getAllRealPlayerStats(realPlayerIds) : undefined;
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-hidden">
       <div className="max-w-[1200px] mx-auto">
         <div className="flex justify-between items-center mb-4">
-          <button
-            onClick={onBackToMenu}
-            className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-bold"
-          >
-            {translations.gameBoard.backToMenu}
-          </button>
-          <div className="text-white/60">
-            {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
-            {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onBackToMenu}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-bold"
+            >
+              {translations.gameBoard.backToMenu}
+            </button>
+            <button
+              onClick={() => {
+                if (confirm(translations.playerStats.resetStats + '?')) {
+                  resetLongTermStats();
+                }
+              }}
+              className="px-2 py-1 bg-red-900/40 hover:bg-red-700/60 text-white/70 hover:text-white text-xs rounded"
+              title={translations.playerStats.resetStats}
+            >
+              {translations.playerStats.resetStats}
+            </button>
+            <button
+              onClick={handleExport}
+              className="px-2 py-1 bg-blue-900/40 hover:bg-blue-700/60 text-white/70 hover:text-white text-xs rounded"
+              title={translations.playerStats.exportStats}
+            >
+              {translations.playerStats.exportStats}
+            </button>
+            <label
+              className="px-2 py-1 bg-green-900/40 hover:bg-green-700/60 text-white/70 hover:text-white text-xs rounded cursor-pointer"
+              title={translations.playerStats.importStats}
+            >
+              {translations.playerStats.importStats}
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+            </label>
+          </div>
+          <div className="flex items-center gap-3">
+            {importMessage && (
+              <span className="text-xs text-yellow-400">{importMessage}</span>
+            )}
+            <div className="text-white/60">
+              {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
+              {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
+            </div>
           </div>
         </div>
 
@@ -361,6 +451,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             ? calculateOpponentProfile(state.players, player.id)
                             : undefined
                         }
+                        longStats={player.isRealPlayer ? longStats : undefined}
                         potOdds={(() => {
                           const toCall = state.lastBet - player.bet;
                           if (toCall <= 0) return 0;
@@ -501,6 +592,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     </table>
                   </div>
                 )}
+
               </div>
             )}
 

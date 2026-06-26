@@ -7,6 +7,7 @@ import { calculateEquity } from '../utils/equityCalculator';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
 import type { OpponentProfile } from '../utils/opponentModel';
+import type { PlayerLongStats } from '../utils/longOpponentModel';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -15,6 +16,7 @@ interface HandAnalysisProps {
   numOpponents: number;
   potOdds: number;
   opponentProfile?: OpponentProfile;
+  longStats?: PlayerLongStats[];
 }
 
 // 建议逻辑：仅基于胜率 + 赔率
@@ -71,6 +73,18 @@ function getCommunityByPhase(
   }
 }
 
+function getPlayerTypeColor(playerType: string): string {
+  switch (playerType) {
+    case 'TAG': return 'text-green-400';
+    case 'LAG': return 'text-orange-400';
+    case 'Nit': return 'text-blue-400';
+    case 'Calling Station': return 'text-red-400';
+    case 'Maniac': return 'text-purple-400';
+    case 'Others': return 'text-white';
+    default: return 'text-white/50';
+  }
+}
+
 function getCardsToCome(phase: GamePhase): number {
   switch (phase) {
     case 'preflop': return 5;
@@ -115,6 +129,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   numOpponents,
   potOdds,
   opponentProfile,
+  longStats,
 }) => {
   const [equity, setEquity] = useState<number | null>(null);
 
@@ -298,6 +313,47 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               />
             );
           })}
+        </div>
+      )}
+
+      {/* 长期玩家统计 VPIP/PFR */}
+      {longStats && longStats.length > 0 && (
+        <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
+          <div className="text-white/50 font-medium text-center tracking-wide">
+            {translations.playerStats.title}
+          </div>
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="text-white/50">
+                <th className="text-left">{translations.playerStats.hands}</th>
+                <th className="text-right">{translations.playerStats.vpip}</th>
+                <th className="text-right">{translations.playerStats.pfr}</th>
+                <th className="text-right">{translations.playerStats.type}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {longStats.map((stat) => {
+                const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
+                const typeColor = getPlayerTypeColor(stat.playerType);
+                return (
+                  <tr key={stat.playerId} className="text-white">
+                    <td className="text-left">P{stat.playerId}</td>
+                    <td className="text-right">
+                      {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className="text-right">
+                      {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
+                    </td>
+                    <td className={`text-right font-medium ${typeColor}`}>
+                      {stat.playerType === 'Unknown' && stat.handsDealt < 10
+                        ? translations.playerStats.insufficientData
+                        : typeLabel}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

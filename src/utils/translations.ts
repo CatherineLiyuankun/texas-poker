@@ -130,4 +130,26 @@ export const translations = {
     player: '玩家',
     potTotal: '池总额',
   },
+  playerStats: {
+    title: '玩家数据 Player Stats',
+    vpip: 'VPIP',
+    pfr: 'PFR',
+    type: '类型 Type',
+    hands: '手牌',
+    resetStats: '重置数据 Reset Stats',
+    exportStats: 'Export', // 导出 
+    importStats: 'Import', // 导入 
+    insufficientData: '— 数据不足',
+    importSuccess: 'Import Success', // 导入成功
+    importFailed: 'Import Failed', // 导入失败
+    types: {
+      Nit: 'Nit 紧弱',
+      TAG: 'TAG 紧凶',
+      LAG: 'LAG 松凶',
+      'Calling Station': 'CS 松弱',
+      Maniac: 'Maniac 疯子',
+      Others: '其他', // Others
+      Unknown: '未知', // Unknown
+    } as Record<string, string>,
+  },
 };

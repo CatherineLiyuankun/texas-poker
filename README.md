@@ -11,7 +11,26 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
 ### Features
 
 - **Multiplayer Support**: 2-10 players (real players + AI bots)
-- **Smart Bot AI**: Bots make decisions based on hand strength, position, and pot odds
+- **Smart Bot AI**: Professional-grade AI with mixed strategies, position-aware play, and opponent modeling
+  - **Preflop Strategy**: TAG-LAG hybrid style (VPIP ~28%, PFR ~20%) with 169-hand tier system
+  - **Mixed Strategy**: Randomized decisions to prevent exploitation
+  - **Position Play**: Wider range from late position, blind stealing, light 3-bets
+  - **Postflop AI**: Monte Carlo equity simulation (200-500 iterations) + pot odds comparison
+  - **Draw Detection**: Flush draw, open-ended straight, gutshot with outs-based probability
+  - **Opponent Modeling**: Profiles opponents as aggressive/passive and adjusts thresholds dynamically
+- **Hand Analysis Panel**: Real-time display of win rate, pot odds, draw info, and action recommendations
+- **Player Stats Tracking (VPIP/PFR)**: Long-term tracking of real players' preflop behavior across multiple hands
+  - **VPIP** (Voluntarily Put Money In Pot): Percentage of hands where a player voluntarily enters the pot preflop
+  - **PFR** (Pre-Flop Raise): Percentage of hands where a player raises preflop
+  - **Player Type Classification**: Automatically classifies players based on VPIP/PFR ranges:
+    - **Nit** (Tight-Passive): VPIP < 20%, PFR < 12%
+    - **TAG** (Tight-Aggressive): VPIP 20%-28%, PFR 16%-25%
+    - **LAG** (Loose-Aggressive): VPIP 28%-38%, PFR 20%-32%
+    - **Calling Station** (Loose-Passive): VPIP > 35%, PFR < 15%
+    - **Maniac**: VPIP >= 50%, PFR >= 35%
+  - **Persistent Storage**: Data saved in localStorage, survives browser restarts
+  - **Export/Import**: Backup stats to JSON file and restore later
+  - **Stats Table**: Displayed in AI Analysis panel showing VPIP, PFR, and player type per real player
 - **Complete Game Flow**: Pre-flop → Flop → Turn → River → Showdown
 - **Hand Evaluation**: Recognizes all hand ranks from High Card to Royal Flush
 - **Accurate Pot Calculation**: Main pot and side pots with proper multi-level splitting
@@ -70,11 +89,20 @@ npm test useGameState.integration.test.ts
 npm test -- --coverage
 ```
 
+### Lint & Build
+
+```bash
+npm run lint
+npm run build
+```
+
 ### Testing Structure
 
-- **Unit Tests**: `src/utils/__tests__/` - Algorithm correctness
+- **Unit Tests**: `src/utils/__tests__/` - Algorithm correctness (pot calculation, equity, draw detection, preflop hand strength)
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
-- **Test Coverage**: 9 integration tests + 11 unit tests covering all pot scenarios
+- **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
+- **Component Tests**: `src/components/__tests__/` - UI and settlement tests
+- **Test Coverage**: 179 tests across 14 test suites
 
 ---
 
@@ -85,7 +113,26 @@ npm test -- --coverage
 ### 功能特性
 
 - **多人支持**: 2-10 名玩家（真人 + AI 机器人）
-- **智能机器人 AI**: 机器人根据手牌强度、位置和底池赔率做决策
+- **智能机器人 AI**: 专业级 AI，具备混合策略、位置感知和对手画像
+  - **翻前策略**: TAG-LAG 混合风格（VPIP ~28%, PFR ~20%），基于 169 种起手牌分级系统
+  - **混合策略**: 随机化决策，防止被对手反推牌型
+  - **位置打法**: 后位范围更宽、偷盲、轻 3-bet
+  - **翻后 AI**: Monte Carlo 胜率模拟（200-500 次迭代）+ 底池赔率比较
+  - **听牌检测**: 同花听牌、两头顺子、卡顺，基于 Outs 概率计算
+  - **对手画像**: 自动识别激进/被动型对手，动态调整决策阈值
+- **手牌分析面板**: 实时显示胜率、底池赔率、听牌信息和行动建议
+- **玩家数据统计 (VPIP/PFR)**: 跨多局长期追踪真人玩家的翻牌前行为
+  - **VPIP** (主动入池率): 玩家翻牌前自愿入池的手牌百分比
+  - **PFR** (翻牌前加注率): 玩家翻牌前加注的手牌百分比
+  - **玩家类型分类**: 基于 VPIP/PFR 区间自动分类：
+    - **Nit** (紧弱): VPIP < 20%, PFR < 12%
+    - **TAG** (紧凶): VPIP 20%-28%, PFR 16%-25%
+    - **LAG** (松凶): VPIP 28%-38%, PFR 20%-32%
+    - **Calling Station** (跟注站): VPIP > 35%, PFR < 15%
+    - **Maniac** (疯子): VPIP >= 50%, PFR >= 35%
+  - **持久化存储**: 数据保存在 localStorage，浏览器重启后数据保留
+  - **导出/导入**: 支持将统计数据备份为 JSON 文件并恢复
+  - **统计表格**: 在 AI 分析面板中显示每位真人玩家的 VPIP、PFR 和玩家类型
 - **完整游戏流程**: 翻牌前 → 翻牌 → 转牌 → 河牌 → 摊牌
 - **手牌评估**: 识别所有牌型，从高牌到皇家同花顺
 - **精确底池计算**: 主池和边池的多层级正确拆分
@@ -152,6 +199,8 @@ npm run build
 
 ### 测试结构
 
-- **单元测试**: `src/utils/__tests__/potCalculator.test.ts` - 算法正确性
-- **集成测试**: `src/hooks/__tests__/useGameState.integration.test.ts` - 完整游戏流程
-- **测试覆盖**: 9个集成测试 + 11个单元测试，覆盖所有底池场景
+- **单元测试**: `src/utils/__tests__/` - 算法正确性（底池计算、胜率模拟、听牌检测、翻前手牌强度）
+- **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
+- **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
+- **组件测试**: `src/components/__tests__/` - UI 和结算测试
+- **测试覆盖**: 14 个测试套件，共 179 个测试用例

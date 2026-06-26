@@ -6,6 +6,7 @@ import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
 import { INITIAL_CHIPS } from '../utils/constant';
 import type { OpponentProfile } from '../utils/opponentModel';
+import type { PlayerLongStats } from '../utils/longOpponentModel';
 
 interface PlayerAreaProps {
   player: Player;
@@ -22,6 +23,7 @@ interface PlayerAreaProps {
   numActiveOpponents?: number;
   potOdds?: number;
   opponentProfile?: OpponentProfile;
+  longStats?: PlayerLongStats[];
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({ 
@@ -39,6 +41,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   numActiveOpponents,
   potOdds,
   opponentProfile,
+  longStats,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -209,6 +212,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           numOpponents={numActiveOpponents || 0}
           potOdds={potOdds || 0}
           opponentProfile={opponentProfile}
+          longStats={longStats}
         />
       )}
     </div>
