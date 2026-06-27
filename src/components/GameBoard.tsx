@@ -334,6 +334,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             >
               {translations.gameBoard.backToMenu}
             </button>
+          </div>
+          <div className="flex items-center gap-3">
+            {importMessage && (
+              <span className="text-xs text-yellow-400">{importMessage}</span>
+            )}
             <button
               onClick={() => {
                 if (confirm(translations.playerStats.resetStats + '?')) {
@@ -365,11 +370,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 className="hidden"
               />
             </label>
-          </div>
-          <div className="flex items-center gap-3">
-            {importMessage && (
-              <span className="text-xs text-yellow-400">{importMessage}</span>
-            )}
             <div className="text-white/60">
               {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
               {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
