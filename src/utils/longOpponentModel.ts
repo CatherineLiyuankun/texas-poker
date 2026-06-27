@@ -1,18 +1,14 @@
-import type { PlayerId, Action } from '../types/poker';
+import type { PlayerId } from '../types/poker';
+import type { ActionEvent, HandRecord } from '../types/stats';
 import {
   type VpipPfrStats,
-  type HandStats,
-  type PostflopStats,
-  createHandStats,
-  createPostflopStats,
-  incrementHandCount,
-  applyPreflopAction,
-  recordPostflopAction,
-  computeVpipPfr,
-  calculateAF,
-  calculateCBet,
-  calculateWTSD,
-  calculateCheckRaise,
+  computeVPIPFromEvents,
+  computePFRFromEvents,
+  computeAFFromEvents,
+  computeCBetFromEvents,
+  computeWTSDFromEvents,
+  computeCheckRaiseFromEvents,
+  classifyPlayerType,
 } from './opponentModelUtil';
 
 export type { PlayerType, VpipPfrStats } from './opponentModelUtil';
@@ -24,37 +20,19 @@ export interface PlayerLongStats extends VpipPfrStats {
   checkRaise: number | null;
 }
 
-interface PersistentStats {
-  handStats: HandStats;
-  postflop: PostflopStats;
-}
-
-interface StoredData {
+interface PersistentData {
   version: number;
-  players: Record<string, {
-    handsDealt: number;
-    vpipCount: number;
-    pfrCount: number;
-    postflopBets?: number;
-    postflopRaises?: number;
-    postflopCalls?: number;
-    cbetOpportunities?: number;
-    cbetCount?: number;
-    flopsSeen?: number;
-    showdownsReached?: number;
-    checkRaiseOpportunities?: number;
-    checkRaises?: number;
-  }>;
+  hands: HandRecord[];
 }
 
-const STORAGE_KEY = 'texas-poker-long-stats-v1';
+const STORAGE_KEY = 'texas-poker-long-stats';
 
-const statsCache = new Map<string, PersistentStats>();
+let persistentData: PersistentData = {
+  version: 2,
+  hands: [],
+};
+
 let initialized = false;
-
-function getKey(playerId: PlayerId): string {
-  return String(playerId);
-}
 
 function loadFromStorage(): void {
   if (initialized) return;
@@ -62,162 +40,75 @@ function loadFromStorage(): void {
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const data: StoredData = JSON.parse(raw);
-    if (data.version !== 1 || typeof data.players !== 'object') return;
-
-    for (const [key, value] of Object.entries(data.players)) {
-      if (
-        typeof value.handsDealt === 'number' &&
-        typeof value.vpipCount === 'number' &&
-        typeof value.pfrCount === 'number'
-      ) {
-        const handStats = createHandStats();
-        handStats.handsDealt = value.handsDealt;
-        handStats.vpipCount = value.vpipCount;
-        handStats.pfrCount = value.pfrCount;
-
-        const postflop = createPostflopStats();
-        if (typeof value.postflopBets === 'number') postflop.bets = value.postflopBets;
-        if (typeof value.postflopRaises === 'number') postflop.raises = value.postflopRaises;
-        if (typeof value.postflopCalls === 'number') postflop.calls = value.postflopCalls;
-        if (typeof value.cbetOpportunities === 'number') postflop.cbetOpportunities = value.cbetOpportunities;
-        if (typeof value.cbetCount === 'number') postflop.cbetCount = value.cbetCount;
-        if (typeof value.flopsSeen === 'number') postflop.flopsSeen = value.flopsSeen;
-        if (typeof value.showdownsReached === 'number') postflop.showdownsReached = value.showdownsReached;
-        if (typeof value.checkRaiseOpportunities === 'number') postflop.checkRaiseOpportunities = value.checkRaiseOpportunities;
-        if (typeof value.checkRaises === 'number') postflop.checkRaises = value.checkRaises;
-
-        statsCache.set(key, { handStats, postflop });
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data.version === 2 && Array.isArray(data.hands)) {
+        persistentData = data;
+        return;
       }
     }
   } catch {
-    // ignore invalid data
+    // ignore
   }
+
+  // No data found, use default
+  persistentData = { version: 2, hands: [] };
 }
 
 function saveToStorage(): void {
-  const players: StoredData['players'] = {};
-  for (const [key, stats] of statsCache.entries()) {
-    players[key] = {
-      handsDealt: stats.handStats.handsDealt,
-      vpipCount: stats.handStats.vpipCount,
-      pfrCount: stats.handStats.pfrCount,
-      postflopBets: stats.postflop.bets,
-      postflopRaises: stats.postflop.raises,
-      postflopCalls: stats.postflop.calls,
-      cbetOpportunities: stats.postflop.cbetOpportunities,
-      cbetCount: stats.postflop.cbetCount,
-      flopsSeen: stats.postflop.flopsSeen,
-      showdownsReached: stats.postflop.showdownsReached,
-      checkRaiseOpportunities: stats.postflop.checkRaiseOpportunities,
-      checkRaises: stats.postflop.checkRaises,
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentData));
+}
+
+export function recordAction(event: ActionEvent): void {
+  loadFromStorage();
+
+  // Find or create the hand record
+  let handRecord = persistentData.hands.find(h => h.handId === event.handId);
+  if (!handRecord) {
+    handRecord = {
+      handId: event.handId,
+      timestamp: event.timestamp,
+      events: [],
+      players: [],
     };
+    persistentData.hands.push(handRecord);
   }
-  const data: StoredData = { version: 1, players };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
 
-function getOrCreateStats(playerId: PlayerId): PersistentStats {
-  const key = getKey(playerId);
-  if (!statsCache.has(key)) {
-    statsCache.set(key, {
-      handStats: createHandStats(),
-      postflop: createPostflopStats(),
-    });
-  }
-  return statsCache.get(key)!;
-}
+  // Add the event
+  handRecord.events.push(event);
 
-export function markNewHand(realPlayerIds: PlayerId[]): void {
-  loadFromStorage();
-
-  for (const playerId of realPlayerIds) {
-    const stats = getOrCreateStats(playerId);
-    incrementHandCount(stats.handStats);
+  // Track players in this hand
+  if (!handRecord.players.includes(event.playerId)) {
+    handRecord.players.push(event.playerId);
   }
 
   saveToStorage();
 }
 
-export function recordPreflopAction(
-  playerId: PlayerId,
-  action: Action,
-  allInAmount?: number,
-  currentBet?: number,
-): void {
+export function saveHand(hand: HandRecord): void {
   loadFromStorage();
 
-  const stats = getOrCreateStats(playerId);
-  applyPreflopAction(stats.handStats, action, allInAmount, currentBet);
-
-  saveToStorage();
-}
-
-export function recordRealPlayerPostflopAction(
-  playerId: PlayerId,
-  action: Action,
-): void {
-  loadFromStorage();
-
-  const stats = getOrCreateStats(playerId);
-  recordPostflopAction(stats.postflop, action);
-
-  saveToStorage();
-}
-
-export function recordRealPlayerCbetOpportunity(playerId: PlayerId): void {
-  loadFromStorage();
-
-  const stats = getOrCreateStats(playerId);
-  stats.postflop.cbetOpportunities++;
-
-  saveToStorage();
-}
-
-export function recordRealPlayerCbetAction(playerId: PlayerId, didCbet: boolean): void {
-  loadFromStorage();
-
-  const stats = getOrCreateStats(playerId);
-  if (didCbet) {
-    stats.postflop.cbetCount++;
+  // Check if hand already exists
+  const existingIndex = persistentData.hands.findIndex(h => h.handId === hand.handId);
+  if (existingIndex >= 0) {
+    // Update existing hand
+    persistentData.hands[existingIndex] = hand;
+  } else {
+    // Add new hand
+    persistentData.hands.push(hand);
   }
 
   saveToStorage();
 }
 
-export function recordRealPlayerFlopSeen(playerId: PlayerId): void {
+export function endCurrentHand(winner: PlayerId | null, potAmount: number): void {
   loadFromStorage();
 
-  const stats = getOrCreateStats(playerId);
-  stats.postflop.flopsSeen++;
+  // Find the most recent hand (last one added)
+  if (persistentData.hands.length === 0) return;
 
-  saveToStorage();
-}
-
-export function recordRealPlayerShowdownReached(playerId: PlayerId): void {
-  loadFromStorage();
-
-  const stats = getOrCreateStats(playerId);
-  stats.postflop.showdownsReached++;
-
-  saveToStorage();
-}
-
-export function recordRealPlayerCheckRaiseOpportunity(playerId: PlayerId): void {
-  loadFromStorage();
-
-  const stats = getOrCreateStats(playerId);
-  stats.postflop.checkRaiseOpportunities++;
-
-  saveToStorage();
-}
-
-export function recordRealPlayerCheckRaise(playerId: PlayerId): void {
-  loadFromStorage();
-
-  const stats = getOrCreateStats(playerId);
-  stats.postflop.checkRaises++;
+  const lastHand = persistentData.hands[persistentData.hands.length - 1];
+  lastHand.result = { winner, potAmount };
 
   saveToStorage();
 }
@@ -225,27 +116,59 @@ export function recordRealPlayerCheckRaise(playerId: PlayerId): void {
 export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
   loadFromStorage();
 
-  const stats = statsCache.get(getKey(playerId));
-  if (!stats) {
-    const base = computeVpipPfr(playerId, createHandStats());
-    return { ...base, af: null, cbet: null, wtsd: null, checkRaise: null };
+  // Get all hands where this player participated
+  const playerHands = persistentData.hands.filter(h => h.players.includes(playerId));
+  const handsDealt = playerHands.length;
+
+  if (handsDealt === 0) {
+    return {
+      playerId,
+      handsDealt: 0,
+      vpip: 0,
+      pfr: 0,
+      gap: 0,
+      playerType: 'Unknown',
+      af: null,
+      cbet: null,
+      wtsd: null,
+      checkRaise: null,
+    };
   }
-  const base = computeVpipPfr(playerId, stats.handStats);
+
+  // Collect all events for this player
+  const allEvents: ActionEvent[] = [];
+  for (const hand of playerHands) {
+    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
+  }
+
+  // Compute statistics from events
+  const vpip = computeVPIPFromEvents(allEvents, handsDealt);
+  const pfr = computePFRFromEvents(allEvents, handsDealt);
+  const af = computeAFFromEvents(allEvents);
+  const cbet = computeCBetFromEvents(allEvents, playerHands);
+  const wtsd = computeWTSDFromEvents(allEvents, playerHands);
+  const checkRaise = computeCheckRaiseFromEvents(allEvents);
+
   return {
-    ...base,
-    af: calculateAF(stats.postflop),
-    cbet: calculateCBet(stats.postflop),
-    wtsd: calculateWTSD(stats.postflop),
-    checkRaise: calculateCheckRaise(stats.postflop),
+    playerId,
+    handsDealt,
+    vpip,
+    pfr,
+    gap: vpip - pfr,
+    playerType: classifyPlayerType(vpip, pfr, handsDealt),
+    af,
+    cbet,
+    wtsd,
+    checkRaise,
   };
 }
 
 export function getAllRealPlayerStats(realPlayerIds: PlayerId[]): PlayerLongStats[] {
-  return realPlayerIds.map((id) => getPlayerLongStats(id));
+  return realPlayerIds.map(id => getPlayerLongStats(id));
 }
 
 export function resetLongTermStats(): void {
-  statsCache.clear();
+  persistentData = { version: 2, hands: [] };
   localStorage.removeItem(STORAGE_KEY);
   initialized = false;
 }
@@ -253,28 +176,10 @@ export function resetLongTermStats(): void {
 export function exportStats(): void {
   loadFromStorage();
 
-  const players: StoredData['players'] = {};
-  for (const [key, stats] of statsCache.entries()) {
-    players[key] = {
-      handsDealt: stats.handStats.handsDealt,
-      vpipCount: stats.handStats.vpipCount,
-      pfrCount: stats.handStats.pfrCount,
-      postflopBets: stats.postflop.bets,
-      postflopRaises: stats.postflop.raises,
-      postflopCalls: stats.postflop.calls,
-      cbetOpportunities: stats.postflop.cbetOpportunities,
-      cbetCount: stats.postflop.cbetCount,
-      flopsSeen: stats.postflop.flopsSeen,
-      showdownsReached: stats.postflop.showdownsReached,
-      checkRaiseOpportunities: stats.postflop.checkRaiseOpportunities,
-      checkRaises: stats.postflop.checkRaises,
-    };
-  }
-
   const data = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
-    players,
+    hands: persistentData.hands,
   };
 
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -291,89 +196,26 @@ export async function importStats(file: File): Promise<boolean> {
     const text = await file.text();
     const data = JSON.parse(text);
 
-    if (data.version !== 1 || typeof data.players !== 'object') return false;
+    // Only handle v2 format
+    if (data.version === 2 && Array.isArray(data.hands)) {
+      loadFromStorage();
 
-    loadFromStorage();
-
-    for (const [key, value] of Object.entries(data.players)) {
-      const imported = value as {
-        handsDealt: number;
-        vpipCount: number;
-        pfrCount: number;
-        postflopBets?: number;
-        postflopRaises?: number;
-        postflopCalls?: number;
-        cbetOpportunities?: number;
-        cbetCount?: number;
-        flopsSeen?: number;
-        showdownsReached?: number;
-        checkRaiseOpportunities?: number;
-        checkRaises?: number;
-      };
-      if (
-        typeof imported.handsDealt !== 'number' ||
-        typeof imported.vpipCount !== 'number' ||
-        typeof imported.pfrCount !== 'number'
-      ) {
-        continue;
+      // Merge hands (avoid duplicates by handId)
+      const existingHandIds = new Set(persistentData.hands.map(h => h.handId));
+      for (const hand of data.hands) {
+        if (!existingHandIds.has(hand.handId)) {
+          persistentData.hands.push(hand);
+        }
       }
 
-      const existing = statsCache.get(key);
-      if (existing) {
-        existing.handStats.handsDealt = Math.max(existing.handStats.handsDealt, imported.handsDealt);
-        existing.handStats.vpipCount = Math.max(existing.handStats.vpipCount, imported.vpipCount);
-        existing.handStats.pfrCount = Math.max(existing.handStats.pfrCount, imported.pfrCount);
-        if (typeof imported.postflopBets === 'number') {
-          existing.postflop.bets = Math.max(existing.postflop.bets, imported.postflopBets);
-        }
-        if (typeof imported.postflopRaises === 'number') {
-          existing.postflop.raises = Math.max(existing.postflop.raises, imported.postflopRaises);
-        }
-        if (typeof imported.postflopCalls === 'number') {
-          existing.postflop.calls = Math.max(existing.postflop.calls, imported.postflopCalls);
-        }
-        if (typeof imported.cbetOpportunities === 'number') {
-          existing.postflop.cbetOpportunities = Math.max(existing.postflop.cbetOpportunities, imported.cbetOpportunities);
-        }
-        if (typeof imported.cbetCount === 'number') {
-          existing.postflop.cbetCount = Math.max(existing.postflop.cbetCount, imported.cbetCount);
-        }
-        if (typeof imported.flopsSeen === 'number') {
-          existing.postflop.flopsSeen = Math.max(existing.postflop.flopsSeen, imported.flopsSeen);
-        }
-        if (typeof imported.showdownsReached === 'number') {
-          existing.postflop.showdownsReached = Math.max(existing.postflop.showdownsReached, imported.showdownsReached);
-        }
-        if (typeof imported.checkRaiseOpportunities === 'number') {
-          existing.postflop.checkRaiseOpportunities = Math.max(existing.postflop.checkRaiseOpportunities, imported.checkRaiseOpportunities);
-        }
-        if (typeof imported.checkRaises === 'number') {
-          existing.postflop.checkRaises = Math.max(existing.postflop.checkRaises, imported.checkRaises);
-        }
-      } else {
-        const handStats = createHandStats();
-        handStats.handsDealt = imported.handsDealt;
-        handStats.vpipCount = imported.vpipCount;
-        handStats.pfrCount = imported.pfrCount;
-
-        const postflop = createPostflopStats();
-        if (typeof imported.postflopBets === 'number') postflop.bets = imported.postflopBets;
-        if (typeof imported.postflopRaises === 'number') postflop.raises = imported.postflopRaises;
-        if (typeof imported.postflopCalls === 'number') postflop.calls = imported.postflopCalls;
-        if (typeof imported.cbetOpportunities === 'number') postflop.cbetOpportunities = imported.cbetOpportunities;
-        if (typeof imported.cbetCount === 'number') postflop.cbetCount = imported.cbetCount;
-        if (typeof imported.flopsSeen === 'number') postflop.flopsSeen = imported.flopsSeen;
-        if (typeof imported.showdownsReached === 'number') postflop.showdownsReached = imported.showdownsReached;
-        if (typeof imported.checkRaiseOpportunities === 'number') postflop.checkRaiseOpportunities = imported.checkRaiseOpportunities;
-        if (typeof imported.checkRaises === 'number') postflop.checkRaises = imported.checkRaises;
-
-        statsCache.set(key, { handStats, postflop });
-      }
+      saveToStorage();
+      return true;
     }
 
-    saveToStorage();
-    return true;
+    return false;
   } catch {
     return false;
   }
 }
+
+

@@ -1,4 +1,7 @@
 import type { PlayerId, Action } from '../types/poker';
+import type { ActionEvent } from '../types/stats';
+
+const BIG_BLIND = 20;
 
 export type PlayerType =
   | 'Nit'
@@ -233,4 +236,185 @@ export function clearCheckedPlayers(): void {
 
 export function isPlayerChecked(playerId: PlayerId): boolean {
   return checkedPlayers.has(playerId);
+}
+
+// ============================================================================
+// Event-based computation functions
+// ============================================================================
+
+export function computeVPIPFromEvents(
+  events: ActionEvent[],
+  handsDealt: number
+): number {
+  if (handsDealt === 0) return 0;
+
+  const eventsByHand = groupEventsByHand(events);
+  let vpipCount = 0;
+
+  for (const handEvents of eventsByHand.values()) {
+    // Sort by timestamp and get the first preflop action
+    const preflopEvents = handEvents
+      .filter(e => e.phase === 'preflop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+    
+    if (preflopEvents.length === 0) continue;
+    
+    const firstAction = preflopEvents[0];
+    // VPIP: voluntarily put money in pot (call, raise, or allin)
+    const isVpip = 
+      firstAction.action === 'call' || 
+      firstAction.action === 'raise' ||
+      firstAction.action === 'allin';
+    
+    if (isVpip) vpipCount++;
+  }
+
+  return vpipCount / handsDealt;
+}
+
+export function computePFRFromEvents(
+  events: ActionEvent[],
+  handsDealt: number
+): number {
+  if (handsDealt === 0) return 0;
+
+  const eventsByHand = groupEventsByHand(events);
+  let pfrCount = 0;
+
+  for (const handEvents of eventsByHand.values()) {
+    // Sort by timestamp and get the first preflop action
+    const preflopEvents = handEvents
+      .filter(e => e.phase === 'preflop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+    
+    if (preflopEvents.length === 0) continue;
+    
+    const firstAction = preflopEvents[0];
+    const isPfr = 
+      firstAction.action === 'raise' ||
+      (firstAction.action === 'allin' && firstAction.amount !== undefined && firstAction.amount > firstAction.toCall);
+    
+    if (isPfr) pfrCount++;
+  }
+
+  return pfrCount / handsDealt;
+}
+
+export function computeAFFromEvents(events: ActionEvent[]): number | null {
+  const postflopEvents = events.filter(e => e.phase !== 'preflop');
+
+  const aggressive = postflopEvents.filter(
+    e => e.action === 'raise' || e.action === 'allin'
+  ).length;
+
+  const passive = postflopEvents.filter(
+    e => e.action === 'call'
+  ).length;
+
+  return passive > 0 ? aggressive / passive : null;
+}
+
+export function detectLimpersFromEvents(events: ActionEvent[]): PlayerId[] {
+  const preflopCalls = events.filter(
+    e => e.phase === 'preflop' &&
+         e.action === 'call' &&
+         e.toCall === BIG_BLIND
+  );
+
+  const raisers = new Set(
+    events
+      .filter(e => e.phase === 'preflop' && e.action === 'raise')
+      .map(e => e.playerId)
+  );
+
+  return preflopCalls
+    .map(e => e.playerId)
+    .filter(id => !raisers.has(id));
+}
+
+export function computeCBetFromEvents(
+  _events: ActionEvent[],
+  hands: { handId: string; events: ActionEvent[] }[]
+): number | null {
+  let opportunities = 0;
+  let cbets = 0;
+
+  for (const hand of hands) {
+    const preflopEvents = hand.events.filter(e => e.phase === 'preflop');
+    const lastRaiser = preflopEvents
+      .filter(e => e.action === 'raise')
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    if (!lastRaiser) continue;
+
+    const flopEvents = hand.events.filter(e => e.phase === 'flop');
+    if (flopEvents.length === 0) continue;
+
+    opportunities++;
+
+    const raiserFlopEvents = flopEvents.filter(e => e.playerId === lastRaiser.playerId);
+    if (raiserFlopEvents.length === 0) continue;
+
+    const firstFlopAction = raiserFlopEvents.sort((a, b) => a.timestamp - b.timestamp)[0];
+    if (firstFlopAction.action === 'raise' || firstFlopAction.action === 'allin') {
+      cbets++;
+    }
+  }
+
+  return opportunities > 0 ? (cbets / opportunities) * 100 : null;
+}
+
+export function computeWTSDFromEvents(
+  _events: ActionEvent[],
+  hands: { handId: string; events: ActionEvent[] }[]
+): number | null {
+  let flopsSeen = 0;
+  let showdowns = 0;
+
+  for (const hand of hands) {
+    const hasFlop = hand.events.some(e => e.phase === 'flop');
+    if (!hasFlop) continue;
+
+    flopsSeen++;
+
+    const hasShowdown = hand.events.some(e => e.phase === 'showdown');
+    if (hasShowdown) showdowns++;
+  }
+
+  return flopsSeen > 0 ? (showdowns / flopsSeen) * 100 : null;
+}
+
+export function computeCheckRaiseFromEvents(events: ActionEvent[]): number | null {
+  const eventsByHand = groupEventsByHand(events);
+  let opportunities = 0;
+  let checkRaises = 0;
+
+  for (const handEvents of eventsByHand.values()) {
+    const postflopEvents = handEvents.filter(e => e.phase !== 'preflop');
+    
+    const streets = ['flop', 'turn', 'river'] as const;
+    for (const street of streets) {
+      const streetEvents = postflopEvents.filter(e => e.phase === street);
+      if (streetEvents.length === 0) continue;
+
+      opportunities++;
+
+      const checkThenRaise = streetEvents.some(e => e.action === 'check') &&
+                             streetEvents.some(e => e.action === 'raise');
+      if (checkThenRaise) checkRaises++;
+    }
+  }
+
+  return opportunities > 0 ? (checkRaises / opportunities) * 100 : null;
+}
+
+function groupEventsByHand(events: ActionEvent[]): Map<string, ActionEvent[]> {
+  const map = new Map<string, ActionEvent[]>();
+  for (const event of events) {
+    if (!map.has(event.handId)) {
+      map.set(event.handId, []);
+    }
+    map.get(event.handId)!.push(event);
+  }
+  return map;
 }

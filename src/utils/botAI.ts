@@ -11,6 +11,7 @@ import { calculateEquity } from './equityCalculator';
 import {
   calculateOpponentProfile,
   getOpponentAdjustments,
+  detectLimpers,
   type OpponentAdjustments,
 } from './opponentModel';
 import { translations } from './translations';
@@ -37,6 +38,13 @@ interface ContextInfo {
   numOpponents: number;
   isHeadsUp: boolean;
   isLatePosition: boolean;
+  isButton: boolean;
+  isCutoff: boolean;
+  isHijack: boolean;
+  isMiddlePosition: boolean;
+  isEarlyPosition: boolean;
+  isBlind: boolean;
+  hasLimpers: boolean;
 }
 
 function getPlayerPosition(
@@ -108,10 +116,10 @@ function decidePreflop(
     if (flags.canCallResult) return { action: 'call' };
   }
 
-  // Tier 3: Playable (~85-90% VPIP)
+  // Tier 3: Playable (~80% VPIP at BTN)
   if (tier === 3) {
     if (isFacingBigRaise) {
-      if (ctx.isLatePosition) {
+      if (ctx.isButton || ctx.isCutoff) {
         if (flags.canRaiseResult && Math.random() < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
@@ -123,35 +131,66 @@ function decidePreflop(
         if (flags.canFoldResult && Math.random() < (0.50 + foldBoost)) {
           return { action: 'fold' };
         }
-        if (flags.canCallResult) return { action: 'call' };
+        if (flags.canCallResult && Math.random() < 0.40) {
+          return { action: 'call' };
+        }
+        if (flags.canFoldResult) return { action: 'fold' };
       }
     }
     
-    // Mix up play: sometimes limp, sometimes raise (for deception)
-    if (ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult) {
-      if (Math.random() < (0.50 + stealBoost)) {
+    // BTN/CO: 60% raise, 20% call, 20% fold
+    if ((ctx.isButton || ctx.isCutoff) && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < (0.60 + stealBoost)) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.05) };
       }
+      if (flags.canCallResult && Math.random() < 0.20) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
     }
     
-    // Occasional limp in late position for deception
-    if (ctx.isLatePosition && !isFacingRaise && flags.canCallResult && Math.random() < 0.15) {
-      return { action: 'call' };
+    // Hijack: 40% raise, 30% call, 30% fold
+    if (ctx.isHijack && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.40) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+      }
+      if (flags.canCallResult && Math.random() < 0.30) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
     }
     
-    // Middle position: raise more often
-    if (!ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult && Math.random() < 0.35) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+    // Middle position: 35% raise, 35% call, 30% fold
+    if (ctx.isMiddlePosition && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.35) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+      }
+      if (flags.canCallResult && Math.random() < 0.35) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
     }
     
-    if (flags.canCallResult) return { action: 'call' };
+    // Early position: 25% raise, 25% call, 50% fold
+    if (ctx.isEarlyPosition && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.25) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+      }
+      if (flags.canCallResult && Math.random() < 0.25) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
+    
+    // Blind/fallback: check or fold
     if (flags.canCheckResult) return { action: 'check' };
+    if (flags.canFoldResult) return { action: 'fold' };
   }
 
-  // Tier 4: Speculative (~65-75% VPIP, position-dependent)
+  // Tier 4: Speculative (~65% VPIP at BTN, position-dependent)
   if (tier === 4) {
     if (isFacingBigRaise) {
-      if (ctx.isLatePosition) {
+      if (ctx.isButton || ctx.isCutoff) {
         // Late position: defend more aggressively
         if (flags.canRaiseResult && Math.random() < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
@@ -167,21 +206,71 @@ function decidePreflop(
         if (flags.canFoldResult && Math.random() < (0.55 + foldBoost)) {
           return { action: 'fold' };
         }
-        if (flags.canCallResult) return { action: 'call' };
+        if (flags.canCallResult && Math.random() < 0.35) {
+          return { action: 'call' };
+        }
       }
       if (flags.canFoldResult) return { action: 'fold' };
     }
     if (flags.canCheckResult) return { action: 'check' };
     
-    // Late position open raise (steal) - increased frequency
-    if (ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult) {
-      if (Math.random() < (0.65 + stealBoost)) {
+    // BTN: 50% raise, 15% call, 35% fold
+    if (ctx.isButton && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < (0.50 + stealBoost)) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
+      if (flags.canCallResult && Math.random() < 0.15) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
+    
+    // CO: 40% raise, 15% call, 45% fold
+    if (ctx.isCutoff && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < (0.40 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
+      }
+      if (flags.canCallResult && Math.random() < 0.15) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
+    
+    // Hijack: 30% raise, 15% call, 55% fold
+    if (ctx.isHijack && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < (0.30 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
+      }
+      if (flags.canCallResult && Math.random() < 0.15) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
+    
+    // Middle position: 20% raise, 15% call, 65% fold
+    if (ctx.isMiddlePosition && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.20) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
+      }
+      if (flags.canCallResult && Math.random() < 0.15) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
+    
+    // Early position: 10% raise, 10% call, 80% fold
+    if (ctx.isEarlyPosition && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.10) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
+      }
+      if (flags.canCallResult && Math.random() < 0.10) {
+        return { action: 'call' };
+      }
+      if (flags.canFoldResult) return { action: 'fold' };
     }
     
     // Late position 3-bet light against single raise
-    if (ctx.isLatePosition && isFacingRaise && !isFacingBigRaise) {
+    if ((ctx.isButton || ctx.isCutoff) && isFacingRaise && !isFacingBigRaise) {
       if (flags.canRaiseResult && Math.random() < 0.18) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.15) };
       }
@@ -197,44 +286,100 @@ function decidePreflop(
       return { action: 'call' };
     }
     
-    // Late position call when no raise
-    if (flags.canCallResult && ctx.isLatePosition && !isFacingRaise) {
-      return { action: 'call' };
-    }
-    
-    // Middle position: call more often
-    if (flags.canCallResult && !ctx.isLatePosition && !isFacingRaise && Math.random() < 0.60) {
-      return { action: 'call' };
-    }
+    // Fallback: fold
+    if (flags.canFoldResult) return { action: 'fold' };
   }
 
   // Tier 5-6: Marginal/Trash (~20-30% VPIP, highly position-dependent)
   if (flags.canCheckResult) return { action: 'check' };
 
-  // Late position: play much wider when unopened (steal attempts)
-  if (ctx.isLatePosition && !isFacingRaise) {
-    // Aggressive steal from late position
-    if (flags.canRaiseResult && Math.random() < (0.48 + stealBoost)) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+  // Button: most aggressive position
+  if (ctx.isButton && !isFacingRaise) {
+    if (ctx.hasLimpers) {
+      // Limpers ahead: can limp behind with marginal hands
+      if (flags.canCallResult && Math.random() < 0.25) {
+        return { action: 'call' };
+      }
+      if (flags.canRaiseResult && Math.random() < 0.15) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+      }
+    } else {
+      // No limpers: steal attempt
+      if (flags.canRaiseResult && Math.random() < (0.48 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+      }
+      if (flags.canCallResult && Math.random() < 0.08) {
+        return { action: 'call' };
+      }
     }
-    // Limp in late position with marginal hands
-    if (flags.canCallResult && Math.random() < 0.65) {
-      return { action: 'call' };
+  }
+
+  // Cutoff: second most aggressive
+  if (ctx.isCutoff && !isFacingRaise) {
+    if (ctx.hasLimpers) {
+      if (flags.canCallResult && Math.random() < 0.22) {
+        return { action: 'call' };
+      }
+      if (flags.canRaiseResult && Math.random() < 0.12) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+      }
+    } else {
+      if (flags.canRaiseResult && Math.random() < (0.38 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+      }
+      if (flags.canCallResult && Math.random() < 0.12) {
+        return { action: 'call' };
+      }
+    }
+  }
+
+  // Hijack: moderate aggression
+  if (ctx.isHijack && !isFacingRaise) {
+    if (ctx.hasLimpers) {
+      if (flags.canCallResult && Math.random() < 0.28) {
+        return { action: 'call' };
+      }
+      if (flags.canRaiseResult && Math.random() < 0.10) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+      }
+    } else {
+      if (flags.canRaiseResult && Math.random() < (0.28 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+      }
+      if (flags.canCallResult && Math.random() < 0.18) {
+        return { action: 'call' };
+      }
     }
   }
 
   // Middle position: occasional play with marginal hands
-  if (!ctx.isLatePosition && !isFacingRaise && ctx.position >= Math.floor(ctx.totalPlayers * 0.3)) {
-    if (flags.canRaiseResult && Math.random() < 0.25) {
+  if (ctx.isMiddlePosition && !isFacingRaise) {
+    if (ctx.hasLimpers) {
+      if (flags.canCallResult && Math.random() < 0.30) {
+        return { action: 'call' };
+      }
+    } else {
+      if (flags.canRaiseResult && Math.random() < 0.20) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+      }
+      if (flags.canCallResult && Math.random() < 0.22) {
+        return { action: 'call' };
+      }
+    }
+  }
+
+  // Early position (UTG): very tight
+  if (ctx.isEarlyPosition && !isFacingRaise) {
+    if (flags.canRaiseResult && Math.random() < 0.08) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
     }
-    if (flags.canCallResult && Math.random() < 0.35) {
+    if (flags.canCallResult && Math.random() < 0.05) {
       return { action: 'call' };
     }
   }
 
   // Blind defense: call wider against late position raises
-  if (isFacingRaise && !isFacingBigRaise && (ctx.position === 0 || ctx.position === ctx.totalPlayers - 1)) {
+  if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
     // Defend blinds more aggressively
     if (flags.canRaiseResult && Math.random() < 0.22) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
@@ -432,6 +577,13 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     numOpponents,
     isHeadsUp: numOpponents === 1,
     isLatePosition: position >= Math.floor(state.players.length * 0.6),
+    isButton: position === 0,
+    isCutoff: position === state.players.length - 1,
+    isHijack: position === state.players.length - 2,
+    isMiddlePosition: position >= Math.floor(state.players.length * 0.3) && position < state.players.length - 2,
+    isEarlyPosition: position > 0 && position < Math.floor(state.players.length * 0.3),
+    isBlind: position === 1 || position === 2,
+    hasLimpers: state.phase === 'preflop' ? detectLimpers().length > 0 : false,
   };
 
   const oppProfile = calculateOpponentProfile(state.players, player.id);

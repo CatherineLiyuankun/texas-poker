@@ -9,34 +9,16 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, recordOpponentAction, resetOpponentStats, markOpponentNewHand, recordOpponentPreflopAction, recordOpponentPostflopAction, recordOpponentCbetOpportunity, recordOpponentCbetAction, recordOpponentFlopSeen, recordOpponentShowdownReached, recordOpponentCheckRaiseOpportunity, recordOpponentCheckRaise } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand } from '../utils/opponentModel';
 import {
-  markNewHand,
-  recordPreflopAction,
-  recordRealPlayerPostflopAction,
-  recordRealPlayerCbetOpportunity,
-  recordRealPlayerCbetAction,
-  recordRealPlayerFlopSeen,
-  recordRealPlayerShowdownReached,
-  recordRealPlayerCheckRaiseOpportunity,
-  recordRealPlayerCheckRaise,
+  saveHand,
   getAllRealPlayerStats,
   resetLongTermStats,
   exportStats,
   importStats,
 } from '../utils/longOpponentModel';
-import {
-  setPreflopAggressor,
-  getPreflopAggressor,
-  clearPreflopAggressor,
-  isFlopFirstActionRecorded,
-  markFlopFirstActionRecorded,
-  recordPlayerCheck,
-  getCheckedPlayers,
-  clearCheckedPlayers,
-  isPlayerChecked,
-} from '../utils/opponentModelUtil';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
+import type { ActionEvent } from '../types/stats';
 import { translations } from '../utils/translations';
 
 interface PlayerConfig {
@@ -67,9 +49,35 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const gameInitialized = useRef(false);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wasBettingCompleteRef = useRef(false);
-  const handNumberRef = useRef(0);
+  const handCounterRef = useRef(0);
+  const handKeyRef = useRef<string>('');
   const importFileRef = useRef<HTMLInputElement | null>(null);
   const [importMessage, setImportMessage] = React.useState<string | null>(null);
+
+  // Helper function to create ActionEvent
+  const createActionEvent = (
+    playerId: number,
+    action: Action,
+    amount?: number,
+  ): ActionEvent => {
+    const player = state.players.find((p) => p.id === playerId);
+    const toCall = state.lastBet - (player?.bet || 0);
+    const position = (playerId - state.dealer + state.players.length) % state.players.length;
+    
+    return {
+      handId: `${handCounterRef.current}-${state.dealer}`,
+      playerId: playerId as ActionEvent['playerId'],
+      phase: state.phase,
+      action,
+      amount,
+      toCall,
+      currentBet: state.lastBet,
+      potSize: state.mainPot + (state.sidePots?.reduce((sum, pot) => sum + pot.amount, 0) || 0),
+      position,
+      isFacingRaise: state.lastBet > 0 && state.phase === 'preflop',
+      timestamp: Date.now(),
+    };
+  };
 
   useEffect(() => {
     if (
@@ -99,70 +107,34 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   // 检测新牌局开始，记录长期统计
   useEffect(() => {
     if (state.phase === 'preflop' && state.players.length > 0 && state.players[0].hand.length > 0) {
-      const currentHandKey = `${state.dealer}-${state.players[0].hand[0]?.rank}`;
-      const keyRef = handNumberRef as React.MutableRefObject<string | number>;
-      if (keyRef.current !== currentHandKey) {
-        keyRef.current = currentHandKey;
-        clearPreflopAggressor();
-        clearCheckedPlayers();
-        const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
-        if (realPlayerIds.length > 0) {
-          markNewHand(realPlayerIds);
-        }
-        const botPlayerIds = state.players.filter((p) => !p.isRealPlayer).map((p) => p.id);
-        if (botPlayerIds.length > 0) {
-          markOpponentNewHand(botPlayerIds);
-        }
+      const currentHandKey = `${state.dealer}-${state.players[0].hand[0]?.rank}-${state.players[0].hand[1]?.rank}`;
+      if (handKeyRef.current !== currentHandKey) {
+        handKeyRef.current = currentHandKey;
+        handCounterRef.current++;
+        const handId = `${handCounterRef.current}-${state.dealer}`;
+        const allPlayerIds = state.players.map((p) => p.id);
+        startNewHand(handId, allPlayerIds);
       }
     }
   }, [state.phase, state.players, state.dealer]);
 
-  // 检测翻牌阶段开始，记录 CBet 机会
+  // 当牌局结束时，保存手牌记录到长期统计
   useEffect(() => {
-    if (state.phase === 'flop') {
-      const aggressor = getPreflopAggressor();
-      if (aggressor !== null) {
-        const player = state.players.find((p) => p.id === aggressor);
-        if (player && !player.folded) {
-          if (player.isRealPlayer) {
-            recordRealPlayerCbetOpportunity(aggressor);
-          } else {
-            recordOpponentCbetOpportunity(aggressor);
-          }
-        }
+    if (roundSettled) {
+      const currentHand = getCurrentHand();
+      if (currentHand) {
+        // Add result to the hand record
+        const handWithResult: typeof currentHand = {
+          ...currentHand,
+          result: {
+            winner: state.winner,
+            potAmount: state.mainPot,
+          },
+        };
+        saveHand(handWithResult);
       }
     }
-  }, [state.phase, state.players]);
-
-  // 检测玩家看到翻牌（flop seen）
-  useEffect(() => {
-    if (state.phase === 'flop') {
-      state.players.forEach((player) => {
-        if (!player.folded) {
-          if (player.isRealPlayer) {
-            recordRealPlayerFlopSeen(player.id);
-          } else {
-            recordOpponentFlopSeen(player.id);
-          }
-        }
-      });
-    }
-  }, [state.phase]);
-
-  // 检测玩家到达摊牌（showdown reached）
-  useEffect(() => {
-    if (state.phase === 'showdown') {
-      state.players.forEach((player) => {
-        if (!player.folded) {
-          if (player.isRealPlayer) {
-            recordRealPlayerShowdownReached(player.id);
-          } else {
-            recordOpponentShowdownReached(player.id);
-          }
-        }
-      });
-    }
-  }, [state.phase, state.players]);
+  }, [roundSettled, state.winner, state.mainPot]);
 
   const noRealCanAct = !state.players.some(
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
@@ -179,64 +151,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     const timer = setTimeout(() => {
       playerAction(currentPlayer.id, decision.action, decision.amount);
-      // 统一记录 bot 行动（all-in 时传入上下文区分主动/被迫）
-      const toCall = state.lastBet - currentPlayer.bet;
-      recordOpponentAction(
+      // Record action event for opponentModel
+      const event = createActionEvent(
         currentPlayer.id,
         decision.action,
-        decision.action === 'allin' ? currentPlayer.chips + currentPlayer.bet : undefined,
-        decision.action === 'allin' ? toCall : undefined,
+        decision.amount,
       );
-      // 记录 bot 翻牌前动作用于 per-hand VPIP/PFR 统计
-      if (state.phase === 'preflop') {
-        recordOpponentPreflopAction(
-          currentPlayer.id,
-          decision.action,
-          decision.action === 'allin' ? currentPlayer.chips + currentPlayer.bet : undefined,
-          decision.action === 'allin' ? toCall : undefined,
-        );
-        // 追踪翻前加注者
-        const isRaise = decision.action === 'raise' ||
-          (decision.action === 'allin' && currentPlayer.chips + currentPlayer.bet > state.lastBet);
-        if (isRaise) {
-          setPreflopAggressor(currentPlayer.id);
-        }
-      } else if (state.phase === 'flop' || state.phase === 'turn' || state.phase === 'river') {
-        recordOpponentPostflopAction(currentPlayer.id, decision.action);
-        // 检测翻牌圈首个动作是否为 CBet
-        if (state.phase === 'flop' && !isFlopFirstActionRecorded()) {
-          const aggressor = getPreflopAggressor();
-          if (aggressor === currentPlayer.id) {
-            const didCbet = decision.action === 'raise' || decision.action === 'allin';
-            recordOpponentCbetAction(currentPlayer.id, didCbet);
-            markFlopFirstActionRecorded();
-          }
-        }
-        // Check-raise 追踪
-        if (decision.action === 'check') {
-          recordPlayerCheck(currentPlayer.id, state.phase);
-        } else if (decision.action === 'raise' || decision.action === 'allin') {
-          if (isPlayerChecked(currentPlayer.id)) {
-            if (currentPlayer.isRealPlayer) {
-              recordRealPlayerCheckRaise(currentPlayer.id);
-            } else {
-              recordOpponentCheckRaise(currentPlayer.id);
-            }
-          }
-          // 有人加注后，所有 check 过的玩家都获得 check-raise 机会
-          const checked = getCheckedPlayers();
-          checked.forEach((checkedId) => {
-            const checkedPlayer = state.players.find((p) => p.id === checkedId);
-            if (checkedPlayer && !checkedPlayer.folded && checkedId !== currentPlayer.id) {
-              if (checkedPlayer.isRealPlayer) {
-                recordRealPlayerCheckRaiseOpportunity(checkedId);
-              } else {
-                recordOpponentCheckRaiseOpportunity(checkedId);
-              }
-            }
-          });
-        }
-      }
+      recordAction(event);
     }, delay);
 
     return () => clearTimeout(timer);
@@ -247,62 +168,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     playerAction(playerId, action, amount);
     const player = state.players.find((p) => p.id === playerId);
     if (player) {
-      const toCall = state.lastBet - player.bet;
-      recordOpponentAction(
-        playerId,
-        action,
-        action === 'allin' ? player.chips + player.bet : undefined,
-        action === 'allin' ? toCall : undefined,
-      );
-      // 记录真人翻牌前动作用于长期统计
-      if (state.phase === 'preflop' && player.isRealPlayer) {
-        recordPreflopAction(
-          playerId,
-          action,
-          action === 'allin' ? player.chips + player.bet : undefined,
-          action === 'allin' ? toCall : undefined,
-        );
-        // 追踪翻前加注者
-        const isRaise = action === 'raise' ||
-          (action === 'allin' && player.chips + player.bet > state.lastBet);
-        if (isRaise) {
-          setPreflopAggressor(playerId);
-        }
-      } else if (
-        (state.phase === 'flop' || state.phase === 'turn' || state.phase === 'river') &&
-        player.isRealPlayer
-      ) {
-        recordRealPlayerPostflopAction(playerId, action);
-        // 检测翻牌圈首个动作是否为 CBet
-        if (state.phase === 'flop' && !isFlopFirstActionRecorded()) {
-          const aggressor = getPreflopAggressor();
-          if (aggressor === playerId) {
-            const didCbet = action === 'raise' || action === 'allin';
-            recordRealPlayerCbetAction(playerId, didCbet);
-            markFlopFirstActionRecorded();
-          }
-        }
-        // Check-raise 追踪
-        if (action === 'check') {
-          recordPlayerCheck(playerId, state.phase);
-        } else if (action === 'raise' || action === 'allin') {
-          if (isPlayerChecked(playerId)) {
-            recordRealPlayerCheckRaise(playerId);
-          }
-          // 有人加注后，所有 check 过的玩家都获得 check-raise 机会
-          const checked = getCheckedPlayers();
-          checked.forEach((checkedId) => {
-            const checkedPlayer = state.players.find((p) => p.id === checkedId);
-            if (checkedPlayer && !checkedPlayer.folded && checkedId !== playerId) {
-              if (checkedPlayer.isRealPlayer) {
-                recordRealPlayerCheckRaiseOpportunity(checkedId);
-              } else {
-                recordOpponentCheckRaiseOpportunity(checkedId);
-              }
-            }
-          });
-        }
-      }
+      // Record action event for both opponentModel and longOpponentModel
+      const event = createActionEvent(playerId, action, amount);
+      recordAction(event);
     }
   };
 
