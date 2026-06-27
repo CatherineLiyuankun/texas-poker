@@ -140,9 +140,9 @@ export const translations = {
     checkRaise: 'C/R',
     type: 'Type', // 类型
     name: 'Name', // 选手名称
-    resetStats: '重置数据 Reset Stats',
-    exportStats: 'Export', // 导出 
-    importStats: 'Import', // 导入 
+    resetStats: 'Reset真人数据', // 重置真人数据 Reset Stats
+    exportStats: 'Export', // 导出真人数据
+    importStats: 'Import', // 导入真人数据
     insufficientData: '--', // 数据不足
     importSuccess: 'Import Success', // 导入成功
     importFailed: 'Import Failed', // 导入失败

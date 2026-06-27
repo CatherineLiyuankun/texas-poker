@@ -94,7 +94,8 @@ function decidePreflop(
 
   // Tier 1-2: Premium/Strong (~100% VPIP)
   if (tier <= 2) {
-    if (tier === 2 && Math.random() < 0.10 && flags.canCallResult) {
+    // Occasionally just call with Tier 2 for deception (trap play)
+    if (tier === 2 && Math.random() < 0.12 && flags.canCallResult && !isFacingBigRaise) {
       return { action: 'call' };
     }
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
@@ -107,81 +108,152 @@ function decidePreflop(
     if (flags.canCallResult) return { action: 'call' };
   }
 
-  // Tier 3: Playable (~85% VPIP)
+  // Tier 3: Playable (~85-90% VPIP)
   if (tier === 3) {
     if (isFacingBigRaise) {
       if (ctx.isLatePosition) {
-        if (flags.canRaiseResult && Math.random() < 0.15) {
+        if (flags.canRaiseResult && Math.random() < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
-        if (flags.canCallResult && Math.random() < 0.50) {
+        if (flags.canCallResult && Math.random() < 0.60) {
           return { action: 'call' };
         }
         if (flags.canFoldResult) return { action: 'fold' };
       } else {
-        if (flags.canFoldResult && Math.random() < (0.60 + foldBoost)) {
+        if (flags.canFoldResult && Math.random() < (0.50 + foldBoost)) {
           return { action: 'fold' };
         }
         if (flags.canCallResult) return { action: 'call' };
       }
     }
-    if (ctx.isLatePosition && !isFacingBigRaise && flags.canRaiseResult) {
-      if (Math.random() < (0.42 + stealBoost)) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+    
+    // Mix up play: sometimes limp, sometimes raise (for deception)
+    if (ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult) {
+      if (Math.random() < (0.50 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.05) };
       }
     }
+    
+    // Occasional limp in late position for deception
+    if (ctx.isLatePosition && !isFacingRaise && flags.canCallResult && Math.random() < 0.15) {
+      return { action: 'call' };
+    }
+    
+    // Middle position: raise more often
+    if (!ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult && Math.random() < 0.35) {
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
+    }
+    
     if (flags.canCallResult) return { action: 'call' };
     if (flags.canCheckResult) return { action: 'check' };
   }
 
-  // Tier 4: Speculative (~50% VPIP)
+  // Tier 4: Speculative (~65-75% VPIP, position-dependent)
   if (tier === 4) {
     if (isFacingBigRaise) {
-      if (flags.canFoldResult && Math.random() < (0.65 + foldBoost)) {
-        return { action: 'fold' };
+      if (ctx.isLatePosition) {
+        // Late position: defend more aggressively
+        if (flags.canRaiseResult && Math.random() < 0.20) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
+        }
+        if (flags.canCallResult && Math.random() < 0.55) {
+          return { action: 'call' };
+        }
+        if (flags.canFoldResult && Math.random() < (0.45 + foldBoost)) {
+          return { action: 'fold' };
+        }
+      } else {
+        // Early/middle position: tighter against big raises
+        if (flags.canFoldResult && Math.random() < (0.55 + foldBoost)) {
+          return { action: 'fold' };
+        }
+        if (flags.canCallResult) return { action: 'call' };
       }
-      if (flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
     }
     if (flags.canCheckResult) return { action: 'check' };
+    
+    // Late position open raise (steal) - increased frequency
     if (ctx.isLatePosition && !isFacingRaise && flags.canRaiseResult) {
-      if (Math.random() < (0.50 + stealBoost)) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+      if (Math.random() < (0.65 + stealBoost)) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
     }
+    
+    // Late position 3-bet light against single raise
     if (ctx.isLatePosition && isFacingRaise && !isFacingBigRaise) {
-      if (flags.canRaiseResult && Math.random() < 0.12) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
+      if (flags.canRaiseResult && Math.random() < 0.18) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.15) };
       }
     }
-    if (flags.canCallResult && ctx.potOdds < (0.30 - tightenCall)) {
+    
+    // Call with good pot odds
+    if (flags.canCallResult && ctx.potOdds < (0.35 - tightenCall)) {
       return { action: 'call' };
     }
-    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.40 - tightenCall)) {
+    
+    // Heads up: call more liberally
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.45 - tightenCall)) {
       return { action: 'call' };
     }
+    
+    // Late position call when no raise
     if (flags.canCallResult && ctx.isLatePosition && !isFacingRaise) {
       return { action: 'call' };
     }
-  }
-
-  // Tier 5-6: Marginal/Trash (~9.5% VPIP, position-driven)
-  if (flags.canCheckResult) return { action: 'check' };
-
-  if (ctx.isLatePosition && !isFacingRaise) {
-    if (flags.canRaiseResult && Math.random() < (0.33 + stealBoost)) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
-    }
-    if (flags.canCallResult && Math.random() < 0.45) {
+    
+    // Middle position: call more often
+    if (flags.canCallResult && !ctx.isLatePosition && !isFacingRaise && Math.random() < 0.60) {
       return { action: 'call' };
     }
   }
 
-  if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.10 - tightenCall)) {
+  // Tier 5-6: Marginal/Trash (~20-30% VPIP, highly position-dependent)
+  if (flags.canCheckResult) return { action: 'check' };
+
+  // Late position: play much wider when unopened (steal attempts)
+  if (ctx.isLatePosition && !isFacingRaise) {
+    // Aggressive steal from late position
+    if (flags.canRaiseResult && Math.random() < (0.48 + stealBoost)) {
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+    }
+    // Limp in late position with marginal hands
+    if (flags.canCallResult && Math.random() < 0.65) {
+      return { action: 'call' };
+    }
+  }
+
+  // Middle position: occasional play with marginal hands
+  if (!ctx.isLatePosition && !isFacingRaise && ctx.position >= Math.floor(ctx.totalPlayers * 0.3)) {
+    if (flags.canRaiseResult && Math.random() < 0.25) {
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+    }
+    if (flags.canCallResult && Math.random() < 0.35) {
+      return { action: 'call' };
+    }
+  }
+
+  // Blind defense: call wider against late position raises
+  if (isFacingRaise && !isFacingBigRaise && (ctx.position === 0 || ctx.position === ctx.totalPlayers - 1)) {
+    // Defend blinds more aggressively
+    if (flags.canRaiseResult && Math.random() < 0.22) {
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
+    }
+    if (flags.canCallResult && ctx.potOdds < (0.35 - tightenCall)) {
+      return { action: 'call' };
+    }
+    if (flags.canCallResult && Math.random() < 0.40) {
+      return { action: 'call' };
+    }
+  }
+
+  // Heads up: defend wider
+  if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.20 - tightenCall)) {
     return { action: 'call' };
   }
 
-  if (flags.canCallResult && ctx.potOdds < (0.06 - tightenCall)) {
+  // Very cheap calls with any position
+  if (flags.canCallResult && ctx.potOdds < (0.10 - tightenCall)) {
     return { action: 'call' };
   }
 
