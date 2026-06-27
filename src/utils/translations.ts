@@ -13,11 +13,11 @@ export const translations = {
     check: 'Check', // 看牌 
     call: 'Call', // 跟注 
     raise: 'Raise', // 加注 
-    bet: '下注 Bet',
+    bet: 'Bet', // 下注 
     fold: 'Fold', // 弃牌
     confirm: 'Confirm', // 确认
     cancel: 'Cancel', // 取消
-    raisePlaceholder: (toCall: number, minTargetExtra: number, min: number) => `最低${min}=call: ${toCall}+${minTargetExtra}`,
+    raisePlaceholder: (playerBet: number, toCall: number, minTargetExtra: number, min: number) => `最低${min}(已下${playerBet}+跟${toCall}+加${minTargetExtra})`,
     allin: 'All In', // 全押
   },
   playerArea: {

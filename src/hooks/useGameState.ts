@@ -377,6 +377,10 @@ export function useGameState() {
               const toCall = state.lastBet - player.bet;
               const newBet = player.bet + additional;
 
+              if (additional <= toCall || newBet <= state.lastBet) {
+                return state;
+              }
+
               actingPlayer.bet += additional;
               actingPlayer.totalBet += additional;
               actingPlayer.chips -= additional;
@@ -445,6 +449,20 @@ export function useGameState() {
               actingPlayer.folded = true;
               actingPlayer.hasActed = true;
               break;
+          }
+
+          if (action.action === 'raise' || action.action === 'allin') {
+            for (let i = 0; i < newPlayers.length; i++) {
+              if (
+                i !== playerIdx &&
+                !newPlayers[i].folded &&
+                !newPlayers[i].allIn &&
+                newPlayers[i].chips > 0 &&
+                newPlayers[i].bet < newLastBet
+              ) {
+                newPlayers[i].hasActed = false;
+              }
+            }
           }
 
           newPlayers[playerIdx] = {

@@ -42,7 +42,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
   }, [lastBet, playerBet, canRaise]);
 
   const toCall = lastBet - playerBet;
-  const minRaiseTotal = toCall + lastRaiseBet; // Minimum total amount to raise (current call + last raise)
+  const minRaiseTotal = lastBet + lastRaiseBet;
 
   const handleRaise = () => {
     const targetTotal = parseInt(raiseAmount);
@@ -154,6 +154,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
             value={raiseAmount}
             onChange={(e) => setRaiseAmount(e.target.value)}
             placeholder={translations.actionButtons.raisePlaceholder(
+              playerBet,
               toCall,
               lastRaiseBet,
               minRaiseTotal,
@@ -164,6 +165,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
             onClick={handleRaise}
             disabled={
               !raiseAmount ||
+              isNaN(parseInt(raiseAmount)) ||
               parseInt(raiseAmount) < minRaiseTotal ||
               parseInt(raiseAmount) <= playerBet ||
               parseInt(raiseAmount) > playerBet + playerChips ||
