@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { translations } from '../utils/translations';
+import { loadGameProgress, clearGameProgress } from '../utils/gamePersistence';
+import type { SavedProgress } from '../utils/gamePersistence';
 
 interface StartPageProps {
   onStartGame: (
@@ -7,12 +9,23 @@ interface StartPageProps {
     botPlayerCount: number,
     smallBlind: number,
   ) => void;
+  onResumeGame: (progress: SavedProgress) => void;
 }
 
-export const StartPage: React.FC<StartPageProps> = ({ onStartGame }) => {
+export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame }) => {
   const [realPlayers, setRealPlayers] = useState(2);
   const [botPlayers, setBotPlayers] = useState(0);
   const [smallBlind, setSmallBlind] = useState(5);
+  const [savedProgress, setSavedProgress] = useState<SavedProgress | null>(
+    () => loadGameProgress(),
+  );
+
+  const handleClearProgress = () => {
+    if (confirm(translations.persistence.confirmClear)) {
+      clearGameProgress();
+      setSavedProgress(null);
+    }
+  };
 
   const totalPlayers = realPlayers + botPlayers;
   const isValid =
@@ -122,6 +135,52 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame }) => {
         >
           {translations.startPage.startGame}
         </button>
+
+        {savedProgress && (
+          <div className="mt-6 border-t border-green-600 pt-6">
+            <div className="text-center mb-4">
+              <p className="text-white/80 text-lg font-bold">
+                {translations.persistence.savedProgress}
+              </p>
+              <p className="text-white/50 text-sm">
+                {translations.persistence.savedAt(
+                  new Date(savedProgress.savedAt).toLocaleString(),
+                )}
+              </p>
+            </div>
+
+            <div className="bg-green-900/50 rounded-lg p-3 mb-4 space-y-1">
+              {savedProgress.chips.map((chips, idx) => {
+                const isReal = savedProgress.realPlayers.includes(idx + 1);
+                const name = isReal
+                  ? `玩家${idx + 1}`
+                  : `Bot${idx + 1}`;
+                return (
+                  <div key={idx} className="flex justify-between text-sm">
+                    <span className={isReal ? 'text-white' : 'text-white/60'}>
+                      {name}
+                    </span>
+                    <span className="text-yellow-400 font-bold">${chips}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => onResumeGame(savedProgress)}
+              className="w-full py-3 text-xl font-bold rounded-xl bg-blue-500 hover:bg-blue-600 text-white transition-all hover:scale-105 mb-2"
+            >
+              {translations.persistence.continueGame}
+            </button>
+
+            <button
+              onClick={handleClearProgress}
+              className="w-full py-2 text-sm font-bold rounded-xl bg-red-900/40 hover:bg-red-700/60 text-white/70 hover:text-white transition-all"
+            >
+              {translations.persistence.clearProgress}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

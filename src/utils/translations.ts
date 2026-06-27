@@ -131,6 +131,14 @@ export const translations = {
     player: '玩家',
     potTotal: '池总额',
   },
+  persistence: {
+    continueGame: '继续上次 Continue Last Game',
+    clearProgress: '清除存档 Clear Save',
+    savedProgress: '上次存档 Saved Progress',
+    savedAt: (time: string) => `保存于 Saved: ${time}`,
+    playerChips: (name: string, chips: number) => `${name}: $${chips}`,
+    confirmClear: '确认清除存档？ Clear saved game progress?',
+  },
   playerStats: {
     title: '玩家数据 Player Stats',
     vpip: 'VPIP',

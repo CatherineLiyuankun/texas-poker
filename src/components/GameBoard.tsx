@@ -17,6 +17,7 @@ import {
   exportStats,
   importStats,
 } from '../utils/longOpponentModel';
+import { saveGameProgress } from '../utils/gamePersistence';
 import { HAND_RANK_NAMES, type Action } from '../types/poker';
 import type { ActionEvent } from '../types/stats';
 import { translations } from '../utils/translations';
@@ -29,11 +30,13 @@ interface PlayerConfig {
 
 interface GameBoardProps {
   playerConfig: PlayerConfig;
+  savedChips?: number[];
   onBackToMenu: () => void;
 }
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   playerConfig,
+  savedChips,
   onBackToMenu,
 }) => {
   const {
@@ -87,20 +90,49 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       state.players[0].hand.length === 0
     ) {
       gameInitialized.current = true;
-      // 首次开局，清除对手数据
       resetOpponentStats();
       startGame(
         playerConfig.realPlayers,
         playerConfig.botPlayers,
         playerConfig.smallBlind,
+        savedChips,
       );
     }
-  }, [state.phase, state.players, startGame, playerConfig]);
+  }, [state.phase, state.players, startGame, playerConfig, savedChips]);
 
   const currentPlayer = state.players[state.currentPlayer - 1];
   const roundSettled =
     state.winner !== null ||
-    (state.phase === 'showdown' && state.mainPot === 0); // 如果有赢家了，或者到了摊牌阶段但没有奖池了（所有玩家都弃牌了），都算本轮结束
+    (state.phase === 'showdown' && state.mainPot === 0);
+
+  useEffect(() => {
+    if (roundSettled && state.players.length > 0) {
+      saveGameProgress({
+        version: 1,
+        chips: state.players.map((p) => p.chips),
+        realPlayers: state.players.filter((p) => p.isRealPlayer).map((p) => p.id),
+        botPlayers: state.players.filter((p) => !p.isRealPlayer).map((p) => p.id),
+        smallBlind: state.smallBlind,
+        dealer: state.dealer,
+        savedAt: Date.now(),
+      });
+    }
+  }, [roundSettled, state.players, state.smallBlind, state.dealer]);
+
+  const handleBackToMenu = () => {
+    if (state.players.length > 0 && state.players[0].hand.length > 0) {
+      saveGameProgress({
+        version: 1,
+        chips: state.players.map((p) => p.chips),
+        realPlayers: state.players.filter((p) => p.isRealPlayer).map((p) => p.id),
+        botPlayers: state.players.filter((p) => !p.isRealPlayer).map((p) => p.id),
+        smallBlind: state.smallBlind,
+        dealer: state.dealer,
+        savedAt: Date.now(),
+      });
+    }
+    onBackToMenu();
+  };
 
   useEffect(() => {
     const allFolded = state.players.filter((p) => !p.folded).length <= 1;
@@ -334,7 +366,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         <div className="flex justify-between items-center mb-4">
           <div className="flex items-center gap-2">
             <button
-              onClick={onBackToMenu}
+              onClick={handleBackToMenu}
               className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-bold"
             >
               {translations.gameBoard.backToMenu}
