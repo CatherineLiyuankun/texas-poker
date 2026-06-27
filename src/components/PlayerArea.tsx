@@ -4,7 +4,7 @@ import { Card } from './Card';
 import { HandAnalysis } from './HandAnalysis';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
-import { INITIAL_CHIPS } from '../utils/constant';
+import { SMALL_BLIND } from '../utils/constant';
 import type { OpponentProfile } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
 
@@ -24,12 +24,13 @@ interface PlayerAreaProps {
   potOdds?: number;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
+  smallBlind?: number;
 }
 
-export const PlayerArea: React.FC<PlayerAreaProps> = ({ 
-  player, 
+export const PlayerArea: React.FC<PlayerAreaProps> = ({
+  player,
   displayName,
-  isCurrentPlayer, 
+  isCurrentPlayer,
   isWinner = false,
   handRank,
   positionLabel,
@@ -42,6 +43,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   potOdds,
   opponentProfile,
   longStats,
+  smallBlind = SMALL_BLIND,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -98,7 +100,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
               ${player.chips}
               {player.buyInCount > 0 && (
                 <span className="text-sm text-orange-400 ml-1">
-                  (-{player.buyInCount * INITIAL_CHIPS})
+                  (-{player.buyInCount * smallBlind * 200})
                 </span>
               )}
               {chipChange !== undefined && chipChange !== 0 && (

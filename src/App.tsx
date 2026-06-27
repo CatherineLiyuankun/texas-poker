@@ -4,10 +4,22 @@ import { GameBoard } from './components/GameBoard';
 
 function App() {
   const [gameStarted, setGameStarted] = useState(false);
-  const [playerConfig, setPlayerConfig] = useState({ realPlayers: 2, botPlayers: 0 });
+  const [playerConfig, setPlayerConfig] = useState({
+    realPlayers: 2,
+    botPlayers: 0,
+    smallBlind: 5,
+  });
 
-  const handleStartGame = (realPlayerCount: number, botPlayerCount: number) => {
-    setPlayerConfig({ realPlayers: realPlayerCount, botPlayers: botPlayerCount });
+  const handleStartGame = (
+    realPlayerCount: number,
+    botPlayerCount: number,
+    smallBlind: number,
+  ) => {
+    setPlayerConfig({
+      realPlayers: realPlayerCount,
+      botPlayers: botPlayerCount,
+      smallBlind,
+    });
     setGameStarted(true);
   };
 

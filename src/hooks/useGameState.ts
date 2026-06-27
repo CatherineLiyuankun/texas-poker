@@ -71,10 +71,14 @@ function shuffleDeck(): Card[] {
   return deck;
 }
 
-function createPlayer(id: PlayerId, isRealPlayer: boolean): Player {
+function createPlayer(
+  id: PlayerId,
+  isRealPlayer: boolean,
+  initialChips: number = INITIAL_CHIPS,
+): Player {
   return {
     id,
-    chips: INITIAL_CHIPS,
+    chips: initialChips,
     bet: 0,
     totalBet: 0,
     hand: [],
@@ -91,16 +95,19 @@ function createPlayer(id: PlayerId, isRealPlayer: boolean): Player {
 function createInitialState(
   realPlayerCount: number,
   botPlayerCount: number,
+  smallBlind: number = SMALL_BLIND,
 ): GameState {
   const totalPlayers = realPlayerCount + botPlayerCount;
   const dealer: PlayerId = (Math.floor(Math.random() * totalPlayers) +
     1) as PlayerId;
+  const initialChips = smallBlind * 200;
+  const bigBlind = smallBlind * 2;
 
   const players: Player[] = [];
   for (let i = 0; i < totalPlayers; i++) {
     const playerId = (i + 1) as PlayerId;
     const isReal = i < realPlayerCount;
-    players.push(createPlayer(playerId, isReal));
+    players.push(createPlayer(playerId, isReal, initialChips));
   }
 
   return {
@@ -112,13 +119,14 @@ function createInitialState(
     currentPlayer: dealer === 1 ? 2 : 1,
     dealer,
     lastBet: 0,
-    lastRaiseBet: BIG_BLIND - SMALL_BLIND,
+    lastRaiseBet: bigBlind - smallBlind,
     raiseRightsOpened: true,
     winner: null,
     handRank: null,
     winningCards: [],
     realPlayerCount,
     botPlayerCount,
+    smallBlind,
     chipsAtRoundStart: [],
     chipsBeforeSettlement: [],
     potDistribution: [],
@@ -130,6 +138,7 @@ type GameAction =
       type: 'START_GAME';
       realPlayerCount: number;
       botPlayerCount: number;
+      smallBlind: number;
       playerChips?: number[];
     }
   | { type: 'PLAYER_ACTION'; player: PlayerId; action: Action; amount?: number }
@@ -256,18 +265,20 @@ export function useGameState() {
         case 'START_GAME': {
           const deck = shuffleDeck();
           const totalPlayers = action.realPlayerCount + action.botPlayerCount;
+          const smallBlind = action.smallBlind;
+          const bigBlind = smallBlind * 2;
+          const initialChips = smallBlind * 200;
 
           const newPlayers: Player[] = [];
           for (let i = 0; i < totalPlayers; i++) {
             const playerId = (i + 1) as PlayerId;
             const isReal = i < action.realPlayerCount;
             newPlayers.push({
-              ...createPlayer(playerId, isReal),
+              ...createPlayer(playerId, isReal, initialChips),
               hand: [deck[i * 2], deck[i * 2 + 1]],
               chips:
                 action.playerChips?.[i] ??
-                state.players[i]?.chips ??
-                INITIAL_CHIPS,
+                initialChips,
               buyInCount: state.players[i]?.buyInCount ?? 0,
             });
           }
@@ -287,12 +298,12 @@ export function useGameState() {
             totalPlayers,
           );
 
-          const sbAmount = Math.min(SMALL_BLIND, newPlayers[sbIdx].chips);
+          const sbAmount = Math.min(smallBlind, newPlayers[sbIdx].chips);
           newPlayers[sbIdx].bet = sbAmount;
           newPlayers[sbIdx].totalBet = sbAmount;
           newPlayers[sbIdx].chips -= sbAmount;
 
-          const bbAmount = Math.min(BIG_BLIND, newPlayers[bbIdx].chips);
+          const bbAmount = Math.min(bigBlind, newPlayers[bbIdx].chips);
           newPlayers[bbIdx].bet = bbAmount;
           newPlayers[bbIdx].totalBet = bbAmount;
           newPlayers[bbIdx].chips -= bbAmount;
@@ -305,11 +316,11 @@ export function useGameState() {
           let lastRaiseBet: number;
           let raiseRightsOpened: boolean;
 
-          if (bbAmount >= BIG_BLIND) {
+          if (bbAmount >= bigBlind) {
             lastRaiseBet = bbAmount - sbAmount;
             raiseRightsOpened = true;
           } else {
-            lastRaiseBet = BIG_BLIND - SMALL_BLIND;
+            lastRaiseBet = bigBlind - smallBlind;
             raiseRightsOpened = false;
           }
 
@@ -329,6 +340,7 @@ export function useGameState() {
             winningCards: [],
             realPlayerCount: action.realPlayerCount,
             botPlayerCount: action.botPlayerCount,
+            smallBlind,
             chipsAtRoundStart: chipsAtRoundStartSnapshot,
             chipsBeforeSettlement: [],
             potDistribution: [],
@@ -984,9 +996,10 @@ export function useGameState() {
         case 'RESET_ROUND': {
           const newDealer = ((state.dealer % state.players.length) +
             1) as PlayerId;
+          const resetInitialChips = (state.smallBlind || SMALL_BLIND) * 200;
           const newPlayers = state.players.map((p, index) => ({
             ...p,
-            chips: p.chips > 0 ? p.chips : p.chips + INITIAL_CHIPS,
+            chips: p.chips > 0 ? p.chips : p.chips + resetInitialChips,
             buyInCount: p.chips > 0 ? p.buyInCount : p.buyInCount + 1,
             bet: 0,
             totalBet: 0,
@@ -1013,6 +1026,7 @@ export function useGameState() {
             winningCards: [],
             realPlayerCount: state.realPlayerCount,
             botPlayerCount: state.botPlayerCount,
+            smallBlind: state.smallBlind || SMALL_BLIND,
             chipsAtRoundStart: [],
             chipsBeforeSettlement: [],
             potDistribution: [],
@@ -1032,12 +1046,14 @@ export function useGameState() {
     (
       realPlayerCount: number,
       botPlayerCount: number,
+      smallBlind: number,
       playerChips?: number[],
     ) => {
       dispatch({
         type: 'START_GAME',
         realPlayerCount,
         botPlayerCount,
+        smallBlind,
         playerChips,
       });
     },
@@ -1068,17 +1084,22 @@ export function useGameState() {
   }, []);
 
   const resetRound = useCallback(() => {
-    // 新一局开始，清除对手画像数据
     resetOpponentStats();
+    const resetInitialChips = (state.smallBlind || SMALL_BLIND) * 200;
+    const resetChips = state.players.map(
+      (p) => (p.chips > 0 ? p.chips : p.chips + resetInitialChips),
+    );
     dispatch({ type: 'RESET_ROUND' });
     setTimeout(() => {
       dispatch({
         type: 'START_GAME',
         realPlayerCount: state.realPlayerCount,
         botPlayerCount: state.botPlayerCount,
+        smallBlind: state.smallBlind || SMALL_BLIND,
+        playerChips: resetChips,
       });
     }, 0);
-  }, [state.realPlayerCount, state.botPlayerCount]);
+  }, [state.realPlayerCount, state.botPlayerCount, state.smallBlind, state.players]);
 
   const fold = useCallback((player: PlayerId) => {
     dispatch({ type: 'FOLD', player });

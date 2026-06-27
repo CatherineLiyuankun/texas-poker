@@ -89,6 +89,7 @@ export interface GameState {
   winningCards: Card[];
   realPlayerCount: number;
   botPlayerCount: number;
+  smallBlind: number;
   chipsAtRoundStart: number[];
   chipsBeforeSettlement: number[];
   potDistribution: PotDistribution[];

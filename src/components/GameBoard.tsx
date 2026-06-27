@@ -24,6 +24,7 @@ import { translations } from '../utils/translations';
 interface PlayerConfig {
   realPlayers: number;
   botPlayers: number;
+  smallBlind: number;
 }
 
 interface GameBoardProps {
@@ -88,7 +89,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       gameInitialized.current = true;
       // 首次开局，清除对手数据
       resetOpponentStats();
-      startGame(playerConfig.realPlayers, playerConfig.botPlayers);
+      startGame(
+        playerConfig.realPlayers,
+        playerConfig.botPlayers,
+        playerConfig.smallBlind,
+      );
     }
   }, [state.phase, state.players, startGame, playerConfig]);
 
@@ -385,7 +390,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <button
               onClick={() => {
                 resetOpponentStats();
-                startGame(playerConfig.realPlayers, playerConfig.botPlayers);
+                startGame(
+                  playerConfig.realPlayers,
+                  playerConfig.botPlayers,
+                  playerConfig.smallBlind,
+                );
               }}
               className="px-12 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-2xl font-bold rounded-xl transition-all hover:scale-105"
             >
@@ -481,6 +490,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             : undefined
                         }
                         longStats={player.isRealPlayer ? longStats : undefined}
+                        smallBlind={state.smallBlind}
                         potOdds={(() => {
                           const toCall = state.lastBet - player.bet;
                           if (toCall <= 0) return 0;

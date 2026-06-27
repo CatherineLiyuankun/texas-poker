@@ -6,7 +6,7 @@ describe('Side Pot 逻辑', () => {
     it('玩家 all-in 后 main pot 正确', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const allInPlayer = result.current.state.currentPlayer;
@@ -28,7 +28,7 @@ describe('Side Pot 逻辑', () => {
     it('all-in 后其他人 fold 则 all-in 玩家获胜', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const allInPlayer = result.current.state.currentPlayer;
@@ -55,7 +55,7 @@ describe('Side Pot 逻辑', () => {
     it('3人游戏中正常 call 只有主池', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const currentPlayer = result.current.state.currentPlayer;
@@ -65,14 +65,14 @@ describe('Side Pot 逻辑', () => {
       });
 
       const { mainPot: mainPot } = result.current.state;
-      expect(mainPot).toBe(50);
+      expect(mainPot).toBe(25);
       expect(result.current.state.sidePots.length).toBe(0);
     });
 
     it('3人游戏中 all-in 产生 side pot', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const allInPlayer = result.current.state.currentPlayer;

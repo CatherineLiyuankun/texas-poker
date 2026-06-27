@@ -63,6 +63,7 @@ function buildState({
     winningCards: [],
     realPlayerCount: 2,
     botPlayerCount: 0,
+    smallBlind: 5,
     chipsAtRoundStart: [],
     chipsBeforeSettlement: [],
     potDistribution: [],
@@ -98,7 +99,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       .mockReturnValue(buildHookMock(buildState({ dealer: 1 })));
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -120,7 +121,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
     );
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -149,7 +150,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
 
     const { rerender } = render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -167,7 +168,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
     useGameStateSpy.mockReturnValue(buildHookMock(round2State));
     rerender(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -188,7 +189,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       .mockReturnValue(buildHookMock(state));
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -208,7 +209,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       .mockReturnValue(buildHookMock(state));
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -251,7 +252,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       .mockReturnValue(buildHookMock(state));
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -273,7 +274,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       .mockReturnValue(buildHookMock(state));
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );
@@ -296,7 +297,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       .mockReturnValue(buildHookMock(state));
     render(
       <GameBoard
-        playerConfig={{ realPlayers: 2, botPlayers: 0 }}
+        playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }}
         onBackToMenu={() => {}}
       />,
     );

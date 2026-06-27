@@ -51,6 +51,7 @@ function buildState({ dealer = 1, player1Chips = 990, player2Chips = 980, player
     winningCards: [],
     realPlayerCount: 2,
     botPlayerCount: 0,
+    smallBlind: 5,
     chipsAtRoundStart: [],
     chipsBeforeSettlement: [],
     potDistribution: [],
@@ -79,7 +80,7 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
     expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
@@ -105,7 +106,7 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
     expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });
@@ -126,7 +127,7 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    const { rerender } = render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    const { rerender } = render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
     expect(screen.getByText('BTN/SB')).toBeInTheDocument();
     // 模拟dealer切回1（下一局）
@@ -144,7 +145,7 @@ describe('GameBoard blinds UI logic', () => {
       isBettingComplete: jest.fn(),
       getCurrentPhaseCards: jest.fn(),
     });
-    rerender(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    rerender(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
     expect(screen.getByText('BTN/SB')).toBeInTheDocument();
   });

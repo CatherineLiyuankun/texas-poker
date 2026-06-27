@@ -20,7 +20,7 @@ function clickFirstEnabled(patterns: RegExp[]): boolean {
 
 describe('showdown结算', () => {
   it('仅跟注和看牌到摊牌时，赢家只拿一次底池', () => {
-    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0 }} onBackToMenu={() => {}} />);
+    render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
 
     for (let i = 0; i < 120; i += 1) {
       if (screen.queryByText(/获胜！/)) {
@@ -39,7 +39,7 @@ describe('showdown结算', () => {
     }
 
     expect(screen.getByText(/获胜！/)).toBeInTheDocument();
-    expect(screen.getAllByText('$1020').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('$980').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$1010').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$990').length).toBeGreaterThan(0);
   });
 });

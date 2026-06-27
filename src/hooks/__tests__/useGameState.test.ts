@@ -1,13 +1,13 @@
 import { renderHook, act } from '@testing-library/react';
 import { useGameState } from '../useGameState';
-import { SMALL_BLIND, BIG_BLIND, INITIAL_CHIPS } from '../../utils/constant';
+import { INITIAL_CHIPS } from '../../utils/constant';
 
 describe('游戏状态 - 多人场景与边界情况', () => {
   describe('初始游戏设置', () => {
     it('创建2人游戏', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
       expect(result.current.state.players).toHaveLength(2);
       expect(result.current.state.realPlayerCount).toBe(2);
@@ -17,7 +17,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('创建3人游戏 (2真人+1机器人)', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
       expect(result.current.state.players).toHaveLength(3);
       expect(result.current.state.players[0].isRealPlayer).toBe(true);
@@ -28,7 +28,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('创建10人满桌', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 8);
+        result.current.startGame(2, 8, 5);
       });
       expect(result.current.state.players).toHaveLength(10);
     });
@@ -38,7 +38,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('2人局庄家位正确分配盲注', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const { players, dealer } = result.current.state;
@@ -46,14 +46,14 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const smallBlindIdx = (dealerIdx + 1) % players.length;
       const bigBlindIdx = (dealerIdx + 2) % players.length;
 
-      expect(players[smallBlindIdx].bet).toBe(SMALL_BLIND);
-      expect(players[bigBlindIdx].bet).toBe(BIG_BLIND);
+      expect(players[smallBlindIdx].bet).toBe(5);
+      expect(players[bigBlindIdx].bet).toBe(10);
     });
 
     it('盲注扣除后筹码正确', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const { players } = result.current.state;
@@ -66,7 +66,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('3人局盲注分配正确', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const { players, dealer } = result.current.state;
@@ -74,8 +74,8 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const smallBlindIdx = (dealerIdx + 1) % players.length;
       const bigBlindIdx = (dealerIdx + 2) % players.length;
 
-      expect(players[smallBlindIdx].bet).toBe(SMALL_BLIND);
-      expect(players[bigBlindIdx].bet).toBe(BIG_BLIND);
+      expect(players[smallBlindIdx].bet).toBe(5);
+      expect(players[bigBlindIdx].bet).toBe(10);
     });
   });
 
@@ -83,7 +83,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('玩家跟注正确扣减筹码并加入底池', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const initialPot = result.current.state.mainPot;
@@ -103,7 +103,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('玩家加注正确设置lastBet', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const currentPlayer = result.current.state.currentPlayer;
@@ -119,7 +119,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('玩家过牌不扣筹码', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const currentPlayer = result.current.state.currentPlayer;
@@ -136,7 +136,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('玩家弃牌正确标记folded', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const currentPlayer = result.current.state.currentPlayer;
@@ -153,7 +153,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('只剩一人时该玩家获胜并获得底池', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const player1Idx = 0;
@@ -178,7 +178,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('翻牌前 -> 翻牌', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       expect(result.current.state.phase).toBe('preflop');
@@ -197,7 +197,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('翻牌 -> 转牌', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
         result.current.state.players.forEach((p) =>
           result.current.revealHand(p.id),
         );
@@ -219,7 +219,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const { result } = renderHook(() => useGameState());
       
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const playerWhoCalled = result.current.state.currentPlayer;
@@ -248,7 +248,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('摊牌时正确评估手牌并分配底池', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       while (result.current.state.phase !== 'river') {
@@ -275,7 +275,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('平分底池', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       result.current.state.players.forEach((p) =>
@@ -309,7 +309,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('重置后玩家筹码保留', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const chipsBefore = result.current.state.players.map((p) => p.chips);
@@ -325,7 +325,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('重置后庄家移动到下一位', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const dealerBefore = result.current.state.dealer;
@@ -341,7 +341,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('破产玩家重置后恢复初始筹码', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const players = result.current.state.players;
@@ -362,7 +362,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('已设置winner后collectPot不重复加筹码', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const player1Id = result.current.state.players[0].id;
@@ -385,7 +385,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('10人满桌盲注分配正确', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 8);
+        result.current.startGame(2, 8, 5);
       });
 
       const { players, dealer } = result.current.state;
@@ -393,14 +393,14 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const smallBlindIdx = (dealerIdx + 1) % players.length;
       const bigBlindIdx = (dealerIdx + 2) % players.length;
 
-      expect(players[smallBlindIdx].bet).toBe(SMALL_BLIND);
-      expect(players[bigBlindIdx].bet).toBe(BIG_BLIND);
+      expect(players[smallBlindIdx].bet).toBe(5);
+      expect(players[bigBlindIdx].bet).toBe(10);
     });
 
     it('all-in后底池正确计算', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const allInPlayer = result.current.state.currentPlayer;
@@ -418,7 +418,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('连续多轮后庄家循环正确', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const firstDealer = result.current.state.dealer;
@@ -439,7 +439,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('筹码不足盲注时自动all-in，筹码不会变负', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [10, 1000]);
+        result.current.startGame(2, 0, 5, [10, 1000]);
       });
 
       const { players } = result.current.state;
@@ -456,7 +456,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('筹码为0的玩家重置后获得INITIAL_CHIPS并buyInCount+1', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [0, 1000]);
+        result.current.startGame(2, 0, 5, [0, 1000]);
       });
 
       const playerWithNoChips = result.current.state.players.find(
@@ -479,7 +479,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('多次破产后buyInCount正确累加', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [0, 1000]);
+        result.current.startGame(2, 0, 5, [0, 1000]);
       });
 
       act(() => result.current.resetRound());
@@ -503,7 +503,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('筹码充足玩家重置后buyInCount不变', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [1000, 1000]);
+        result.current.startGame(2, 0, 5, [1000, 1000]);
       });
 
       act(() => {
@@ -519,7 +519,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('筹码刚好等于盲注时可以正常下注', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [SMALL_BLIND, 1000]);
+        result.current.startGame(2, 0, 5, [5, 1000]);
       });
 
       const { players, dealer } = result.current.state;
@@ -530,23 +530,23 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const sbPlayer = players[smallBlindIdx];
       const bbPlayer = players[bigBlindIdx];
 
-      expect(sbPlayer.bet).toBe(SMALL_BLIND);
+      expect(sbPlayer.bet).toBe(5);
       expect(sbPlayer.chips).toBeGreaterThanOrEqual(0);
 
       expect(bbPlayer.bet).toBe(
-        Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet),
+        Math.min(10, bbPlayer.chips + bbPlayer.bet),
       );
       expect(bbPlayer.chips).toBeGreaterThanOrEqual(0);
 
       const totalChips = players.reduce((sum, p) => sum + p.chips, 0);
       const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
-      expect(totalChips + totalBets).toBe(SMALL_BLIND + 1000);
+      expect(totalChips + totalBets).toBe(5 + 1000);
     });
 
     it('筹码小于盲注时自动all-in全部筹码', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [5, 1000]);
+        result.current.startGame(2, 0, 5, [5, 1000]);
       });
 
       const { players, dealer } = result.current.state;
@@ -558,12 +558,12 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const bbPlayer = players[bigBlindIdx];
 
       expect(sbPlayer.bet).toBe(
-        Math.min(SMALL_BLIND, sbPlayer.chips + sbPlayer.bet),
+        Math.min(5, sbPlayer.chips + sbPlayer.bet),
       );
       expect(sbPlayer.chips).toBeGreaterThanOrEqual(0);
 
       expect(bbPlayer.bet).toBe(
-        Math.min(BIG_BLIND, bbPlayer.chips + bbPlayer.bet),
+        Math.min(10, bbPlayer.chips + bbPlayer.bet),
       );
       expect(bbPlayer.chips).toBeGreaterThanOrEqual(0);
 
@@ -579,7 +579,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('preflop大盲后可check', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const current = result.current.state.currentPlayer;
@@ -590,7 +590,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('需要跟注时可call', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const current = result.current.state.currentPlayer;
@@ -606,7 +606,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('folded玩家不能行动', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const foldedPlayerId = result.current.state.players[1].id;
@@ -621,21 +621,21 @@ describe('游戏状态 - 多人场景与边界情况', () => {
   });
 
   describe('lastRaiseBet 和 raiseRightsOpened', () => {
-    it('preflop正常盲注：lastRaiseBet = BIG_BLIND - SMALL_BLIND', () => {
+    it('preflop正常盲注：lastRaiseBet = 10 - 5', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
-      expect(result.current.state.lastBet).toBe(BIG_BLIND);
-      expect(result.current.state.lastRaiseBet).toBe(BIG_BLIND - SMALL_BLIND);
+      expect(result.current.state.lastBet).toBe(10);
+      expect(result.current.state.lastRaiseBet).toBe(10 - 5);
       expect(result.current.state.raiseRightsOpened).toBe(true);
     });
 
     it('preflop大盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [1000, 15]); // 玩家2只有15筹码
+        result.current.startGame(2, 0, 5, [1000, 8]); // 玩家2只有8筹码
       });
 
       const state = result.current.state;
@@ -646,12 +646,12 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       // 只有当短码玩家(P2)是大盲时，才验证大盲不足逻辑
       // 2人局dealer=SB，dealer随机分配，P2可能不是BB
       if (bbPlayer && bbPlayer.id === 2) {
-        expect(state.lastBet).toBe(15);
-        expect(state.lastRaiseBet).toBe(BIG_BLIND - SMALL_BLIND);
+        expect(state.lastBet).toBe(8);
+        expect(state.lastRaiseBet).toBe(10 - 5);
         expect(state.raiseRightsOpened).toBe(false);
       } else {
         // P1是BB（full $20），P2是SB（$10）
-        expect(state.lastBet).toBe(BIG_BLIND);
+        expect(state.lastBet).toBe(10);
         expect(state.raiseRightsOpened).toBe(true);
       }
     });
@@ -659,7 +659,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('preflop小盲不足大盲正常：lastRaiseBet = bbAmount - sbAmount', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [5, 1000]);
+        result.current.startGame(2, 0, 5, [5, 1000]);
       });
 
       const bbPlayer = result.current.state.players.find(
@@ -667,7 +667,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       );
       const sbPlayer = result.current.state.players.find(p => p.id !== bbPlayer?.id);
 
-      if (bbPlayer && sbPlayer && bbPlayer.bet >= BIG_BLIND) {
+      if (bbPlayer && sbPlayer && bbPlayer.bet >= 10) {
         expect(result.current.state.lastRaiseBet).toBe(bbPlayer.bet - sbPlayer.bet);
         expect(result.current.state.raiseRightsOpened).toBe(true);
       }
@@ -676,21 +676,21 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('preflop双盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [5, 8]);
+        result.current.startGame(2, 0, 5, [5, 8]);
       });
 
       const bets = result.current.state.players.map(p => p.bet);
       const maxBet = Math.max(...bets);
       
-      expect(maxBet).toBeLessThan(BIG_BLIND);
-      expect(result.current.state.lastRaiseBet).toBe(BIG_BLIND - SMALL_BLIND);
+      expect(maxBet).toBeLessThan(10);
+      expect(result.current.state.lastRaiseBet).toBe(10 - 5);
       expect(result.current.state.raiseRightsOpened).toBe(false);
     });
 
     it('postflop第一人下注：lastRaiseBet = 下注额本身', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       act(() => {
@@ -718,7 +718,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('加注后：lastRaiseBet = 加注增量', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       const initialLastBet = result.current.state.lastBet;
@@ -739,7 +739,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('不足额全下：额外投入<lastRaiseBet，raiseRightsOpened=false', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, [1000, 50]);
+        result.current.startGame(2, 0, 5, [1000, 50]);
       });
 
       const firstPlayerId = result.current.state.currentPlayer;
@@ -768,7 +768,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('不足额全下后不能加注', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(3, 0, [1000, 1000, 100]);
+        result.current.startGame(3, 0, 5, [1000, 1000, 100]);
       });
 
       act(() => {
@@ -787,7 +787,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('有效加注重开加注权', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       act(() => {
@@ -800,7 +800,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('nextStreet重置lastRaiseBet和raiseRightsOpened', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0);
+        result.current.startGame(2, 0, 5);
       });
 
       act(() => {
@@ -831,7 +831,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('跨街后fold：totalPot使用totalBet（winner筹码 = 所有玩家totalBet之和）', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(1, 3);
+        result.current.startGame(1, 3, 5);
       });
 
       const totalInitialChips = 4000;
@@ -899,7 +899,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('跨街后fold：potDistribution正确拆分主池和边池', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(1, 3);
+        result.current.startGame(1, 3, 5);
       });
 
       // preflop: all players call
@@ -980,7 +980,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
     it('翻牌前fold：potDistribution正确包含盲注', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(1, 3);
+        result.current.startGame(1, 3, 5);
       });
 
       // First player to act goes all-in pre-flop

@@ -5,8 +5,9 @@ export const translations = {
     botPlayers: '电脑玩家数量 Bot Players',
     totalPlayers: '总玩家数 Total Players',
     startGame: '开始游戏 Start Game',
-    smallBlind: '小盲: $10 | 大盲: $20',
-    initialChips: '每人初始筹码: $1000',
+    smallBlindInfo: (smallBlind: number) => `小盲: $${smallBlind} | 大盲: $${smallBlind * 2}`,
+    initialChipsInfo: (smallBlind: number) => `每人初始筹码: $${smallBlind * 200}`,
+    smallBlindLabel: '小盲大小 Small Blind',
   },
   actionButtons: {
     botThinking: '电脑玩家思考中... Bot Thinking...',

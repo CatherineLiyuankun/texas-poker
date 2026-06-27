@@ -64,6 +64,7 @@ function createGameState(overrides: Partial<GameState> = {}): GameState {
     winningCards: [],
     realPlayerCount: 2,
     botPlayerCount: 0,
+    smallBlind: 5,
     chipsAtRoundStart: [],
     chipsBeforeSettlement: [],
     potDistribution: [],

@@ -8,18 +8,18 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       const state = result.current.state;
 
       // 验证初始mainPot = 盲注总和
-      expect(state.mainPot).toBe(30);
+      expect(state.mainPot).toBe(15);
 
       // 验证玩家bet正确
       const playerBets = state.players.map((p) => p.bet);
-      expect(playerBets).toContain(10); // 小盲
-      expect(playerBets).toContain(20); // 大盲
+      expect(playerBets).toContain(5); // 小盲
+      expect(playerBets).toContain(10); // 大盲
 
 // 验证总筹码守恒（盲注在pot和player.bet中不重复）
       // 修复后：mainPot用于显示，但不计入总筹码计算
@@ -35,7 +35,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       // 找到未行动且有bet的玩家（小盲）
@@ -60,7 +60,7 @@ describe('useGameState - E2E集成测试', () => {
       // 验证总池正确
       const totalPot = state.mainPot + state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
       const allInPlayer = state.players.find((p) => p.allIn);
-      expect(totalPot).toBe(allInPlayer!.bet + 30); // all-in金额 + 盲注
+      expect(totalPot).toBe(allInPlayer!.bet + 15); // all-in金额 + 盲注
     });
   });
 
@@ -69,7 +69,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       // 第一次all-in
@@ -120,7 +120,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(1, 2); // 1真人 + 2机器人 = 3玩家
+        result.current.startGame(1, 2, 5); // 1真人 + 2机器人 = 3玩家
       });
 
       // 模拟场景4：A全下30，B全下60，C全下100
@@ -144,7 +144,7 @@ describe('useGameState - E2E集成测试', () => {
 
       // 开始游戏
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       const totalChips = 4000;
@@ -174,7 +174,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       // 让所有玩家all-in
@@ -211,16 +211,16 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       // 验证初始状态
       let state = result.current.state;
-      expect(state.mainPot).toBe(30);
+      expect(state.mainPot).toBe(15);
       expect(state.phase).toBe('preflop');
 
       // 找到大盲玩家
-      const bbPlayer = state.players.find((p) => p.bet === 20);
+      const bbPlayer = state.players.find((p) => p.bet === 10);
       expect(bbPlayer).toBeDefined();
 
       // 当前玩家跟注
@@ -230,7 +230,7 @@ describe('useGameState - E2E集成测试', () => {
       });
 
       state = result.current.state;
-      expect(state.mainPot).toBeGreaterThan(30);
+      expect(state.mainPot).toBeGreaterThan(15);
 
       // 下一个玩家加注
       const nextPlayerId = state.currentPlayer;
@@ -262,7 +262,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       // 玩家1 all-in
@@ -293,7 +293,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(2, 2);
+        result.current.startGame(2, 2, 5);
       });
 
       // 玩家弃牌
@@ -321,7 +321,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(1, 3);
+        result.current.startGame(1, 3, 5);
       });
 
       const initialChips = 4000;
@@ -432,7 +432,7 @@ describe('useGameState - E2E集成测试', () => {
       const { result } = renderHook(() => useGameState());
 
       act(() => {
-        result.current.startGame(1, 3);
+        result.current.startGame(1, 3, 5);
       });
 
       // First player to act goes all-in pre-flop

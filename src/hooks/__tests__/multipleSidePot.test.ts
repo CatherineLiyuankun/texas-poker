@@ -6,7 +6,7 @@ describe('多个 Side Pot 场景测试', () => {
     it('玩家依次 all-in 产生多个 side pot', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const players = result.current.state.players;
@@ -44,7 +44,7 @@ describe('多个 Side Pot 场景测试', () => {
     it('多人 all-in 不同金额产生多个 side pot', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const players = result.current.state.players;
@@ -85,7 +85,7 @@ describe('多个 Side Pot 场景测试', () => {
     it('第一个玩家 all-in，第二个玩家加注后 all-in', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const players = result.current.state.players;
@@ -136,7 +136,7 @@ describe('多个 Side Pot 场景测试', () => {
     it('side pot 应该分配给正确的 eligible players', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const players = result.current.state.players;
@@ -164,7 +164,7 @@ describe('多个 Side Pot 场景测试', () => {
     it('所有玩家的 contributions 应该等于 side pot 总额', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const players = result.current.state.players;
@@ -196,7 +196,7 @@ describe('多个 Side Pot 场景测试', () => {
     it('多个 side pot 在 showdown 时正确分配', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 1);
+        result.current.startGame(2, 1, 5);
       });
 
       const players = result.current.state.players;
