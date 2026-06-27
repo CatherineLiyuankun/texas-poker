@@ -16,9 +16,9 @@ export const translations = {
     raise: 'Raise', // 加注 
     bet: 'Bet', // 下注 
     fold: 'Fold', // 弃牌
-    confirm: 'Confirm', // 确认
-    cancel: 'Cancel', // 取消
-    raisePlaceholder: (playerBet: number, toCall: number, minTargetExtra: number, min: number) => `最低${min}(已下${playerBet}+跟${toCall}+加${minTargetExtra})`,
+    confirm: '✓', // 确认 
+    cancel: 'X', // 取消
+    raisePlaceholder: (playerBet: number, toCall: number, minTargetExtra: number, min: number) => `Min${min}=已下${playerBet}+跟${toCall}+加${minTargetExtra}`,
     allin: 'All In', // 全押
   },
   playerArea: {

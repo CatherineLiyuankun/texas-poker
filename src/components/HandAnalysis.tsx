@@ -191,7 +191,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   }, [displayEquity, potOdds, phase]);
 
   return (
-    <div className="w-48 bg-black/50 rounded-lg p-2 text-xs space-y-1 border border-white/10">
+    <div className="w-54 bg-black/50 rounded-lg p-2 text-xs space-y-1 border border-white/10">
       <div className="text-white/50 font-medium text-center mb-1 tracking-wide">
         {translations.handAnalysis.title}
       </div>

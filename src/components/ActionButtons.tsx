@@ -71,7 +71,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
           onClick={() => onAction('check')}
           disabled={!canCheck || disabled}
           className={`
-            px-4 py-2 rounded-lg font-bold text-sm transition-all
+            px-4 py-1 rounded-lg font-bold text-sm transition-all
             ${
               canCheck && !disabled
                 ? 'bg-green-500 hover:bg-green-600 text-white'
@@ -86,7 +86,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
           onClick={() => onAction('call')}
           disabled={!canCall || disabled}
           className={`
-            px-4 py-2 rounded-lg font-bold text-sm transition-all
+            px-4 py-1 rounded-lg font-bold text-sm transition-all
             ${
               canCall && !disabled
                 ? 'bg-blue-500 hover:bg-blue-600 text-white'
@@ -103,7 +103,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
           }}
           disabled={!canRaise || disabled}
           className={`
-            px-4 py-2 rounded-lg font-bold text-sm transition-all
+            px-4 py-1 rounded-lg font-bold text-sm transition-all
             ${
               canRaise && !disabled
                 ? 'bg-orange-500 hover:bg-orange-600 text-white'
@@ -111,16 +111,14 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
             }
           `}
         >
-          {lastBet === 0
-            ? translations.actionButtons.bet
-            : translations.actionButtons.raise}
+          {translations.actionButtons.bet}
         </button>
 
         <button
           onClick={() => onAction('fold')}
           disabled={!canFold || disabled}
           className={`
-            px-4 py-2 rounded-lg font-bold text-sm transition-all
+            px-4 py-1 rounded-lg font-bold text-sm transition-all
             ${
               canFold && !disabled
                 ? 'bg-red-500 hover:bg-red-600 text-white'
@@ -135,7 +133,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
           onClick={() => onAction('allin')}
           disabled={!canAllIn || disabled}
           className={`
-            px-4 py-2 rounded-lg font-bold text-sm transition-all
+            px-4 py-1 rounded-lg font-bold text-sm transition-all
             ${
               canAllIn && !disabled
                 ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white'
@@ -159,7 +157,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
               lastRaiseBet,
               minRaiseTotal,
             )}
-            className="px-2 py-1 rounded bg-white/10 text-white border border-white/20 w-48 text-sm"
+            className="px-1 py-0.5 rounded bg-white/10 text-white border border-white/20 w-44 text-[11px]"
           />
           <button
             onClick={handleRaise}
@@ -171,7 +169,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
               parseInt(raiseAmount) > playerBet + playerChips ||
               !raiseRightsOpened
             }
-            className="px-3 py-1 bg-yellow-500 text-black rounded font-bold text-sm disabled:opacity-50"
+            className="px-3 py-1 bg-yellow-500 text-black rounded font-bold text-xs disabled:opacity-50"
           >
             {translations.actionButtons.confirm}
           </button>
@@ -180,7 +178,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
               setShowRaiseInput(false);
               setRaiseAmount('');
             }}
-            className="px-3 py-1 bg-gray-500 text-white rounded text-sm"
+            className="px-2 py-1 bg-gray-500 text-white rounded text-xs"
           >
             {translations.actionButtons.cancel}
           </button>
