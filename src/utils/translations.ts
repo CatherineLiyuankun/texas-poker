@@ -50,7 +50,7 @@ export const translations = {
   gameBoard: {
     backToMenu: 'Back', // 返回菜单 
     realPlayers: '真人',
-    botPlayers: '电脑',
+    botPlayers: 'Bot', // 电脑
     startGame: 'Start Game',
     playerWins: (name: string) => `${name} 获胜！ Wins!`,
     splitPot: '平局，平分底池 Split Pot',
