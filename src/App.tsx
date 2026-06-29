@@ -12,6 +12,7 @@ function App() {
     smallBlind: 10,
   });
   const [savedChips, setSavedChips] = useState<number[] | undefined>(undefined);
+  const [savedBuyInCounts, setSavedBuyInCounts] = useState<number[] | undefined>(undefined);
 
   const handleStartGame = (
     realPlayerCount: number,
@@ -20,6 +21,7 @@ function App() {
   ) => {
     clearGameProgress();
     setSavedChips(undefined);
+    setSavedBuyInCounts(undefined);
     setPlayerConfig({
       realPlayers: realPlayerCount,
       botPlayers: botPlayerCount,
@@ -35,19 +37,21 @@ function App() {
       smallBlind: progress.smallBlind,
     });
     setSavedChips(progress.chips);
+    setSavedBuyInCounts(progress.buyInCounts);
     setGameStarted(true);
   };
 
   const handleBackToMenu = () => {
     setGameStarted(false);
     setSavedChips(undefined);
+    setSavedBuyInCounts(undefined);
   };
 
   if (!gameStarted) {
     return <StartPage onStartGame={handleStartGame} onResumeGame={handleResumeGame} />;
   }
 
-  return <GameBoard playerConfig={playerConfig} savedChips={savedChips} onBackToMenu={handleBackToMenu} />;
+  return <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} onBackToMenu={handleBackToMenu} />;
 }
 
 export default App;

@@ -626,17 +626,31 @@ function decidePostflop(
 
   // 中等牌力：胜率 >= 55% + 对手画像调整
   if (equity >= 0.55 + adj.callPenalty - adj.raiseBonus) {
-    if (ctx.isLatePosition && flags.canRaiseResult && Math.random() < 0.4) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+    // 主动下注：60% 概率（专业标准）
+    if (flags.canRaiseResult && Math.random() < 0.60) {
+      const mult = equity >= 0.65 ? 0.85 : 0.75;
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
-    if (flags.canCheckResult) return { action: 'check' };
+    // 过牌：30% 概率
+    if (flags.canCheckResult && Math.random() < 0.30) {
+      return { action: 'check' };
+    }
+    // 跟注：10% 概率
     if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
     if (flags.canCallResult) return { action: 'call' };
   }
 
   // 边缘牌力：胜率 >= 35% + 对手画像调整
   if (equity >= 0.35 + adj.callPenalty - adj.raiseBonus) {
-    if (flags.canCheckResult) return { action: 'check' };
+    // 诈唬下注：30% 概率（少对手时）
+    if (flags.canRaiseResult && Math.random() < 0.30 && ctx.numOpponents <= 2) {
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.7) };
+    }
+    // 过牌：50% 概率
+    if (flags.canCheckResult && Math.random() < 0.50) {
+      return { action: 'check' };
+    }
+    // 跟注：20% 概率
     if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
     if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
   }
@@ -688,7 +702,16 @@ function decideRiver(
 
   // 中等牌力：胜率 >= 50% + 对手画像调整
   if (equity >= 0.50 + adj.callPenalty - adj.raiseBonus) {
-    if (flags.canCheckResult) return { action: 'check' };
+    // 主动下注：50% 概率（河牌更谨慎）
+    if (flags.canRaiseResult && Math.random() < 0.50) {
+      const mult = equity >= 0.60 ? 0.85 : 0.75;
+      return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
+    }
+    // 过牌：35% 概率
+    if (flags.canCheckResult && Math.random() < 0.35) {
+      return { action: 'check' };
+    }
+    // 跟注：15% 概率
     if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
     if (flags.canCallResult && ctx.isHeadsUp) return { action: 'call' };
   }

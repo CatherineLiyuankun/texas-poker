@@ -394,14 +394,28 @@ export function computeCheckRaiseFromEvents(events: ActionEvent[]): number | nul
     
     const streets = ['flop', 'turn', 'river'] as const;
     for (const street of streets) {
-      const streetEvents = postflopEvents.filter(e => e.phase === street);
+      const streetEvents = postflopEvents
+        .filter(e => e.phase === street)
+        .sort((a, b) => a.timestamp - b.timestamp);  // 按时间排序
+      
       if (streetEvents.length === 0) continue;
 
-      opportunities++;
+      // 找到玩家的第一个动作
+      const playerEvents = streetEvents.filter(e => e.playerId === events[0].playerId);
+      if (playerEvents.length === 0) continue;
 
-      const checkThenRaise = streetEvents.some(e => e.action === 'check') &&
-                             streetEvents.some(e => e.action === 'raise');
-      if (checkThenRaise) checkRaises++;
+      const firstAction = playerEvents[0];
+      
+      // 只有当第一个动作是 check 时，才有 check-raise 机会
+      if (firstAction.action === 'check') {
+        opportunities++;
+        
+        // 检查是否有后续的 raise
+        const hasRaiseAfterCheck = playerEvents.slice(1).some(e => e.action === 'raise');
+        if (hasRaiseAfterCheck) {
+          checkRaises++;
+        }
+      }
     }
   }
 

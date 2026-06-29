@@ -31,12 +31,14 @@ interface PlayerConfig {
 interface GameBoardProps {
   playerConfig: PlayerConfig;
   savedChips?: number[];
+  savedBuyInCounts?: number[];
   onBackToMenu: () => void;
 }
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   playerConfig,
   savedChips,
+  savedBuyInCounts,
   onBackToMenu,
 }) => {
   const {
@@ -96,9 +98,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         playerConfig.botPlayers,
         playerConfig.smallBlind,
         savedChips,
+        savedBuyInCounts,
       );
     }
-  }, [state.phase, state.players, startGame, playerConfig, savedChips]);
+  }, [state.phase, state.players, startGame, playerConfig, savedChips, savedBuyInCounts]);
 
   const currentPlayer = state.players[state.currentPlayer - 1];
   const roundSettled =
@@ -110,6 +113,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       saveGameProgress({
         version: 1,
         chips: state.players.map((p) => p.chips),
+        buyInCounts: state.players.map((p) => p.buyInCount),
         realPlayers: state.players.filter((p) => p.isRealPlayer).map((p) => p.id),
         botPlayers: state.players.filter((p) => !p.isRealPlayer).map((p) => p.id),
         smallBlind: state.smallBlind,
@@ -124,6 +128,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       saveGameProgress({
         version: 1,
         chips: state.players.map((p) => p.chips),
+        buyInCounts: state.players.map((p) => p.buyInCount),
         realPlayers: state.players.filter((p) => p.isRealPlayer).map((p) => p.id),
         botPlayers: state.players.filter((p) => !p.isRealPlayer).map((p) => p.id),
         smallBlind: state.smallBlind,

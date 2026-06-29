@@ -140,6 +140,7 @@ type GameAction =
       botPlayerCount: number;
       smallBlind: number;
       playerChips?: number[];
+      playerBuyInCounts?: number[];
     }
   | { type: 'PLAYER_ACTION'; player: PlayerId; action: Action; amount?: number }
   | { type: 'REVEAL_HAND'; player: PlayerId }
@@ -279,7 +280,7 @@ export function useGameState() {
               chips:
                 action.playerChips?.[i] ??
                 initialChips,
-              buyInCount: state.players[i]?.buyInCount ?? 0,
+              buyInCount: action.playerBuyInCounts?.[i] ?? state.players[i]?.buyInCount ?? 0,
             });
           }
 
@@ -1048,6 +1049,7 @@ export function useGameState() {
       botPlayerCount: number,
       smallBlind: number,
       playerChips?: number[],
+      playerBuyInCounts?: number[],
     ) => {
       dispatch({
         type: 'START_GAME',
@@ -1055,6 +1057,7 @@ export function useGameState() {
         botPlayerCount,
         smallBlind,
         playerChips,
+        playerBuyInCounts,
       });
     },
     [],

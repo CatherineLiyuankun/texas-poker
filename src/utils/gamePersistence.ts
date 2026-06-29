@@ -1,6 +1,7 @@
 export interface SavedProgress {
   version: 1;
   chips: number[];
+  buyInCounts: number[];
   realPlayers: number[];
   botPlayers: number[];
   smallBlind: number;
