@@ -290,118 +290,241 @@ function decidePreflop(
     if (flags.canFoldResult) return { action: 'fold' };
   }
 
-  // Tier 5-6: Marginal/Trash (~20-30% VPIP, highly position-dependent)
-  if (flags.canCheckResult) return { action: 'check' };
+  // Tier 5: Marginal (~48% VPIP at BTN, highly position-dependent)
+  if (tier === 5) {
+    if (flags.canCheckResult) return { action: 'check' };
 
-  // Button: most aggressive position
-  if (ctx.isButton && !isFacingRaise) {
-    if (ctx.hasLimpers) {
-      // Limpers ahead: can limp behind with marginal hands
-      if (flags.canCallResult && Math.random() < 0.25) {
-        return { action: 'call' };
-      }
-      if (flags.canRaiseResult && Math.random() < 0.15) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
-      }
-    } else {
-      // No limpers: steal attempt
-      if (flags.canRaiseResult && Math.random() < (0.48 + stealBoost)) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
-      }
-      if (flags.canCallResult && Math.random() < 0.08) {
-        return { action: 'call' };
+    // Button: 35% raise, 13% call, 52% fold
+    if (ctx.isButton && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        // Limpers ahead: can limp behind with marginal hands
+        if (flags.canCallResult && Math.random() < 0.25) {
+          return { action: 'call' };
+        }
+        if (flags.canRaiseResult && Math.random() < 0.15) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+        }
+      } else {
+        // No limpers: steal attempt
+        if (flags.canRaiseResult && Math.random() < (0.48 + stealBoost)) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+        if (flags.canCallResult && Math.random() < 0.08) {
+          return { action: 'call' };
+        }
       }
     }
-  }
 
-  // Cutoff: second most aggressive
-  if (ctx.isCutoff && !isFacingRaise) {
-    if (ctx.hasLimpers) {
-      if (flags.canCallResult && Math.random() < 0.22) {
-        return { action: 'call' };
-      }
-      if (flags.canRaiseResult && Math.random() < 0.12) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
-      }
-    } else {
-      if (flags.canRaiseResult && Math.random() < (0.38 + stealBoost)) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
-      }
-      if (flags.canCallResult && Math.random() < 0.12) {
-        return { action: 'call' };
+    // Cutoff: 28% raise, 10% call, 62% fold
+    if (ctx.isCutoff && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        if (flags.canCallResult && Math.random() < 0.22) {
+          return { action: 'call' };
+        }
+        if (flags.canRaiseResult && Math.random() < 0.12) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+        }
+      } else {
+        if (flags.canRaiseResult && Math.random() < (0.38 + stealBoost)) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+        if (flags.canCallResult && Math.random() < 0.12) {
+          return { action: 'call' };
+        }
       }
     }
-  }
 
-  // Hijack: moderate aggression
-  if (ctx.isHijack && !isFacingRaise) {
-    if (ctx.hasLimpers) {
-      if (flags.canCallResult && Math.random() < 0.28) {
-        return { action: 'call' };
-      }
-      if (flags.canRaiseResult && Math.random() < 0.10) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
-      }
-    } else {
-      if (flags.canRaiseResult && Math.random() < (0.28 + stealBoost)) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
-      }
-      if (flags.canCallResult && Math.random() < 0.18) {
-        return { action: 'call' };
+    // Hijack: 20% raise, 8% call, 72% fold
+    if (ctx.isHijack && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        if (flags.canCallResult && Math.random() < 0.28) {
+          return { action: 'call' };
+        }
+        if (flags.canRaiseResult && Math.random() < 0.10) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+      } else {
+        if (flags.canRaiseResult && Math.random() < (0.28 + stealBoost)) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+        if (flags.canCallResult && Math.random() < 0.18) {
+          return { action: 'call' };
+        }
       }
     }
-  }
 
-  // Middle position: occasional play with marginal hands
-  if (ctx.isMiddlePosition && !isFacingRaise) {
-    if (ctx.hasLimpers) {
-      if (flags.canCallResult && Math.random() < 0.30) {
-        return { action: 'call' };
+    // Middle position: 15% raise, 5% call, 80% fold
+    if (ctx.isMiddlePosition && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        if (flags.canCallResult && Math.random() < 0.30) {
+          return { action: 'call' };
+        }
+      } else {
+        if (flags.canRaiseResult && Math.random() < 0.20) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+        }
+        if (flags.canCallResult && Math.random() < 0.22) {
+          return { action: 'call' };
+        }
       }
-    } else {
-      if (flags.canRaiseResult && Math.random() < 0.20) {
+    }
+
+    // Early position (UTG): 5% raise, 3% call, 92% fold
+    if (ctx.isEarlyPosition && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.08) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }
-      if (flags.canCallResult && Math.random() < 0.22) {
+      if (flags.canCallResult && Math.random() < 0.05) {
         return { action: 'call' };
       }
     }
-  }
 
-  // Early position (UTG): very tight
-  if (ctx.isEarlyPosition && !isFacingRaise) {
-    if (flags.canRaiseResult && Math.random() < 0.08) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+    // Blind defense: call wider against late position raises
+    if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
+      // Defend blinds more aggressively
+      if (flags.canRaiseResult && Math.random() < 0.22) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
+      }
+      if (flags.canCallResult && ctx.potOdds < (0.35 - tightenCall)) {
+        return { action: 'call' };
+      }
+      if (flags.canCallResult && Math.random() < 0.40) {
+        return { action: 'call' };
+      }
     }
-    if (flags.canCallResult && Math.random() < 0.05) {
+
+    // Heads up: defend wider
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.20 - tightenCall)) {
       return { action: 'call' };
     }
-  }
 
-  // Blind defense: call wider against late position raises
-  if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
-    // Defend blinds more aggressively
-    if (flags.canRaiseResult && Math.random() < 0.22) {
-      return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
-    }
-    if (flags.canCallResult && ctx.potOdds < (0.35 - tightenCall)) {
+    // Very cheap calls with any position
+    if (flags.canCallResult && ctx.potOdds < (0.10 - tightenCall)) {
       return { action: 'call' };
     }
-    if (flags.canCallResult && Math.random() < 0.40) {
+
+    if (flags.canFoldResult) return { action: 'fold' };
+    return { action: flags.canCallResult ? 'call' : 'fold' };
+  }
+
+  // Tier 6: Trash (~15% VPIP at BTN, very tight)
+  if (tier === 6) {
+    if (flags.canCheckResult) return { action: 'check' };
+
+    // Button: 10% raise, 5% call, 85% fold
+    if (ctx.isButton && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        // Limpers ahead: very selective
+        if (flags.canCallResult && Math.random() < 0.08) {
+          return { action: 'call' };
+        }
+        if (flags.canRaiseResult && Math.random() < 0.05) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+        }
+      } else {
+        // No limpers: rare steal attempt
+        if (flags.canRaiseResult && Math.random() < (0.10 + stealBoost)) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+        if (flags.canCallResult && Math.random() < 0.05) {
+          return { action: 'call' };
+        }
+      }
+    }
+
+    // Cutoff: 8% raise, 4% call, 88% fold
+    if (ctx.isCutoff && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        if (flags.canCallResult && Math.random() < 0.06) {
+          return { action: 'call' };
+        }
+        if (flags.canRaiseResult && Math.random() < 0.04) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
+        }
+      } else {
+        if (flags.canRaiseResult && Math.random() < (0.08 + stealBoost)) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+        if (flags.canCallResult && Math.random() < 0.04) {
+          return { action: 'call' };
+        }
+      }
+    }
+
+    // Hijack: 5% raise, 3% call, 92% fold
+    if (ctx.isHijack && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        if (flags.canCallResult && Math.random() < 0.05) {
+          return { action: 'call' };
+        }
+        if (flags.canRaiseResult && Math.random() < 0.03) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+      } else {
+        if (flags.canRaiseResult && Math.random() < (0.05 + stealBoost)) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
+        }
+        if (flags.canCallResult && Math.random() < 0.03) {
+          return { action: 'call' };
+        }
+      }
+    }
+
+    // Middle position: 3% raise, 2% call, 95% fold
+    if (ctx.isMiddlePosition && !isFacingRaise) {
+      if (ctx.hasLimpers) {
+        if (flags.canCallResult && Math.random() < 0.04) {
+          return { action: 'call' };
+        }
+      } else {
+        if (flags.canRaiseResult && Math.random() < 0.03) {
+          return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+        }
+        if (flags.canCallResult && Math.random() < 0.02) {
+          return { action: 'call' };
+        }
+      }
+    }
+
+    // Early position (UTG): 1% raise, 1% call, 98% fold
+    if (ctx.isEarlyPosition && !isFacingRaise) {
+      if (flags.canRaiseResult && Math.random() < 0.01) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
+      }
+      if (flags.canCallResult && Math.random() < 0.01) {
+        return { action: 'call' };
+      }
+    }
+
+    // Blind defense: very tight even from blinds
+    if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
+      if (flags.canRaiseResult && Math.random() < 0.10) {
+        return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
+      }
+      if (flags.canCallResult && ctx.potOdds < (0.25 - tightenCall)) {
+        return { action: 'call' };
+      }
+      if (flags.canCallResult && Math.random() < 0.15) {
+        return { action: 'call' };
+      }
+    }
+
+    // Heads up: slightly wider but still tight
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.15 - tightenCall)) {
       return { action: 'call' };
     }
+
+    // Very cheap calls only
+    if (flags.canCallResult && ctx.potOdds < (0.08 - tightenCall)) {
+      return { action: 'call' };
+    }
+
+    if (flags.canFoldResult) return { action: 'fold' };
+    return { action: flags.canCallResult ? 'call' : 'fold' };
   }
 
-  // Heads up: defend wider
-  if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.20 - tightenCall)) {
-    return { action: 'call' };
-  }
-
-  // Very cheap calls with any position
-  if (flags.canCallResult && ctx.potOdds < (0.10 - tightenCall)) {
-    return { action: 'call' };
-  }
-
+  // Fallback for any unhandled cases
+  if (flags.canCheckResult) return { action: 'check' };
   if (flags.canFoldResult) return { action: 'fold' };
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
