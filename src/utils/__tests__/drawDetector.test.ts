@@ -52,6 +52,42 @@ describe('Draw Detector', () => {
     });
   });
 
+  describe('单端顺子听牌 (Ace边界)', () => {
+    it('A-2-3-4 只有5能补 (4 outs)', () => {
+      const result = detectDraws(
+        [card('♠', 'A'), card('♥', 'Q')],
+        [card('♣', '2'), card('♦', '3'), card('♥', '4')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(false);
+      expect(result.draws.some((d) => d.type === 'gutshot')).toBe(true);
+      expect(result.draws.find((d) => d.type === 'gutshot')?.outs).toBe(4);
+    });
+
+    it('J-Q-K-A 只有10能补 (4 outs)', () => {
+      const result = detectDraws(
+        [card('♠', 'A'), card('♥', 'K')],
+        [card('♣', 'Q'), card('♦', 'J'), card('♥', '3')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(false);
+      expect(result.draws.some((d) => d.type === 'gutshot')).toBe(true);
+      expect(result.draws.find((d) => d.type === 'gutshot')?.outs).toBe(4);
+    });
+
+    it('5-6-7-8 正常OESD (8 outs)', () => {
+      const result = detectDraws(
+        [card('♠', '5'), card('♥', '6')],
+        [card('♣', '7'), card('♦', '8'), card('♥', 'K')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(true);
+      expect(
+        result.draws.find((d) => d.type === 'open_ended_straight')?.outs,
+      ).toBe(8);
+    });
+  });
+
   describe('卡顺听牌', () => {
     it('检测中间缺一的4张牌 (5-6-8-9 缺7)', () => {
       const result = detectDraws(

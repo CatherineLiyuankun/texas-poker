@@ -41,7 +41,27 @@ function hasOpenEndedStraightDraw(cards: Card[]): boolean {
     if (window[3] - window[0] === 3 && new Set(window).size === 4) {
       const lowEnd = window[0] - 1;
       const highEnd = window[3] + 1;
-      if (lowEnd >= 2 || highEnd <= 14) return true;
+      if (lowEnd >= 2 && highEnd <= 14) return true;
+    }
+  }
+  return false;
+}
+
+function hasOneEndedStraightDraw(cards: Card[]): boolean {
+  if (hasMadeStraight(cards)) return false;
+
+  const ranks = [...new Set(cards.map((c) => RANK_VAL[c.rank]))].sort((a, b) => a - b);
+  const extended = ranks.includes(14) ? [...ranks, 1] : ranks;
+  const sorted = [...extended].sort((a, b) => a - b);
+
+  for (let i = 0; i <= sorted.length - 4; i++) {
+    const window = sorted.slice(i, i + 4);
+    if (window[3] - window[0] === 3 && new Set(window).size === 4) {
+      const lowEnd = window[0] - 1;
+      const highEnd = window[3] + 1;
+      const lowValid = lowEnd >= 2;
+      const highValid = highEnd <= 14;
+      if (lowValid !== highValid) return true;
     }
   }
   return false;
@@ -78,6 +98,8 @@ export function detectDraws(
 
   if (hasOpenEndedStraightDraw(allCards)) {
     draws.push({ type: 'open_ended_straight', outs: 8 });
+  } else if (hasOneEndedStraightDraw(allCards)) {
+    draws.push({ type: 'gutshot', outs: 4 });
   } else if (hasGutshotDraw(allCards)) {
     draws.push({ type: 'gutshot', outs: 4 });
   }
