@@ -147,10 +147,11 @@ function decidePreflop(
     // BTN/CO: 70% raise (75% for Ax), 15% call, 15% fold
     if ((ctx.isButton || ctx.isCutoff) && !isFacingRaise) {
       const raiseProb = hasAce ? 0.75 : 0.70;
-      if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.05) };
       }
-      if (flags.canCallResult && Math.random() < 0.15) {
+      if (flags.canCallResult && rand < (raiseProb + stealBoost + 0.15)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -159,10 +160,11 @@ function decidePreflop(
     // Hijack: 50% raise (54% for Ax), 20% call, 30% fold
     if (ctx.isHijack && !isFacingRaise) {
       const raiseProb = hasAce ? 0.54 : 0.50;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
-      if (flags.canCallResult && Math.random() < 0.20) {
+      if (flags.canCallResult && rand < (raiseProb + 0.20)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -171,10 +173,11 @@ function decidePreflop(
     // Middle position: 35% raise (38% for Ax), 25% call, 40% fold
     if (ctx.isMiddlePosition && !isFacingRaise) {
       const raiseProb = hasAce ? 0.38 : 0.35;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
-      if (flags.canCallResult && Math.random() < 0.25) {
+      if (flags.canCallResult && rand < (raiseProb + 0.25)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -183,10 +186,11 @@ function decidePreflop(
     // Early position: 25% raise (27% for Ax), 15% call, 60% fold
     if (ctx.isEarlyPosition && !isFacingRaise) {
       const raiseProb = hasAce ? 0.27 : 0.25;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
-      if (flags.canCallResult && Math.random() < 0.15) {
+      if (flags.canCallResult && rand < (raiseProb + 0.15)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -229,10 +233,11 @@ function decidePreflop(
     // BTN: 60% raise (65% for Ax), 15% call, 25% fold
     if (ctx.isButton && !isFacingRaise) {
       const raiseProb = hasAce ? 0.65 : 0.60;
-      if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < 0.15) {
+      if (flags.canCallResult && rand < (raiseProb + stealBoost + 0.15)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -241,10 +246,11 @@ function decidePreflop(
     // CO: 50% raise (55% for Ax), 15% call, 35% fold
     if (ctx.isCutoff && !isFacingRaise) {
       const raiseProb = hasAce ? 0.55 : 0.50;
-      if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < 0.15) {
+      if (flags.canCallResult && rand < (raiseProb + stealBoost + 0.15)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -253,10 +259,11 @@ function decidePreflop(
     // Hijack: 35% raise (38% for Ax), 15% call, 50% fold
     if (ctx.isHijack && !isFacingRaise) {
       const raiseProb = hasAce ? 0.38 : 0.35;
-      if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < 0.15) {
+      if (flags.canCallResult && rand < (raiseProb + stealBoost + 0.15)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -265,10 +272,11 @@ function decidePreflop(
     // Middle position: 22% raise (25% for Ax), 12% call, 66% fold
     if (ctx.isMiddlePosition && !isFacingRaise) {
       const raiseProb = hasAce ? 0.25 : 0.22;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < 0.12) {
+      if (flags.canCallResult && rand < (raiseProb + 0.12)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -277,10 +285,11 @@ function decidePreflop(
     // Early position: 12% raise (15% for Ax), 8% call, 80% fold
     if (ctx.isEarlyPosition && !isFacingRaise) {
       const raiseProb = hasAce ? 0.15 : 0.12;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < 0.08) {
+      if (flags.canCallResult && rand < (raiseProb + 0.08)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -319,20 +328,22 @@ function decidePreflop(
         // Limpers ahead: can limp behind with marginal hands
         const callProb = hasAce ? 0.30 : 0.25;
         const raiseProb = hasAce ? 0.20 : 0.15;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
         // No limpers: steal attempt
         const raiseProb = hasAce ? 0.58 : 0.48;
         const callProb = hasAce ? 0.10 : 0.08;
-        if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + stealBoost + callProb)) {
           return { action: 'call' };
         }
       }
@@ -343,19 +354,21 @@ function decidePreflop(
       if (ctx.hasLimpers) {
         const callProb = hasAce ? 0.28 : 0.22;
         const raiseProb = hasAce ? 0.16 : 0.12;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
         const raiseProb = hasAce ? 0.46 : 0.38;
         const callProb = hasAce ? 0.12 : 0.10;
-        if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + stealBoost + callProb)) {
           return { action: 'call' };
         }
       }
@@ -366,19 +379,21 @@ function decidePreflop(
       if (ctx.hasLimpers) {
         const callProb = hasAce ? 0.33 : 0.28;
         const raiseProb = hasAce ? 0.15 : 0.10;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
         const raiseProb = hasAce ? 0.34 : 0.28;
         const callProb = hasAce ? 0.15 : 0.12;
-        if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + stealBoost + callProb)) {
           return { action: 'call' };
         }
       }
@@ -389,19 +404,21 @@ function decidePreflop(
       if (ctx.hasLimpers) {
         const callProb = hasAce ? 0.35 : 0.30;
         const raiseProb = hasAce ? 0.10 : 0.00;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
         const raiseProb = hasAce ? 0.24 : 0.20;
         const callProb = hasAce ? 0.12 : 0.10;
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < raiseProb) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + callProb)) {
           return { action: 'call' };
         }
       }
@@ -411,10 +428,11 @@ function decidePreflop(
     if (ctx.isEarlyPosition && !isFacingRaise) {
       const raiseProb = hasAce ? 0.10 : 0.08;
       const callProb = hasAce ? 0.06 : 0.05;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }
-      if (flags.canCallResult && Math.random() < callProb) {
+      if (flags.canCallResult && rand < (raiseProb + callProb)) {
         return { action: 'call' };
       }
     }
@@ -457,22 +475,24 @@ function decidePreflop(
     if (ctx.isButton && !isFacingRaise) {
       if (ctx.hasLimpers) {
         // Limpers ahead: very selective
-        const callProb = hasAce ? 0.10 : 0.05;
-        const raiseProb = hasAce ? 0.08 : 0.03;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const callProb = hasAce ? 0.50 : 0.05;
+        const raiseProb = hasAce ? 0.10 : 0.03;
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
         // No limpers: rare steal attempt
         const raiseProb = hasAce ? 0.20 : 0.15;
         const callProb = hasAce ? 0.08 : 0.05;
-        if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + stealBoost + callProb)) {
           return { action: 'call' };
         }
       }
@@ -483,19 +503,21 @@ function decidePreflop(
       if (ctx.hasLimpers) {
         const callProb = hasAce ? 0.06 : 0.03;
         const raiseProb = hasAce ? 0.06 : 0.02;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
         const raiseProb = hasAce ? 0.16 : 0.12;
         const callProb = hasAce ? 0.06 : 0.04;
-        if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + stealBoost + callProb)) {
           return { action: 'call' };
         }
       }
@@ -506,19 +528,21 @@ function decidePreflop(
       if (ctx.hasLimpers) {
         const callProb = hasAce ? 0.04 : 0.02;
         const raiseProb = hasAce ? 0.05 : 0.015;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
         const raiseProb = hasAce ? 0.11 : 0.08;
         const callProb = hasAce ? 0.05 : 0.03;
-        if (flags.canRaiseResult && Math.random() < (raiseProb + stealBoost)) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < (raiseProb + stealBoost)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + stealBoost + callProb)) {
           return { action: 'call' };
         }
       }
@@ -529,19 +553,21 @@ function decidePreflop(
       if (ctx.hasLimpers) {
         const callProb = hasAce ? 0.03 : 0.02;
         const raiseProb = hasAce ? 0.03 : 0.00;
-        if (flags.canCallResult && Math.random() < callProb) {
+        const rand = Math.random();
+        if (flags.canCallResult && rand < callProb) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        if (flags.canRaiseResult && rand < (callProb + raiseProb)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
         const raiseProb = hasAce ? 0.07 : 0.05;
         const callProb = hasAce ? 0.03 : 0.02;
-        if (flags.canRaiseResult && Math.random() < raiseProb) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < raiseProb) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
         }
-        if (flags.canCallResult && Math.random() < callProb) {
+        if (flags.canCallResult && rand < (raiseProb + callProb)) {
           return { action: 'call' };
         }
       }
@@ -551,10 +577,11 @@ function decidePreflop(
     if (ctx.isEarlyPosition && !isFacingRaise) {
       const raiseProb = hasAce ? 0.04 : 0.02;
       const callProb = hasAce ? 0.02 : 0.01;
-      if (flags.canRaiseResult && Math.random() < raiseProb) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < raiseProb) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }
-      if (flags.canCallResult && Math.random() < callProb) {
+      if (flags.canCallResult && rand < (raiseProb + callProb)) {
         return { action: 'call' };
       }
     }
@@ -626,13 +653,14 @@ function decidePostflop(
 
   // 中等牌力：胜率 >= 55% + 对手画像调整
   if (equity >= 0.55 + adj.callPenalty - adj.raiseBonus) {
+    const rand = Math.random();
     // 主动下注：60% 概率（专业标准）
-    if (flags.canRaiseResult && Math.random() < 0.60) {
+    if (flags.canRaiseResult && rand < 0.60) {
       const mult = equity >= 0.65 ? 0.85 : 0.75;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
     // 过牌：30% 概率
-    if (flags.canCheckResult && Math.random() < 0.30) {
+    if (flags.canCheckResult && rand < 0.90) {
       return { action: 'check' };
     }
     // 跟注：10% 概率
@@ -642,12 +670,13 @@ function decidePostflop(
 
   // 边缘牌力：胜率 >= 35% + 对手画像调整
   if (equity >= 0.35 + adj.callPenalty - adj.raiseBonus) {
+    const rand = Math.random();
     // 诈唬下注：30% 概率（少对手时）
-    if (flags.canRaiseResult && Math.random() < 0.30 && ctx.numOpponents <= 2) {
+    if (flags.canRaiseResult && rand < 0.30 && ctx.numOpponents <= 2) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.7) };
     }
     // 过牌：50% 概率
-    if (flags.canCheckResult && Math.random() < 0.50) {
+    if (flags.canCheckResult && rand < 0.80) {
       return { action: 'check' };
     }
     // 跟注：20% 概率
@@ -702,13 +731,14 @@ function decideRiver(
 
   // 中等牌力：胜率 >= 50% + 对手画像调整
   if (equity >= 0.50 + adj.callPenalty - adj.raiseBonus) {
+    const rand = Math.random();
     // 主动下注：50% 概率（河牌更谨慎）
-    if (flags.canRaiseResult && Math.random() < 0.50) {
+    if (flags.canRaiseResult && rand < 0.50) {
       const mult = equity >= 0.60 ? 0.85 : 0.75;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
     // 过牌：35% 概率
-    if (flags.canCheckResult && Math.random() < 0.35) {
+    if (flags.canCheckResult && rand < 0.85) {
       return { action: 'check' };
     }
     // 跟注：15% 概率
