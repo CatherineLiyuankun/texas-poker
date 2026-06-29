@@ -126,18 +126,20 @@ function decidePreflop(
     
     if (isFacingBigRaise) {
       if (ctx.isButton || ctx.isCutoff) {
-        if (flags.canRaiseResult && Math.random() < 0.20) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
-        if (flags.canCallResult && Math.random() < 0.60) {
+        if (flags.canCallResult && rand < 0.80) {
           return { action: 'call' };
         }
         if (flags.canFoldResult) return { action: 'fold' };
       } else {
-        if (flags.canFoldResult && Math.random() < (0.50 + foldBoost)) {
+        const rand = Math.random();
+        if (flags.canFoldResult && rand < (0.50 + foldBoost)) {
           return { action: 'fold' };
         }
-        if (flags.canCallResult && Math.random() < 0.40) {
+        if (flags.canCallResult && rand < (0.50 + foldBoost + 0.40)) {
           return { action: 'call' };
         }
         if (flags.canFoldResult) return { action: 'fold' };
@@ -208,21 +210,23 @@ function decidePreflop(
     if (isFacingBigRaise) {
       if (ctx.isButton || ctx.isCutoff) {
         // Late position: defend more aggressively
-        if (flags.canRaiseResult && Math.random() < 0.20) {
+        const rand = Math.random();
+        if (flags.canRaiseResult && rand < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
-        if (flags.canCallResult && Math.random() < 0.55) {
+        if (flags.canCallResult && rand < 0.75) {
           return { action: 'call' };
         }
-        if (flags.canFoldResult && Math.random() < (0.45 + foldBoost)) {
+        if (flags.canFoldResult && rand < (0.75 + 0.45 + foldBoost)) {
           return { action: 'fold' };
         }
       } else {
         // Early/middle position: tighter against big raises
-        if (flags.canFoldResult && Math.random() < (0.55 + foldBoost)) {
+        const rand = Math.random();
+        if (flags.canFoldResult && rand < (0.55 + foldBoost)) {
           return { action: 'fold' };
         }
-        if (flags.canCallResult && Math.random() < 0.35) {
+        if (flags.canCallResult && rand < (0.55 + foldBoost + 0.35)) {
           return { action: 'call' };
         }
       }
@@ -439,14 +443,15 @@ function decidePreflop(
 
     // Blind defense: call wider against late position raises
     if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
+      const rand = Math.random();
       // Defend blinds more aggressively
-      if (flags.canRaiseResult && Math.random() < 0.22) {
+      if (flags.canRaiseResult && rand < 0.22) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
       }
       if (flags.canCallResult && ctx.potOdds < (0.35 - tightenCall)) {
         return { action: 'call' };
       }
-      if (flags.canCallResult && Math.random() < 0.40) {
+      if (flags.canCallResult && rand < (0.22 + 0.40)) {
         return { action: 'call' };
       }
     }
@@ -588,13 +593,14 @@ function decidePreflop(
 
     // Blind defense: very tight even from blinds
     if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
-      if (flags.canRaiseResult && Math.random() < 0.10) {
+      const rand = Math.random();
+      if (flags.canRaiseResult && rand < 0.10) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
       }
       if (flags.canCallResult && ctx.potOdds < (0.25 - tightenCall)) {
         return { action: 'call' };
       }
-      if (flags.canCallResult && Math.random() < 0.15) {
+      if (flags.canCallResult && rand < (0.10 + 0.15)) {
         return { action: 'call' };
       }
     }
