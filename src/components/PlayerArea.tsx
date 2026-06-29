@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import type { Player, GamePhase, Action, Card as CardType } from '../types/poker';
+import type { Player, GamePhase, Action, Card as CardType, PlayerId } from '../types/poker';
 import { Card } from './Card';
 import { HandAnalysis } from './HandAnalysis';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
 import { SMALL_BLIND } from '../utils/constant';
-import type { OpponentProfile } from '../utils/opponentModel';
+import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
 
 interface PlayerAreaProps {
@@ -24,6 +24,8 @@ interface PlayerAreaProps {
   potOdds?: number;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
+  viewingPlayerId?: PlayerId;
+  realPlayerSessionStats?: BotStatsWithAF[];
   smallBlind?: number;
 }
 
@@ -43,6 +45,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   potOdds,
   opponentProfile,
   longStats,
+  viewingPlayerId,
+  realPlayerSessionStats,
   smallBlind = SMALL_BLIND,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
@@ -215,6 +219,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           potOdds={potOdds || 0}
           opponentProfile={opponentProfile}
           longStats={longStats}
+          viewingPlayerId={viewingPlayerId}
+          realPlayerSessionStats={realPlayerSessionStats}
         />
       )}
     </div>

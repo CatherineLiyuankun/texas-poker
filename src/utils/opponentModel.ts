@@ -213,6 +213,21 @@ export interface BotStatsWithAF extends VpipPfrStats {
   checkRaise: number | null;
 }
 
+export function getRealPlayerSessionStats(
+  playerIds: PlayerId[],
+): BotStatsWithAF[] {
+  return playerIds.map((id) => {
+    const vpipPfr = getOpponentVpipPfr(id);
+    return {
+      ...vpipPfr,
+      af: getOpponentAF(id),
+      cbet: getOpponentCBet(id),
+      wtsd: getOpponentWTSD(id),
+      checkRaise: getOpponentCheckRaise(id),
+    };
+  });
+}
+
 export interface OpponentInfo {
   id: PlayerId;
   tendency: 'aggressive' | 'passive' | 'unknown';

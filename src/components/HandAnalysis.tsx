@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import type { Card, GamePhase } from '../types/poker';
+import type { Card, GamePhase, PlayerId } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
@@ -17,6 +17,8 @@ interface HandAnalysisProps {
   potOdds: number;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
+  viewingPlayerId?: PlayerId;
+  realPlayerSessionStats?: BotStatsWithAF[];
 }
 
 // 建议逻辑：仅基于胜率 + 赔率
@@ -130,6 +132,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   potOdds,
   opponentProfile,
   longStats,
+  viewingPlayerId,
+  realPlayerSessionStats,
 }) => {
   const [equity, setEquity] = useState<number | null>(null);
 
@@ -344,31 +348,36 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                   );
                 })}
                 {realStats.map((stat) => {
-                  const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
-                  const typeColor = getPlayerTypeColor(stat.playerType);
+                  const isViewing = stat.playerId === viewingPlayerId;
+                  const sessionStat = realPlayerSessionStats?.find(
+                    (s) => s.playerId === stat.playerId,
+                  );
+                  const display = isViewing || !sessionStat ? stat : sessionStat;
+                  const typeLabel = translations.playerStats.types[display.playerType] || display.playerType;
+                  const typeColor = getPlayerTypeColor(display.playerType);
                   return (
                     <tr key={`real-${stat.playerId}`} className="text-white">
                       <td className="text-left">P{stat.playerId}</td>
                       <td className="text-right">
-                        {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
+                        {display.handsDealt > 0 ? `${(display.vpip * 100).toFixed(0)}%` : '—'}
                       </td>
                       <td className="text-right">
-                        {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
+                        {display.handsDealt > 0 ? `${(display.pfr * 100).toFixed(0)}%` : '—'}
                       </td>
                       <td className="text-right">
-                        {stat.af !== null ? stat.af.toFixed(1) : '—'}
+                        {display.af !== null ? display.af.toFixed(1) : '—'}
                       </td>
                       <td className="text-right">
-                        {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
+                        {display.cbet !== null ? `${display.cbet.toFixed(0)}%` : '—'}
                       </td>
                       <td className="text-right">
-                        {stat.wtsd !== null ? `${stat.wtsd.toFixed(0)}%` : '—'}
+                        {display.wtsd !== null ? `${display.wtsd.toFixed(0)}%` : '—'}
                       </td>
                       <td className="text-right">
-                        {stat.checkRaise !== null ? `${stat.checkRaise.toFixed(0)}%` : '—'}
+                        {display.checkRaise !== null ? `${display.checkRaise.toFixed(0)}%` : '—'}
                       </td>
                       <td className={`text-right font-medium ${typeColor}`}>
-                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
+                        {display.playerType === 'Unknown' && display.handsDealt < 10
                           ? translations.playerStats.insufficientData
                           : typeLabel}
                       </td>

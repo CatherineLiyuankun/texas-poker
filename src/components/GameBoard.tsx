@@ -9,7 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats } from '../utils/opponentModel';
 import {
   saveHand,
   getAllRealPlayerStats,
@@ -359,6 +359,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
   const longStats = realPlayerIds.length > 0 ? getAllRealPlayerStats(realPlayerIds) : undefined;
+  const allRealSessionStats = realPlayerIds.length > 1
+    ? getRealPlayerSessionStats(realPlayerIds)
+    : undefined;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-hidden">
@@ -522,6 +525,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             : undefined
                         }
                         longStats={player.isRealPlayer ? longStats : undefined}
+                        viewingPlayerId={player.isRealPlayer ? player.id : undefined}
+                        realPlayerSessionStats={
+                          player.isRealPlayer && allRealSessionStats
+                            ? allRealSessionStats.filter((s) => s.playerId !== player.id)
+                            : undefined
+                        }
                         smallBlind={state.smallBlind}
                         potOdds={(() => {
                           const toCall = state.lastBet - player.bet;
