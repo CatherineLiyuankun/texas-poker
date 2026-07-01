@@ -82,6 +82,10 @@ export const translations = {
     preflop: 'Preflop', // 翻牌前
     winRate: '胜率', //  Win Rate
     potOdds: '底池赔率 Pot Odds',
+    spr: 'SPR',
+    sprShallow: '浅 Shallow',
+    sprMedium: '中等 Medium',
+    sprDeep: '深 Deep',
     drawEq: '听牌补偿 Draw Eq',
     suggest: '建议',
     currentHand: 'Current Hand',

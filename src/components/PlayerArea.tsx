@@ -22,6 +22,7 @@ interface PlayerAreaProps {
   communityCards?: CardType[];
   numActiveOpponents?: number;
   potOdds?: number;
+  spr?: number;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -43,6 +44,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   communityCards,
   numActiveOpponents,
   potOdds,
+  spr,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -217,6 +219,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           phase={phase}
           numOpponents={numActiveOpponents || 0}
           potOdds={potOdds || 0}
+          spr={spr}
           opponentProfile={opponentProfile}
           longStats={longStats}
           viewingPlayerId={viewingPlayerId}

@@ -548,6 +548,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             );
                           return toCall / (totalPot + toCall);
                         })()}
+                        spr={(() => {
+                          const totalPot =
+                            state.mainPot +
+                            state.sidePots.reduce(
+                              (sum, sp) => sum + sp.amount,
+                              0,
+                            );
+                          if (totalPot <= 0) return undefined;
+                          const activeOpponents = state.players.filter(
+                            (p) => !p.folded && p.id !== player.id,
+                          );
+                          const effectiveStack =
+                            activeOpponents.length > 0
+                              ? Math.min(
+                                  player.chips,
+                                  ...activeOpponents.map((p) => p.chips),
+                                )
+                              : player.chips;
+                          return effectiveStack / totalPot;
+                        })()}
                         actionButtons={
                           showActionButtons ? (
                             <ActionButtons

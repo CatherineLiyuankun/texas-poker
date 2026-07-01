@@ -15,6 +15,7 @@ interface HandAnalysisProps {
   phase: GamePhase;
   numOpponents: number;
   potOdds: number;
+  spr?: number;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -139,6 +140,25 @@ function getOutsColor(outs: number): string {
   return 'text-green-400';
 }
 
+function getSprColor(v: number): string {
+  if (v < 3) return 'text-red-400';
+  if (v <= 6) return 'text-yellow-400';
+  return 'text-green-400';
+}
+
+function getSprLabel(v: number): string {
+  const { sprShallow, sprMedium, sprDeep } = translations.handAnalysis;
+  if (v < 3) return sprShallow;
+  if (v <= 6) return sprMedium;
+  return sprDeep;
+}
+
+function getSprBarColor(v: number): string {
+  if (v < 3) return 'bg-red-400';
+  if (v <= 6) return 'bg-yellow-400';
+  return 'bg-green-400';
+}
+
 function getPotOddsColor(odds: number): string {
   if (odds <= 0.10) return 'text-green-400';
   if (odds <= 0.25) return 'text-yellow-400';
@@ -188,6 +208,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   phase,
   numOpponents,
   potOdds,
+  spr,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -333,6 +354,25 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           label={translations.handAnalysis.potOdds}
           value={`${(potOdds * 100).toFixed(0)}%`}
           color={getPotOddsColor(potOdds)}
+        />
+      )}
+
+      {spr !== undefined && spr > 0 && (
+        <Row
+          label={translations.handAnalysis.spr}
+          value={
+            <>
+              {spr.toFixed(1)}
+              <StrengthBar
+                value={Math.min(spr / 12, 1)}
+                color={getSprBarColor(spr)}
+              />
+              <span className={`ml-1 text-[10px] ${getSprColor(spr)}`}>
+                {getSprLabel(spr)}
+              </span>
+            </>
+          }
+          color={getSprColor(spr)}
         />
       )}
 
