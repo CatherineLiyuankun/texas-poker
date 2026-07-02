@@ -60,6 +60,8 @@ export const translations = {
     dealRiver: '发河牌 Deal River',
     showCards: '摊牌 Showdown',
     player: (num: number) => `玩家${num}`, // Player${num}
+    adminOn: '显示所有手牌', //  (Admin On)
+    adminOff: '隐藏未摊牌手牌', //  (Admin Off)
   },
   blind: {
     smallBlind: '小盲 SB',

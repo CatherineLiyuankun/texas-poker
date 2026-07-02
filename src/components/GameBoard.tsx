@@ -115,6 +115,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     state.winner !== null ||
     (state.phase === 'showdown' && state.mainPot === 0);
 
+  const [adminRevealAll, setAdminRevealAll] = useState(false);
+
+  const handleResetRound = () => {
+    setAdminRevealAll(false);
+    resetRound();
+  };
+
   useEffect(() => {
     if (roundSettled && state.players.length > 0) {
       saveGameProgress({
@@ -522,7 +529,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         isCurrentPlayer={state.currentPlayer === player.id}
                         isWinner={state.winner === player.id}
                         handRank={
-                          state.phase === 'showdown' && !player.folded
+                          state.phase === 'showdown' &&
+                          (!player.folded || adminRevealAll)
                             ? evaluateHand(player.hand, state.communityCards)
                                 .rank
                             : undefined
@@ -558,6 +566,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             : undefined
                         }
                         smallBlind={state.smallBlind}
+                        adminRevealAll={adminRevealAll}
                         potOdds={(() => {
                           const toCall = state.lastBet - player.bet;
                           if (toCall <= 0) return 0;
@@ -796,14 +805,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <div className="fixed top-[60px] right-30 z-50 flex flex-col items-start gap-3">
               {roundSettled && (
                 <div className="text-left">
-                  <button
-                    onClick={() => {
-                      resetRound();
-                    }}
-                    className="mb-4 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
-                  >
-                    {translations.gameBoard.nextRound}
-                  </button>
+                  <div className="flex gap-3 mb-4">
+                    <button
+                      onClick={handleResetRound}
+                      className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
+                    >
+                      {translations.gameBoard.nextRound}
+                    </button>
+                    <button
+                      onClick={() => setAdminRevealAll((v) => !v)}
+                      className={`px-4 py-2 rounded-lg font-bold ${
+                        adminRevealAll
+                          ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                          : 'bg-gray-600 hover:bg-gray-700 text-white'
+                      }`}
+                    >
+                      {adminRevealAll
+                        ? translations.gameBoard.adminOff
+                        : translations.gameBoard.adminOn}
+                    </button>
+                  </div>
 
                   <div className="text-3xl font-bold text-yellow-400 mb-2">
                     {state.winner !== null

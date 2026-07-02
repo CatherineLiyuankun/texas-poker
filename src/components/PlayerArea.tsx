@@ -33,6 +33,7 @@ interface PlayerAreaProps {
   viewingPlayerId?: PlayerId;
   realPlayerSessionStats?: BotStatsWithAF[];
   smallBlind?: number;
+  adminRevealAll?: boolean;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({
@@ -56,6 +57,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   viewingPlayerId,
   realPlayerSessionStats,
   smallBlind = SMALL_BLIND,
+  adminRevealAll = false,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -67,7 +69,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   }, [isCurrentPlayer, player.id, player.hand]);
 
   const isShowdown = phase === 'showdown' || phase === 'ended';
-  const canShowHand = (isShowdown && !player.folded) || (player.isRealPlayer && isCurrentPlayer && isViewing);
+  const canShowHand = adminRevealAll || (isShowdown && !player.folded) || (player.isRealPlayer && isCurrentPlayer && isViewing);
 
   const getStatus = () => {
     if (player.folded) return translations.playerArea.folded;
@@ -77,7 +79,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   };
 
   const getHandRankStatus = () => {
-    if (isShowdown && !player.folded) {
+    if (isShowdown && (!player.folded || adminRevealAll)) {
       return handRank
         ? HAND_RANK_NAMES[handRank]
         : translations.playerArea.showingHand;
