@@ -23,6 +23,11 @@ interface PlayerAreaProps {
   numActiveOpponents?: number;
   potOdds?: number;
   spr?: number;
+  gtoRecommendation?: {
+    action: string;
+    sizingBB?: number;
+    freq?: { r: number; c: number; f: number };
+  } | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -45,6 +50,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   numActiveOpponents,
   potOdds,
   spr,
+  gtoRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -220,6 +226,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           numOpponents={numActiveOpponents || 0}
           potOdds={potOdds || 0}
           spr={spr}
+          gtoRecommendation={gtoRecommendation}
           opponentProfile={opponentProfile}
           longStats={longStats}
           viewingPlayerId={viewingPlayerId}

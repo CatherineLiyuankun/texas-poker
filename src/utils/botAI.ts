@@ -14,6 +14,11 @@ import {
   type OpponentAdjustments,
 } from './opponentModel';
 import { translations } from './translations';
+import { decidePreflopGTO } from './gtoPreflop';
+
+let useGtoStrategy = false;
+export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
+export function getGtoStrategy(): boolean { return useGtoStrategy; }
 
 interface BotDecision {
   action: Action;
@@ -930,9 +935,9 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     isHeadsUp: numOpponents === 1,
     isLatePosition: position >= Math.floor(state.players.length * 0.6),
     isButton: position === 0,
-    isCutoff: position === state.players.length - 1,
-    isHijack: position === state.players.length - 2,
-    isMiddlePosition: position >= Math.floor(state.players.length * 0.3) && position < state.players.length - 2,
+    isCutoff: position === state.players.length - 1 && position > 2,
+    isHijack: position === state.players.length - 2 && position > 2,
+    isMiddlePosition: position >= Math.floor(state.players.length * 0.3) && position < state.players.length - 2 && position > 2,
     isEarlyPosition: position > 0 && position < Math.floor(state.players.length * 0.3),
     isBlind: position === 1 || position === 2,
     hasLimpers: state.phase === 'preflop'
@@ -950,7 +955,9 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
 
   switch (state.phase) {
     case 'preflop':
-      return decidePreflop(player, state, flags, ctx, adj);
+      return useGtoStrategy
+        ? decidePreflopGTO(player, state, flags, ctx, adj)
+        : decidePreflop(player, state, flags, ctx, adj);
     case 'flop':
     case 'turn':
       return decidePostflop(player, state, flags, ctx, adj);

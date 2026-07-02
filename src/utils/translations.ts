@@ -82,12 +82,13 @@ export const translations = {
     preflop: 'Preflop', // 翻牌前
     winRate: '胜率', //  Win Rate
     potOdds: '底池赔率 Pot Odds',
+    gto: 'GTO',
     spr: 'SPR',
     sprShallow: '浅 Shallow',
     sprMedium: '中等 Medium',
     sprDeep: '深 Deep',
     drawEq: '听牌补偿 Draw Eq',
-    suggest: '建议',
+    suggest: '胜率/赔率建议',
     currentHand: 'Current Hand',
     tier: 'Tier',
     tierNames: {
@@ -117,6 +118,11 @@ export const translations = {
       passive: '被动 Pas',
       unknown: '未知',
     },
+  },
+  gtoStrategy: {
+    toggle: 'GTO',
+    on: 'ON',
+    off: 'OFF',
   },
   chipSummary: {
     title: '筹码变化 Chip Summary',

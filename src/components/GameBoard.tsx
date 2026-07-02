@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useGameState } from '../hooks/useGameState';
 import { PlayerArea } from './PlayerArea';
 import { CommunityCards } from './CommunityCards';
@@ -7,7 +7,13 @@ import { ActionButtons } from './ActionButtons';
 import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
-import { getBotAction } from '../utils/botAI';
+import { getBotAction, setGtoStrategy } from '../utils/botAI';
+import {
+  getGtoPreflopRecommendation,
+  getRfiPositionForDisplay,
+  getDefenderPositionForDisplay,
+  getOpenerPosition,
+} from '../utils/gtoPreflop';
 import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats } from '../utils/opponentModel';
 import {
@@ -59,6 +65,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handKeyRef = useRef<string>('');
   const importFileRef = useRef<HTMLInputElement | null>(null);
   const [importMessage, setImportMessage] = React.useState<string | null>(null);
+  const [gtoEnabled, setGtoEnabled] = useState(false);
 
   // Helper function to create ActionEvent
   const createActionEvent = (
@@ -386,11 +393,25 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             )}
             <button
               onClick={() => {
+                const next = !gtoEnabled;
+                setGtoEnabled(next);
+                setGtoStrategy(next);
+              }}
+              className={`px-2 py-1 text-xs rounded font-bold ${
+                gtoEnabled
+                  ? 'bg-green-700/60 text-green-300 hover:bg-green-600/70'
+                  : 'bg-gray-800/40 text-white/50 hover:text-white/70'
+              }`}
+            >
+              {translations.gtoStrategy.toggle} {gtoEnabled ? translations.gtoStrategy.on : translations.gtoStrategy.off}
+            </button>
+            <button
+              onClick={() => {
                 if (confirm(translations.playerStats.resetStats + '?')) {
                   resetLongTermStats();
                 }
               }}
-              className="px-2 py-1 bg-red-900/40 hover:bg-red-700/60 text-white/70 hover:text-white text-xs rounded"
+              className="px-2 py-1 bg-blue-900/40 hover:bg-red-700/60 text-white/70 hover:text-white text-xs rounded"
               title={translations.playerStats.resetStats}
             >
               {translations.playerStats.resetStats}
@@ -403,7 +424,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               {translations.playerStats.exportStats}
             </button>
             <label
-              className="px-2 py-1 bg-green-900/40 hover:bg-green-700/60 text-white/70 hover:text-white text-xs rounded cursor-pointer"
+              className="px-2 py-1 bg-blue-900/40 hover:bg-green-700/60 text-white/70 hover:text-white text-xs rounded cursor-pointer"
               title={translations.playerStats.importStats}
             >
               {translations.playerStats.importStats}
@@ -567,6 +588,77 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                                 )
                               : player.chips;
                           return effectiveStack / totalPot;
+                        })()}
+                        gtoRecommendation={(() => {
+                          if (
+                            !gtoEnabled ||
+                            state.phase !== 'preflop' ||
+                            !player.isRealPlayer ||
+                            player.hand.length < 2
+                          )
+                            return undefined;
+                          const pos =
+                            (player.id -
+                              state.dealer +
+                              state.players.length) %
+                            state.players.length;
+                          const ctxForGto = {
+                            position: pos,
+                            totalPlayers: state.players.length,
+                            isButton: pos === 0,
+                            isCutoff:
+                              pos === state.players.length - 1 &&
+                              pos > 2,
+                            isHijack:
+                              pos === state.players.length - 2 &&
+                              pos > 2,
+                            isMiddlePosition:
+                              pos >=
+                                Math.floor(
+                                  state.players.length * 0.3,
+                                ) &&
+                              pos < state.players.length - 2 &&
+                              pos > 2,
+                            isEarlyPosition:
+                              pos > 0 &&
+                              pos <
+                                Math.floor(
+                                  state.players.length * 0.3,
+                                ),
+                            isBlind: pos === 1 || pos === 2,
+                          };
+                          const toCall =
+                            state.lastBet - player.bet;
+                          const facingOpen = toCall > 0;
+                          const facing3bet =
+                            player.bet > state.smallBlind * 2 &&
+                            state.lastBet > player.bet;
+                          const rfiPos =
+                            getRfiPositionForDisplay(ctxForGto);
+                          const defenderPos =
+                            getDefenderPositionForDisplay(ctxForGto);
+                          const scenario:
+                            | 'rfi'
+                            | 'facing_open'
+                            | 'facing_3bet' = facing3bet
+                            ? 'facing_3bet'
+                            : facingOpen
+                              ? 'facing_open'
+                              : 'rfi';
+                          const openerPos =
+                            facingOpen || facing3bet
+                              ? getOpenerPosition(state, player) ??
+                                undefined
+                              : undefined;
+                          return getGtoPreflopRecommendation(
+                            player.hand,
+                            rfiPos,
+                            scenario,
+                            openerPos,
+                            state.smallBlind,
+                            defenderPos,
+                            state.lastBet,
+                          );
                         })()}
                         actionButtons={
                           showActionButtons ? (

@@ -16,6 +16,11 @@ interface HandAnalysisProps {
   numOpponents: number;
   potOdds: number;
   spr?: number;
+  gtoRecommendation?: {
+    action: string;
+    sizingBB?: number;
+    freq?: { r: number; c: number; f: number };
+  } | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -133,6 +138,43 @@ function getCrColor(v: number): string {
   return 'text-red-400';
 }
 
+function getGtoActionLabel(
+  action: string,
+  sizingBB?: number,
+  freq?: { r: number; c: number; f: number },
+): React.ReactNode {
+  const pct = (v: number) => `${Math.round(v * 100)}%`;
+  const isMixed = freq !== undefined &&
+    [freq.r, freq.c, freq.f].filter((v) => v > 0).length > 1;
+
+  const mainLabel = action === 'R'
+    ? (sizingBB ? `Raise ${sizingBB.toFixed(1)}BB` : 'Raise')
+    : action === 'C' ? 'Call' : 'Fold';
+
+  if (!freq || !isMixed) return mainLabel;
+
+  const parts: string[] = [];
+  if (action === 'R' && freq.r < 1) parts.push(`${pct(freq.r)}`);
+  if (action === 'C' && freq.c < 1) parts.push(`${pct(freq.c)}`);
+  if (action === 'F' && freq.f < 1) parts.push(`${pct(freq.f)}`);
+
+  const secondaries: string[] = [];
+  if (freq.r > 0 && action !== 'R') secondaries.push(`R${pct(freq.r)}`);
+  if (freq.c > 0 && action !== 'C') secondaries.push(`C${pct(freq.c)}`);
+  if (freq.f > 0 && action !== 'F') secondaries.push(`F${pct(freq.f)}`);
+
+  if (secondaries.length > 0) {
+    return `${mainLabel} ${parts.join('')} / ${secondaries.join(' ')}`;
+  }
+  return parts.length > 0 ? `${mainLabel} ${parts.join('')}` : mainLabel;
+}
+
+function getGtoActionColor(action: string): string {
+  if (action === 'R') return 'text-green-400';
+  if (action === 'C') return 'text-blue-400';
+  return 'text-red-400';
+}
+
 function getOutsColor(outs: number): string {
   if (outs <= 4) return 'text-yellow-400';
   if (outs <= 8) return 'text-orange-400';
@@ -209,6 +251,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   numOpponents,
   potOdds,
   spr,
+  gtoRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -502,6 +545,24 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               {(equity * 100).toFixed(0)}% vs {(potOdds * 100).toFixed(0)}%
             </div>
           )}
+        </div>
+      )}
+
+      {phase === 'preflop' && gtoRecommendation && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <Row
+            label={translations.handAnalysis.gto}
+            value={
+              <span className="text-[10px]">
+                {getGtoActionLabel(
+                  gtoRecommendation.action,
+                  gtoRecommendation.sizingBB,
+                  gtoRecommendation.freq,
+                )}
+              </span>
+            }
+            color={getGtoActionColor(gtoRecommendation.action)}
+          />
         </div>
       )}
     </div>
