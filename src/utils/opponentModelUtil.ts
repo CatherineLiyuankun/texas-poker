@@ -1,7 +1,7 @@
 import type { PlayerId, Action } from '../types/poker';
 import type { ActionEvent } from '../types/stats';
 
-const BIG_BLIND = 20;
+export const BIG_BLIND = 20;
 
 export type PlayerType =
   | 'Nit'

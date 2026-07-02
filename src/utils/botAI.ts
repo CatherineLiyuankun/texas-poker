@@ -11,9 +11,9 @@ import { calculateEquity } from './equityCalculator';
 import {
   calculateOpponentProfile,
   getOpponentAdjustments,
-  detectLimpers,
   type OpponentAdjustments,
 } from './opponentModel';
+import { BIG_BLIND } from './opponentModelUtil';
 import { translations } from './translations';
 
 interface BotDecision {
@@ -694,12 +694,25 @@ function decidePostflop(
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
 
+  // 后面是否还有未行动的活跃玩家（用于判断隔离加注是否有意义）
+  const hasPlayersBehind = state.players.some(
+    p => p.id !== player.id && !p.folded && !p.hasActed,
+  );
+
   // 面对大额加注/all-in 时，raiseBonus（基于对手弃牌率）不适用，
   // 因为对手已经 all-in 或大幅加注，不可能弃牌
   const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
 
   // 强牌：胜率 >= 75% + 对手画像调整
   if (equity >= 0.75 + adj.callPenalty) {
+    if (isFacingBigRaise && !hasPlayersBehind) {
+      // 面对 all-in/大加注且后面无人: 全下或跟注，raise 无意义
+      if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
+        return { action: 'allin' };
+      }
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 1.5) {
       return { action: 'allin' };
     }
@@ -792,11 +805,24 @@ function decideRiver(
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
 
+  // 后面是否还有未行动的活跃玩家（用于判断隔离加注是否有意义）
+  const hasPlayersBehind = state.players.some(
+    p => p.id !== player.id && !p.folded && !p.hasActed,
+  );
+
   // 面对大额加注/all-in 时，raiseBonus 不适用
   const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
 
   // 强牌：胜率 >= 70% + 对手画像调整
   if (equity >= 0.70 + adj.callPenalty) {
+    if (isFacingBigRaise && !hasPlayersBehind) {
+      // 面对 all-in/大加注且后面无人: 全下或跟注，raise 无意义
+      if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
+        return { action: 'allin' };
+      }
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 1.5) {
       return { action: 'allin' };
     }
@@ -910,7 +936,14 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     isMiddlePosition: position >= Math.floor(state.players.length * 0.3) && position < state.players.length - 2,
     isEarlyPosition: position > 0 && position < Math.floor(state.players.length * 0.3),
     isBlind: position === 1 || position === 2,
-    hasLimpers: state.phase === 'preflop' ? detectLimpers().length > 0 : false,
+    hasLimpers: state.phase === 'preflop'
+      ? state.players.some(p =>
+          p.id !== player.id &&
+          !p.folded &&
+          p.bet === BIG_BLIND &&
+          getPlayerPosition(p.id, state.dealer, state.players.length) > 2,
+        )
+      : false,
   };
 
   const oppProfile = calculateOpponentProfile(state.players, player.id);
