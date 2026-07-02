@@ -678,6 +678,12 @@ function decidePostflop(
   const oppProfile = calculateOpponentProfile(state.players, player.id);
   const adj = getOpponentAdjustments(oppProfile);
 
+  const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
+
+  // 面对大额加注/all-in 时，raiseBonus（基于对手弃牌率）不适用，
+  // 因为对手已经 all-in 或大幅加注，不可能弃牌
+  const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
+
   // 强牌：胜率 >= 75% + 对手画像调整
   if (equity >= 0.75 + adj.callPenalty) {
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 1.5) {
@@ -692,7 +698,14 @@ function decidePostflop(
   }
 
   // 中等牌力：胜率 >= 55% + 对手画像调整
-  if (equity >= 0.55 + adj.callPenalty - adj.raiseBonus) {
+  if (equity >= 0.55 + adj.callPenalty - effectiveRaiseBonus) {
+    // 面对大额加注时，中等牌力改为倾向跟注/过牌，不主动加注
+    if (isFacingBigRaise) {
+      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCheckResult) return { action: 'check' };
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
     // 主动下注：60% 概率（专业标准）
     if (flags.canRaiseResult && Math.random() < 0.60) {
       const mult = equity >= 0.65 ? 0.85 : 0.75;
@@ -708,7 +721,15 @@ function decidePostflop(
   }
 
   // 边缘牌力：胜率 >= 35% + 对手画像调整
-  if (equity >= 0.35 + adj.callPenalty - adj.raiseBonus) {
+  if (equity >= 0.35 + adj.callPenalty - effectiveRaiseBonus) {
+    // 面对大额加注时，禁止诈唬，改为跟注/弃牌
+    if (isFacingBigRaise) {
+      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
+      if (flags.canFoldResult) return { action: 'fold' };
+      if (flags.canCheckResult) return { action: 'check' };
+      return { action: flags.canCallResult ? 'call' : 'fold' };
+    }
     // 诈唬下注：30% 概率（少对手时）
     const bluffProb = ctx.numOpponents <= 2 ? 0.30 : 0;
     if (flags.canRaiseResult && Math.random() < bluffProb) {
@@ -724,10 +745,13 @@ function decidePostflop(
   }
 
   // 诈唬加注：对手画像影响（平均弃牌率高 + 晚位 + 少对手）
+  // 面对大额加注/all-in 时完全禁止诈唬，且必须有最低胜率底线
   if (
+    !isFacingBigRaise &&
     flags.canRaiseResult &&
     ctx.isLatePosition &&
     ctx.numOpponents <= 2 &&
+    equity >= 0.15 &&
     adj.raiseBonus > 0 &&
     Math.random() < 0.2
   ) {
@@ -755,6 +779,11 @@ function decideRiver(
   const oppProfile = calculateOpponentProfile(state.players, player.id);
   const adj = getOpponentAdjustments(oppProfile);
 
+  const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
+
+  // 面对大额加注/all-in 时，raiseBonus 不适用
+  const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
+
   // 强牌：胜率 >= 70% + 对手画像调整
   if (equity >= 0.70 + adj.callPenalty) {
     if (flags.canAllInResult && player.chips <= ctx.totalPot * 1.5) {
@@ -769,7 +798,14 @@ function decideRiver(
   }
 
   // 中等牌力：胜率 >= 50% + 对手画像调整
-  if (equity >= 0.50 + adj.callPenalty - adj.raiseBonus) {
+  if (equity >= 0.50 + adj.callPenalty - effectiveRaiseBonus) {
+    // 面对大额加注时，中等牌力改为倾向跟注/过牌
+    if (isFacingBigRaise) {
+      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCheckResult) return { action: 'check' };
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canFoldResult) return { action: 'fold' };
+    }
     // 主动下注：50% 概率（河牌更谨慎）
     if (flags.canRaiseResult && Math.random() < 0.50) {
       const mult = equity >= 0.60 ? 0.85 : 0.75;
@@ -785,10 +821,13 @@ function decideRiver(
   }
 
   // 诈唬加注：对手画像影响
+  // 面对大额加注/all-in 时完全禁止诈唬，且必须有最低胜率底线
   if (
+    !isFacingBigRaise &&
     flags.canRaiseResult &&
     ctx.isLatePosition &&
     ctx.numOpponents <= 2 &&
+    equity >= 0.15 &&
     adj.raiseBonus > 0 &&
     Math.random() < 0.25
   ) {
