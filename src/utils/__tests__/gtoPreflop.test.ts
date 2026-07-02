@@ -647,4 +647,77 @@ describe('GTO Preflop Engine', () => {
       expect(rec.sizingBB).toBeGreaterThan(0);
     });
   });
+
+  describe('Cold 3-bet Defense', () => {
+    it('BB cold 3-bet: AA shows 4-bet', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'BB', 'cold_3bet', undefined, 5, 'BB', 100,
+      );
+      expect(rec.action).toBe('R');
+    });
+
+    it('BB cold 3-bet: 72o shows fold', () => {
+      const garbage = [card('♣', '7'), card('♦', '2')];
+      const rec = getGtoPreflopRecommendation(
+        garbage, 'BB', 'cold_3bet', undefined, 5, 'BB', 100,
+      );
+      expect(rec.action).toBe('F');
+    });
+
+    it('SB cold 3-bet: AKs shows 4-bet', () => {
+      const aks = [card('♠', 'A'), card('♠', 'K')];
+      const rec = getGtoPreflopRecommendation(
+        aks, 'SB', 'cold_3bet', undefined, 5, 'SB', 80,
+      );
+      expect(rec.action).toBe('R');
+    });
+
+    it('IP cold 3-bet: QQ shows 4-bet, 55 shows fold', () => {
+      const qq = [card('♠', 'Q'), card('♥', 'Q')];
+      const recQQ = getGtoPreflopRecommendation(
+        qq, 'CO', 'cold_3bet', undefined, 5, 'CO', 80,
+      );
+      expect(recQQ.action).toBe('R');
+      const fiveFive = [card('♠', '5'), card('♥', '5')];
+      const rec55 = getGtoPreflopRecommendation(
+        fiveFive, 'CO', 'cold_3bet', undefined, 5, 'CO', 80,
+      );
+      expect(rec55.action).toBe('F');
+    });
+
+    it('BB cold 3-bet: AJs shows call', () => {
+      const ajs = [card('♠', 'A'), card('♠', 'J')];
+      const rec = getGtoPreflopRecommendation(
+        ajs, 'BB', 'cold_3bet', undefined, 5, 'BB', 100,
+      );
+      expect(rec.action).toBe('C');
+    });
+  });
+
+  describe('BB Option Raise', () => {
+    it('BB option: AA raises (UTG-tier hand)', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'BB', 'rfi', undefined, 5,
+      );
+      expect(rec.action).toBe('R');
+    });
+
+    it('BB option: 72o checks (not UTG-tier)', () => {
+      const garbage = [card('♣', '7'), card('♦', '2')];
+      const rec = getGtoPreflopRecommendation(
+        garbage, 'BB', 'rfi', undefined, 5,
+      );
+      expect(rec.action).toBe('C');
+    });
+
+    it('BB option: AKs raises', () => {
+      const aks = [card('♠', 'A'), card('♠', 'K')];
+      const rec = getGtoPreflopRecommendation(
+        aks, 'BB', 'rfi', undefined, 5,
+      );
+      expect(rec.action).toBe('R');
+    });
+  });
 });

@@ -469,6 +469,34 @@ const VS_3BET_TABLES: Record<string, GtoAction[][]> = {
   BB: FOUR_BET_UTG,
 };
 
+// ─── Cold 3-bet Defense Tables ───────────────────────────────
+// When there's an open + 3-bet in front of hero (hero hasn't acted yet)
+
+const BB_COLD_3BET = build3betResponse(
+  ['TT', 'JJ', 'QQ', 'KK', 'AA', 'AKs', 'AQs', 'AKo'],
+  ['99', '88', '77', 'AJs', 'ATs', 'KQs', 'AQo', 'KQo'],
+);
+
+const SB_COLD_3BET = build3betResponse(
+  ['JJ', 'QQ', 'KK', 'AA', 'AKs', 'AKo', 'A5s', 'A4s'],
+  [],
+);
+
+const IP_COLD_3BET = build3betResponse(
+  ['QQ', 'KK', 'AA', 'AKs', 'AKo', 'A5s', 'A4s', 'A3s'],
+  ['JJ', 'TT', '99', '88', 'AQs', 'AJs', 'KQs', 'AQo', 'KQo'],
+);
+
+const COLD_3BET_TABLES: Record<string, GtoAction[][]> = {
+  BB: BB_COLD_3BET,
+  SB: SB_COLD_3BET,
+  UTG: IP_COLD_3BET,
+  MP: IP_COLD_3BET,
+  CO: IP_COLD_3BET,
+  BTN: IP_COLD_3BET,
+  IP: IP_COLD_3BET,
+};
+
 // ─── Mixed Frequency Data ────────────────────────────────────
 const RN = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
@@ -632,6 +660,16 @@ function isFacing3bet(state: GameState, player: Player): boolean {
   return player.bet === state.lastRaiseBet;
 }
 
+function isCold3bet(state: GameState, player: Player): boolean {
+  if (player.bet > 0) return false;
+  const raisers = state.players.filter(
+    (p) => p.id !== player.id && !p.folded && p.bet > state.smallBlind * 2,
+  );
+  if (raisers.length < 2) return false;
+  const distinctBets = new Set(raisers.map((p) => p.bet));
+  return distinctBets.size >= 2;
+}
+
 export function decidePreflopGTO(
   player: Player,
   state: GameState,
@@ -643,6 +681,7 @@ export function decidePreflopGTO(
   const hand = player.hand;
   const facingOpen = ctx.toCall > 0;
   const facing3bet = isFacing3bet(state, player);
+  const cold3bet = !facing3bet && facingOpen && isCold3bet(state, player);
 
   if (facing3bet) {
     const pos = getRfiPosition(ctx);
@@ -671,6 +710,41 @@ export function decidePreflopGTO(
     if (flags.canFoldResult) return { action: 'fold' };
     if (flags.canCheckResult) return { action: 'check' };
     return { action: 'call' };
+  }
+
+  if (cold3bet) {
+    const defenderPos = getDefenderPosition(ctx);
+    const dType = getDefenderType(defenderPos);
+    const table = COLD_3BET_TABLES[dType] ?? COLD_3BET_TABLES['IP'];
+    const code = lookup(table, hand);
+
+    if (code === 'R') {
+      const threeBetSize = state.lastBet;
+      const oop = defenderPos === 'SB' || defenderPos === 'BB';
+      const target = getGto4betSize(oop, threeBetSize);
+      if (flags.canAllInResult && shouldAllInBySPR(
+        player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
+      )) {
+        return { action: 'allin' };
+      }
+      if (flags.canRaiseResult) {
+        return {
+          action: 'raise',
+          amount: calculateRaiseAmount(player, state, target),
+        };
+      }
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canCheckResult) return { action: 'check' };
+    }
+
+    if (code === 'C') {
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canCheckResult) return { action: 'check' };
+    }
+
+    if (flags.canFoldResult) return { action: 'fold' };
+    if (flags.canCheckResult) return { action: 'check' };
+    return { action: flags.canCallResult ? 'call' : 'fold' };
   }
 
   if (facingOpen) {
@@ -712,6 +786,14 @@ export function decidePreflopGTO(
   const pos = getRfiPosition(ctx);
 
   if (pos === 'BB') {
+    const bbCode = lookup(RFI_TABLES['UTG'], hand);
+    if (bbCode === 'R' && flags.canRaiseResult) {
+      const target = getGtoOpenSize('UTG', state.smallBlind);
+      return {
+        action: 'raise',
+        amount: calculateRaiseAmount(player, state, target),
+      };
+    }
     if (flags.canCheckResult) return { action: 'check' };
     if (flags.canCallResult) return { action: 'call' };
     if (flags.canFoldResult) return { action: 'fold' };
@@ -751,7 +833,7 @@ export function decidePreflopGTO(
 export function getGtoPreflopRecommendation(
   hand: Card[],
   rfiPosition: Position,
-  scenario: 'rfi' | 'facing_open' | 'facing_3bet',
+  scenario: 'rfi' | 'facing_open' | 'facing_3bet' | 'cold_3bet',
   openerPosition?: Position,
   smallBlind?: number,
   defenderPosition?: Position,
@@ -779,6 +861,14 @@ export function getGtoPreflopRecommendation(
       };
     }
     if (rfiPosition === 'BB') {
+      const bbCode = lookup(RFI_TABLES['UTG'], hand);
+      if (bbCode === 'R') {
+        return {
+          action: 'R',
+          sizingBB: getGtoOpenSize('UTG', sb) / bb,
+          freq: { r: 1, c: 0, f: 0 },
+        };
+      }
       return { action: 'C', freq: { r: 0, c: 1, f: 0 } };
     }
     return { action: 'F', freq: getFreq('rfi', rfiPosition, hand, 'F') };
@@ -803,6 +893,29 @@ export function getGtoPreflopRecommendation(
       return { action: 'C', freq: getFreq('facing_3bet', rfiPosition, hand, 'C') };
     }
     return { action: 'F', freq: getFreq('facing_3bet', rfiPosition, hand, 'F') };
+  }
+
+  if (scenario === 'cold_3bet') {
+    const dPos = defenderPosition || 'BB';
+    const dType = getDefenderType(dPos);
+    const table = COLD_3BET_TABLES[dType] ?? COLD_3BET_TABLES['IP'];
+    const code = lookup(table, hand);
+    if (code === 'R') {
+      const threeBetBB = currentBet ? currentBet / bb : 10;
+      const oop = dPos === 'SB' || dPos === 'BB';
+      const fourBetBB = Math.round(threeBetBB * (oop ? 2.5 : 2.2) * 10) / 10;
+      const allIn = isAllInBySPR(fourBetBB * bb);
+      return {
+        action: 'R',
+        sizingBB: allIn && stackContext ? Math.round(stackContext.chips / bb * 10) / 10 : fourBetBB,
+        freq: { r: 1, c: 0, f: 0 },
+        isAllIn: allIn || undefined,
+      };
+    }
+    if (code === 'C') {
+      return { action: 'C', freq: { r: 0, c: 1, f: 0 } };
+    }
+    return { action: 'F', freq: { r: 0, c: 0, f: 1 } };
   }
 
   const oPos = openerPosition || 'UTG';

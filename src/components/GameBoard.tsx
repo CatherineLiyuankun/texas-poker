@@ -642,6 +642,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           const facing3bet =
                             player.bet > state.smallBlind * 2 &&
                             state.lastBet > player.bet;
+                          const cold3bet = (() => {
+                            if (player.bet > 0 || !facingOpen)
+                              return false;
+                            const raisers = state.players.filter(
+                              (p) =>
+                                p.id !== player.id &&
+                                !p.folded &&
+                                p.bet > state.smallBlind * 2,
+                            );
+                            if (raisers.length < 2) return false;
+                            const bets = new Set(
+                              raisers.map((p) => p.bet),
+                            );
+                            return bets.size >= 2;
+                          })();
                           const rfiPos =
                             getRfiPositionForDisplay(ctxForGto);
                           const defenderPos =
@@ -649,13 +664,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           const scenario:
                             | 'rfi'
                             | 'facing_open'
-                            | 'facing_3bet' = facing3bet
+                            | 'facing_3bet'
+                            | 'cold_3bet' = facing3bet
                             ? 'facing_3bet'
-                            : facingOpen
-                              ? 'facing_open'
-                              : 'rfi';
+                            : cold3bet
+                              ? 'cold_3bet'
+                              : facingOpen
+                                ? 'facing_open'
+                                : 'rfi';
                           const openerPos =
-                            facingOpen || facing3bet
+                            facingOpen || facing3bet || cold3bet
                               ? getOpenerPosition(state, player) ??
                                 undefined
                               : undefined;

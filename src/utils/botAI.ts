@@ -844,8 +844,8 @@ function decideRiver(
     if (isFacingBigRaise) {
       if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
-      if (flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
+      if (flags.canCallResult) return { action: 'call' };
     }
     // 主动下注：50% 概率（河牌更谨慎）
     if (flags.canRaiseResult && Math.random() < 0.50) {
