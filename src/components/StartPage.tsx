@@ -184,7 +184,14 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
                     <span className={isReal ? 'text-white' : 'text-white/60'}>
                       {name}
                     </span>
-                    <span className="text-yellow-400 font-bold">${chips}</span>
+                    <span className="flex items-center gap-1">
+                      <span className="text-yellow-400 font-bold">${chips}</span>
+                      {savedProgress.buyInCounts[idx] > 0 && (
+                        <span className="text-orange-400 text-xs">
+                          (-{savedProgress.buyInCounts[idx] * savedProgress.smallBlind * 200})
+                        </span>
+                      )}
+                    </span>
                   </div>
                 );
               })}
