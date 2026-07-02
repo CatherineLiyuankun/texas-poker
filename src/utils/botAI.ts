@@ -165,6 +165,7 @@ function decidePreflop(
         if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
+        if (flags.canCallResult) return { action: 'call' };
         if (flags.canFoldResult) return { action: 'fold' };
       }
     }
@@ -259,6 +260,7 @@ function decidePreflop(
           return { action: 'call' };
         }
       }
+      if (flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
     }
     if (flags.canCheckResult) return { action: 'check' };
@@ -666,6 +668,7 @@ function decidePostflop(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
+  adj: OpponentAdjustments,
 ): BotDecision {
   const community = getCommunityCardsByPhase(state);
 
@@ -673,10 +676,6 @@ function decidePostflop(
   const equity = calculateEquity(
     player.hand, community, ctx.numOpponents, iterations,
   );
-
-  // 获取对手画像和阈值调整量
-  const oppProfile = calculateOpponentProfile(state.players, player.id);
-  const adj = getOpponentAdjustments(oppProfile);
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
 
@@ -769,15 +768,12 @@ function decideRiver(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
+  adj: OpponentAdjustments,
 ): BotDecision {
   const community = getCommunityCardsByPhase(state);
   const equity = calculateEquity(
     player.hand, community, ctx.numOpponents, 500,
   );
-
-  // 获取对手画像和阈值调整量
-  const oppProfile = calculateOpponentProfile(state.players, player.id);
-  const adj = getOpponentAdjustments(oppProfile);
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
 
@@ -910,9 +906,9 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
       return decidePreflop(player, state, flags, ctx, adj);
     case 'flop':
     case 'turn':
-      return decidePostflop(player, state, flags, ctx);
+      return decidePostflop(player, state, flags, ctx, adj);
     case 'river':
-      return decideRiver(player, state, flags, ctx);
+      return decideRiver(player, state, flags, ctx, adj);
     default:
       return {
         action: canCheckResult ? 'check' : canCallResult ? 'call' : 'fold',
