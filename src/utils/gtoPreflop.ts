@@ -181,13 +181,13 @@ const RFI_UTG = buildRangeFromList([
   'AKo', 'AQo', 'AJo', 'ATo', 'KQo', 'KJo',
 ]);
 
-// MP ~20%: 33+, A8s+, K9s+, QTs+, JTs, T9s, 98s, 87s, 76s, 65s, 54s, A9o+, ATo+, KJo+
+// MP ~20%: 44+, A8s+, K9s+, QTs+, JTs, T9s, 98s, 87s, 76s, 65s, 54s, A9o+, ATo+, KJo
 const RFI_MP = buildRangeFromList([
-  'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33',
+  'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44',
   'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'KQs', 'KJs', 'KTs', 'K9s',
   'QJs', 'QTs', 'JTs', 'T9s', '98s', '87s', '76s', '65s', '54s',
   'A5s', 'A4s', 'A3s', 'A2s',
-  'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'KQo', 'KJo', 'KTo',
+  'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'KQo', 'KJo',
 ]);
 
 // CO ~28%: 22+, A2s+, K7s+, Q8s+, J8s+, T7s+, 97s+, 87s+, 76s+, 65s, 54s,
@@ -199,7 +199,7 @@ const RFI_CO = buildRangeFromList([
   'QJs', 'QTs', 'Q9s', 'Q8s', 'JTs', 'J9s', 'J8s',
   'T9s', 'T8s', 'T7s', '98s', '97s', '87s', '76s', '65s', '54s',
   'AKo', 'AQo', 'AJo', 'ATo', 'A9o',
-  'KQo', 'KJo', 'KTo', 'K9o', 'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o',
+  'KQo', 'KJo', 'KTo', 'QJo', 'QTo', 'JTo',
 ]);
 
 // BTN ~45%: 22+, A2s+, K2s+, Q5s+, J6s+, T7s+, 97s+, 86s+, 75s+, 65s, 54s,
@@ -341,13 +341,13 @@ const SB_VS_CO = buildFacingRangeFromList(
 const SB_VS_BTN = buildFacingRangeFromList(
   [
     '99', 'TT', 'JJ', 'QQ', 'KK', 'AA',
-    'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'AQo', 'AKo',
+    'AKs', 'AQs', 'AJs', 'ATs', 'AQo', 'AKo',
     'A5s', 'A4s', 'A3s', 'A2s',
     'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s',
     'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s',
     'JTs', 'J9s', 'J8s', 'J7s',
     'T9s', 'T8s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '54s',
-    'AJo', 'ATo', 'A9o', 'KQo', 'KJo', 'KTo', 'K9o', 'QJo', 'Q9o', 'J9o', 'J8o',
+    'AJo', 'ATo', 'KQo', 'KJo', 'KTo', 'QJo', 'Q9o', 'J9o', 'J8o',
   ],
   [],
 );
