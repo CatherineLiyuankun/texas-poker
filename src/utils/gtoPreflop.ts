@@ -257,8 +257,9 @@ const BB_VS_MP = buildFacingRangeFromList(
   [
     'TT', '99', '88', '77', '66', '55', '44', '33', '22',
     'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'QJs', 'QTs', 'Q9s', 'JTs', 'T9s', '98s', '87s', '76s',
-    'AJo', 'KJo', 'KTo', 'QJo', 'QTo', 'JTo',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'JTs', 'J9s', 'J8s', 'T9s', 'T8s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '54s',
+    'AJo', 'ATo', 'A9o', 'KJo', 'KTo', 'K9o', 'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o',
   ],
 );
 
@@ -267,9 +268,9 @@ const BB_VS_CO = buildFacingRangeFromList(
   [
     '99', '88', '77', '66', '55', '44', '33', '22',
     'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
-    'QJs', 'QTs', 'Q9s', 'Q8s', 'JTs', 'J9s', 'J8s', 'T9s', 'T8s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '54s',
-    'AJo', 'ATo', 'A9o', 'A8o', 'A7o', 'KJo', 'KTo', 'K9o', 'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'JTs', 'J9s', 'J8s', 'J7s', 'T9s', 'T8s', '98s', '97s', '96s', '87s', '86s', '76s', '75s', '65s', '54s',
+    'AJo', 'ATo', 'A9o', 'A8o', 'A7o', 'A6o', 'KJo', 'KTo', 'K9o', 'K8o', 'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o', '98o',
   ],
 );
 
@@ -294,32 +295,46 @@ const BB_VS_BTN = buildFacingRangeFromList(
 const BB_VS_SB = buildFacingRangeFromList(
   [
     '88', '99', 'TT', 'JJ', 'QQ', 'KK', 'AA',
-    'ATs', 'AJs', 'AKs', 'AQs', 'AJo', 'AKo', 'AQo', 'KQs',
-    'A5s', 'A4s', 'A3s', 'A2s',
+    'ATs', 'AJs', 'AKs', 'AQs', 'AKo', 'AQo', 'AJo',
+    'A5s', 'A4s', 'A3s', 'A2s', 'KQs',
   ],
   [
     '77', '66', '55', '44', '33', '22',
     'A9s', 'A8s', 'A7s', 'A6s',
-    'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
-    'QJs', 'QTs', 'JTs', 'T9s', '98s', '87s', '76s', '65s',
-    'ATo', 'KJo', 'QJo',
+    'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s',
+    'JTs', 'J9s', 'J8s', 'J7s', 'J6s', 'J5s',
+    'T9s', 'T8s', '98s', '97s', '96s', '87s', '86s', '76s', '75s', '65s', '54s',
+    'ATo', 'A9o', 'A8o', 'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
+    'KJo', 'KTo', 'K9o', 'K8o', 'K7o',
+    'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o', '98o', '87o',
   ],
 );
 
 // ── SB defense (3-bet or fold, almost no flat call) ──
 
 const SB_VS_UTG = buildFacingRangeFromList(
-  ['QQ', 'KK', 'AA', 'AKs', 'AKo'],
+  ['QQ', 'KK', 'AA', 'AKs', 'AKo', 'AQs', 'A5s', 'A4s'],
   [],
 );
 
 const SB_VS_MP = buildFacingRangeFromList(
-  ['JJ', 'QQ', 'KK', 'AA', 'AKs', 'AQs', 'AQo'],
+  [
+    'JJ', 'QQ', 'KK', 'AA', 'AKs', 'AQs', 'AQo', 'AKo',
+    'A5s', 'A4s', 'A3s', 'A2s', 'KQs', 'AJs',
+  ],
   [],
 );
 
 const SB_VS_CO = buildFacingRangeFromList(
-  ['TT', 'JJ', 'QQ', 'KK', 'AA', 'AKs', 'AQs', 'AQo', 'A5s', 'A4s', 'A3s'],
+  [
+    'TT', 'JJ', 'QQ', 'KK', 'AA',
+    'AKs', 'AQs', 'AJs', 'ATs', 'AQo', 'AKo',
+    'A5s', 'A4s', 'A3s', 'A2s',
+    'KQs', 'KJs', 'KTs', 'K9s',
+    'QJs', 'QTs', 'JTs', 'T9s', '98s', '87s',
+    'AJo', 'KQo', 'KJo',
+  ],
   [],
 );
 
@@ -356,18 +371,21 @@ const IP_VS_UTG = buildFacingRangeFromList(
 const IP_VS_MP = buildFacingRangeFromList(
   ['JJ', 'QQ', 'KK', 'AA', 'AKs', 'AQs', 'AQo', 'A5s', 'A4s', 'A3s'],
   [
-    'TT', '99', '88', '77', '66',
-    'AJs', 'ATs', 'A9s', 'KQs', 'KJs', 'KTs', 'QJs', 'QTs', 'JTs', 'T9s', '98s',
-    'AJo', 'KJo', 'KTo',
+    'TT', '99', '88', '77', '66', '55', '44',
+    'AJs', 'ATs', 'A9s', 'A8s', 'A7s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'QJs', 'QTs', 'Q9s', 'JTs', 'J9s', 'T9s', '98s', '87s', '76s',
+    'AJo', 'ATo', 'A9o', 'KJo', 'KTo', 'QJo', 'QTo',
   ],
 );
 
 const IP_VS_CO = buildFacingRangeFromList(
   ['TT', 'JJ', 'QQ', 'KK', 'AA', 'AKs', 'AQs', 'AJs', 'AQo', 'A5s', 'A4s', 'A3s', 'A2s'],
   [
-    '99', '88', '77', '66', '55',
-    'ATs', 'A9s', 'A8s', 'KQs', 'KJs', 'KTs', 'K9s', 'QJs', 'QTs', 'JTs', 'T9s', '98s', '87s',
-    'AJo', 'ATo', 'KJo', 'KTo', 'QJo',
+    '99', '88', '77', '66', '55', '44', '33',
+    'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
+    'QJs', 'QTs', 'Q9s', 'Q8s', 'JTs', 'J9s', 'J8s', 'T9s', 'T8s', '98s', '97s', '87s', '76s', '65s',
+    'AJo', 'ATo', 'A9o', 'KJo', 'KTo', 'K9o', 'QJo', 'QTo', 'Q9o', 'JTo',
   ],
 );
 
@@ -375,12 +393,12 @@ const IP_VS_BTN = buildFacingRangeFromList(
   [
     '99', 'TT', 'JJ', 'QQ', 'KK', 'AA',
     'AKs', 'AQs', 'AJs', 'AQo', 'A5s', 'A4s', 'A3s', 'A2s',
-    'K9s', 'Q8s', 'J8s', 'T8s', '97s', '86s', '76s', '65s',
+    'KQs',
   ],
   [
     '88', '77', '66', '55', '44', '33', '22',
-    'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
-    'KQs', 'KJs', 'KTs', 'K8s', 'K7s', 'K6s', 'K5s',
+    'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
+    'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s',
     'QJs', 'QTs', 'Q9s', 'Q8s',
     'JTs', 'J9s', 'J8s',
     'T9s', 'T8s', '98s', '97s', '96s', '87s', '86s', '76s', '75s', '65s', '54s',
@@ -593,8 +611,9 @@ function getFacingOpenTable(
 
 
 function isFacing3bet(state: GameState, player: Player): boolean {
-  return player.bet > state.smallBlind * 2
-    && state.lastBet > player.bet;
+  if (player.bet <= state.smallBlind * 2) return false;
+  if (state.lastBet <= player.bet) return false;
+  return player.bet === state.lastRaiseBet;
 }
 
 export function decidePreflopGTO(
@@ -627,7 +646,7 @@ export function decidePreflopGTO(
       };
     }
 
-    if (code === 'C') {
+    if (code === 'C' || (code === 'R' && !flags.canRaiseResult)) {
       if (flags.canCallResult) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
     }
@@ -643,14 +662,18 @@ export function decidePreflopGTO(
     const table = getFacingOpenTable(openerPos, defenderPos);
     const code = lookup(table, hand);
 
-    if (code === 'R' && flags.canRaiseResult) {
-      const openSize = state.lastBet;
-      const oop = defenderPos === 'SB' || defenderPos === 'BB';
-      const target = getGto3betSize(oop, openSize);
-      return {
-        action: 'raise',
-        amount: calculateRaiseAmount(player, state, target),
-      };
+    if (code === 'R') {
+      if (flags.canRaiseResult) {
+        const openSize = state.lastBet;
+        const oop = defenderPos === 'SB' || defenderPos === 'BB';
+        const target = getGto3betSize(oop, openSize);
+        return {
+          action: 'raise',
+          amount: calculateRaiseAmount(player, state, target),
+        };
+      }
+      if (flags.canCallResult) return { action: 'call' };
+      if (flags.canCheckResult) return { action: 'check' };
     }
 
     if (code === 'C') {
@@ -665,6 +688,14 @@ export function decidePreflopGTO(
 
   // RFI (no one has raised)
   const pos = getRfiPosition(ctx);
+
+  if (pos === 'BB') {
+    if (flags.canCheckResult) return { action: 'check' };
+    if (flags.canCallResult) return { action: 'call' };
+    if (flags.canFoldResult) return { action: 'fold' };
+    return { action: 'call' };
+  }
+
   const table = RFI_TABLES[pos];
   const code = lookup(table, hand);
 
@@ -725,7 +756,7 @@ export function getGtoPreflopRecommendation(
     const code = lookup(table3bet, hand);
     if (code === 'R') {
       const threeBetBB = currentBet ? currentBet / bb : 10;
-      const oop = rfiPosition === 'SB' || rfiPosition === 'UTG';
+      const oop = rfiPosition === 'SB' || rfiPosition === 'UTG' || rfiPosition === 'BB';
       const fourBetBB = Math.round(threeBetBB * (oop ? 2.5 : 2.2) * 10) / 10;
       return {
         action: 'R',
