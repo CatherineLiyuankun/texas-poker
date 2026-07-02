@@ -667,6 +667,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             state.smallBlind,
                             defenderPos,
                             state.lastBet,
+                            {
+                              chips: player.chips,
+                              toCall: state.lastBet - player.bet,
+                              totalPot: state.mainPot +
+                                state.sidePots.reduce(
+                                  (sum, sp) => sum + sp.amount, 0,
+                                ),
+                              bet: player.bet,
+                            },
                           );
                         })()}
                         actionButtons={

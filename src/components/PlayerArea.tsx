@@ -27,6 +27,7 @@ interface PlayerAreaProps {
     action: string;
     sizingBB?: number;
     freq?: { r: number; c: number; f: number };
+    isAllIn?: boolean;
   } | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];

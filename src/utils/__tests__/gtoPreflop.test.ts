@@ -604,4 +604,47 @@ describe('GTO Preflop Engine', () => {
       }
     });
   });
+
+  describe('SPR-based All-in Detection', () => {
+    it('short stack facing 3-bet shows All-in (SPR < 2)', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
+        { chips: 170, toCall: 55, totalPot: 120, bet: 25 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBe(true);
+    });
+
+    it('deep stack facing 3-bet shows normal Raise (SPR > 2)', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
+        { chips: 900, toCall: 55, totalPot: 120, bet: 25 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBeUndefined();
+    });
+
+    it('short stack facing open shows All-in for 3-bet (SPR < 2)', () => {
+      const aks = [card('♠', 'A'), card('♠', 'K')];
+      const rec = getGtoPreflopRecommendation(
+        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 25,
+        { chips: 80, toCall: 15, totalPot: 35, bet: 10 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBe(true);
+    });
+
+    it('deep stack facing open shows normal 3-bet sizing', () => {
+      const aks = [card('♠', 'A'), card('♠', 'K')];
+      const rec = getGtoPreflopRecommendation(
+        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 25,
+        { chips: 900, toCall: 15, totalPot: 35, bet: 10 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBeUndefined();
+      expect(rec.sizingBB).toBeGreaterThan(0);
+    });
+  });
 });

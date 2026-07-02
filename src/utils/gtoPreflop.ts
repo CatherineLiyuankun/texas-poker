@@ -51,6 +51,7 @@ export interface GtoRecommendation {
   action: GtoAction;
   sizingBB?: number;
   freq?: GtoFreq;
+  isAllIn?: boolean;
 }
 
 const RI: Record<string, number> = {
@@ -579,6 +580,21 @@ function getGto4betSize(
   return Math.floor(threeBetSize * (isOOP ? 2.5 : 2.2));
 }
 
+function shouldAllInBySPR(
+  playerChips: number,
+  toCall: number,
+  totalPot: number,
+  playerBet: number,
+  raiseTarget: number,
+): boolean {
+  if (raiseTarget >= playerChips) return true;
+  const potAfterCall = totalPot + toCall + playerBet + toCall;
+  const remainingAfterCall = playerChips - toCall;
+  if (remainingAfterCall <= 0) return true;
+  const spr = potAfterCall > 0 ? remainingAfterCall / potAfterCall : 999;
+  return spr < 2.0 || raiseTarget >= playerChips * 0.5;
+}
+
 
 
 // ─── Decision Logic ──────────────────────────────────────────
@@ -633,20 +649,21 @@ export function decidePreflopGTO(
     const table3bet = VS_3BET_TABLES[pos] ?? VS_3BET_TABLES['CO'];
     const code = lookup(table3bet, hand);
 
-    if (code === 'R' && flags.canRaiseResult) {
+    if (code === 'R') {
       const threeBetSize = state.lastBet;
       const oop = pos === 'SB' || pos === 'BB' || pos === 'UTG';
       const target = getGto4betSize(oop, threeBetSize);
-      if (flags.canAllInResult && player.chips <= target * 1.5) {
+      if (flags.canAllInResult && shouldAllInBySPR(
+        player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
+      )) {
         return { action: 'allin' };
       }
-      return {
-        action: 'raise',
-        amount: calculateRaiseAmount(player, state, target),
-      };
-    }
-
-    if (code === 'C' || (code === 'R' && !flags.canRaiseResult)) {
+      if (flags.canRaiseResult) {
+        return {
+          action: 'raise',
+          amount: calculateRaiseAmount(player, state, target),
+        };
+      }
       if (flags.canCallResult) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
     }
@@ -663,10 +680,15 @@ export function decidePreflopGTO(
     const code = lookup(table, hand);
 
     if (code === 'R') {
+      const openSize = state.lastBet;
+      const oop = defenderPos === 'SB' || defenderPos === 'BB';
+      const target = getGto3betSize(oop, openSize);
+      if (flags.canAllInResult && shouldAllInBySPR(
+        player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
+      )) {
+        return { action: 'allin' };
+      }
       if (flags.canRaiseResult) {
-        const openSize = state.lastBet;
-        const oop = defenderPos === 'SB' || defenderPos === 'BB';
-        const target = getGto3betSize(oop, openSize);
         return {
           action: 'raise',
           amount: calculateRaiseAmount(player, state, target),
@@ -700,11 +722,13 @@ export function decidePreflopGTO(
   const code = lookup(table, hand);
 
   if (code === 'R') {
-    if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
+    const target = getGtoOpenSize(pos, state.smallBlind);
+    if (flags.canAllInResult && shouldAllInBySPR(
+      player.chips, 0, ctx.totalPot, player.bet, target,
+    )) {
       return { action: 'allin' };
     }
     if (flags.canRaiseResult) {
-      const target = getGtoOpenSize(pos, state.smallBlind);
       return {
         action: 'raise',
         amount: calculateRaiseAmount(player, state, target),
@@ -732,9 +756,18 @@ export function getGtoPreflopRecommendation(
   smallBlind?: number,
   defenderPosition?: Position,
   currentBet?: number,
+  stackContext?: { chips: number; toCall: number; totalPot: number; bet: number },
 ): GtoRecommendation {
   const sb = smallBlind || 5;
   const bb = sb * 2;
+
+  const isAllInBySPR = (sizingChips: number): boolean => {
+    if (!stackContext) return false;
+    return shouldAllInBySPR(
+      stackContext.chips, stackContext.toCall,
+      stackContext.totalPot, stackContext.bet, sizingChips,
+    );
+  };
 
   if (scenario === 'rfi') {
     const code = lookup(RFI_TABLES[rfiPosition], hand);
@@ -758,10 +791,12 @@ export function getGtoPreflopRecommendation(
       const threeBetBB = currentBet ? currentBet / bb : 10;
       const oop = rfiPosition === 'SB' || rfiPosition === 'UTG' || rfiPosition === 'BB';
       const fourBetBB = Math.round(threeBetBB * (oop ? 2.5 : 2.2) * 10) / 10;
+      const allIn = isAllInBySPR(fourBetBB * bb);
       return {
         action: 'R',
-        sizingBB: fourBetBB,
+        sizingBB: allIn && stackContext ? Math.round(stackContext.chips / bb * 10) / 10 : fourBetBB,
         freq: getFreq('facing_3bet', rfiPosition, hand, 'R'),
+        isAllIn: allIn || undefined,
       };
     }
     if (code === 'C') {
@@ -781,11 +816,13 @@ export function getGtoPreflopRecommendation(
     const actualOpenBB = currentBet
       ? currentBet / bb
       : getGtoOpenSize(oPos, sb) / bb;
-    const threeBetBB = (oop ? 4.0 : 3.0) * actualOpenBB;
+    const threeBetBB = Math.round((oop ? 4.0 : 3.0) * actualOpenBB * 10) / 10;
+    const allIn = isAllInBySPR(threeBetBB * bb);
     return {
       action: 'R',
-      sizingBB: Math.round(threeBetBB * 10) / 10,
+      sizingBB: allIn && stackContext ? Math.round(stackContext.chips / bb * 10) / 10 : threeBetBB,
       freq: getFreq('facing_open', freqPos, hand, 'R'),
+      isAllIn: allIn || undefined,
     };
   }
   if (code === 'C') {

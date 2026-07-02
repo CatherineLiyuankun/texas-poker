@@ -20,6 +20,7 @@ interface HandAnalysisProps {
     action: string;
     sizingBB?: number;
     freq?: { r: number; c: number; f: number };
+    isAllIn?: boolean;
   } | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
@@ -142,13 +143,16 @@ function getGtoActionLabel(
   action: string,
   sizingBB?: number,
   freq?: { r: number; c: number; f: number },
+  isAllIn?: boolean,
 ): React.ReactNode {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   const isMixed = freq !== undefined &&
     [freq.r, freq.c, freq.f].filter((v) => v > 0).length > 1;
 
   const mainLabel = action === 'R'
-    ? (sizingBB ? `Raise ${sizingBB.toFixed(1)}BB` : 'Raise')
+    ? (isAllIn
+      ? (sizingBB ? `All-in ${sizingBB.toFixed(0)}BB` : 'All-in')
+      : (sizingBB ? `Raise ${sizingBB.toFixed(1)}BB` : 'Raise'))
     : action === 'C' ? 'Call' : 'Fold';
 
   if (!freq || !isMixed) return mainLabel;
@@ -558,6 +562,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                   gtoRecommendation.action,
                   gtoRecommendation.sizingBB,
                   gtoRecommendation.freq,
+                  gtoRecommendation.isAllIn,
                 )}
               </span>
             }
