@@ -493,9 +493,24 @@ function decidePreflop(
       }
     }
 
+    // 盲位面对大加注/all-in: 边缘牌仅以极好的赔率防守
+    if (isFacingBigRaise && ctx.isBlind) {
+      if (flags.canCallResult && ctx.potOdds < (0.20 - tightenCall)) {
+        return { action: 'call' };
+      }
+    }
+
     // Heads up: defend wider
     if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.28 - tightenCall)) {
       return { action: 'call' };
+    }
+
+    // 面对小额加注: 位置越靠后跟注范围越宽
+    if (isFacingRaise && !isFacingBigRaise && flags.canCallResult) {
+      const threshold = ctx.isLatePosition ? 0.30 : ctx.isMiddlePosition ? 0.25 : 0.20;
+      if (ctx.potOdds < (threshold - tightenCall)) {
+        return { action: 'call' };
+      }
     }
 
     // Very cheap calls with any position
