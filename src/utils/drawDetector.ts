@@ -29,59 +29,40 @@ function hasMadeStraight(cards: Card[]): boolean {
   return false;
 }
 
-function hasOpenEndedStraightDraw(cards: Card[]): boolean {
-  if (hasMadeStraight(cards)) return false;
-
-  const ranks = [...new Set(cards.map((c) => RANK_VAL[c.rank]))].sort((a, b) => a - b);
-  const extended = ranks.includes(14) ? [...ranks, 1] : ranks;
-  const sorted = [...extended].sort((a, b) => a - b);
-
-  for (let i = 0; i <= sorted.length - 4; i++) {
-    const window = sorted.slice(i, i + 4);
-    if (window[3] - window[0] === 3 && new Set(window).size === 4) {
-      const lowEnd = window[0] - 1;
-      const highEnd = window[3] + 1;
-      if (lowEnd >= 2 && highEnd <= 14) return true;
-    }
-  }
-  return false;
+interface StraightDrawResult {
+  missing: Set<number>;
+  isTrueOESD: boolean;
 }
 
-function hasOneEndedStraightDraw(cards: Card[]): boolean {
-  if (hasMadeStraight(cards)) return false;
+function getStraightDrawInfo(cards: Card[]): StraightDrawResult {
+  const empty: StraightDrawResult = { missing: new Set(), isTrueOESD: false };
+  if (hasMadeStraight(cards)) return empty;
 
   const ranks = [...new Set(cards.map((c) => RANK_VAL[c.rank]))].sort((a, b) => a - b);
   const extended = ranks.includes(14) ? [...ranks, 1] : ranks;
   const sorted = [...extended].sort((a, b) => a - b);
-
-  for (let i = 0; i <= sorted.length - 4; i++) {
-    const window = sorted.slice(i, i + 4);
-    if (window[3] - window[0] === 3 && new Set(window).size === 4) {
-      const lowEnd = window[0] - 1;
-      const highEnd = window[3] + 1;
-      const lowValid = lowEnd >= 2;
-      const highValid = highEnd <= 14;
-      if (lowValid !== highValid) return true;
-    }
-  }
-  return false;
-}
-
-function hasGutshotDraw(cards: Card[]): boolean {
-  if (hasMadeStraight(cards)) return false;
-
-  const ranks = [...new Set(cards.map((c) => RANK_VAL[c.rank]))].sort((a, b) => a - b);
-  const extended = ranks.includes(14) ? [...ranks, 1] : ranks;
-  const sorted = [...extended].sort((a, b) => a - b);
+  const missing = new Set<number>();
+  let isTrueOESD = false;
 
   for (let i = 0; i <= sorted.length - 4; i++) {
     const window = sorted.slice(i, i + 4);
     if (new Set(window).size !== 4) continue;
     const span = window[3] - window[0];
-    if (span === 4) return true;
+
+    if (span === 3) {
+      const low = window[0] - 1 >= 2 ? window[0] - 1 : null;
+      const high = window[3] + 1 <= 14 ? window[3] + 1 : null;
+      if (low !== null) missing.add(low);
+      if (high !== null) missing.add(high);
+      if (low !== null && high !== null) isTrueOESD = true;
+    } else if (span === 4) {
+      for (let r = window[0] + 1; r < window[3]; r++) {
+        if (!window.includes(r)) missing.add(r);
+      }
+    }
   }
 
-  return false;
+  return { missing, isTrueOESD };
 }
 
 export function detectDraws(
@@ -96,12 +77,11 @@ export function detectDraws(
     draws.push({ type: 'flush_draw', outs: 9 });
   }
 
-  if (hasOpenEndedStraightDraw(allCards)) {
+  const straightDraw = getStraightDrawInfo(allCards);
+  if (straightDraw.isTrueOESD) {
     draws.push({ type: 'open_ended_straight', outs: 8 });
-  } else if (hasOneEndedStraightDraw(allCards)) {
-    draws.push({ type: 'gutshot', outs: 4 });
-  } else if (hasGutshotDraw(allCards)) {
-    draws.push({ type: 'gutshot', outs: 4 });
+  } else if (straightDraw.missing.size >= 1) {
+    draws.push({ type: 'gutshot', outs: straightDraw.missing.size * 4 });
   }
 
   const totalOuts = draws.reduce((sum, d) => sum + d.outs, 0);

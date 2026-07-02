@@ -97,6 +97,26 @@ describe('Draw Detector', () => {
       );
       expect(result.draws.some((d) => d.type === 'gutshot')).toBe(true);
     });
+
+    it('双卡顺: 手牌4,5 + 公共牌8,7,A,2 → 缺3和6 → 8 outs', () => {
+      const result = detectDraws(
+        [card('♠', '4'), card('♥', '5')],
+        [card('♣', '8'), card('♦', '7'), card('♠', 'A'), card('♥', '2')],
+        1,
+      );
+      expect(result.draws.some((d) => d.type === 'gutshot')).toBe(true);
+      expect(result.draws.find((d) => d.type === 'gutshot')?.outs).toBe(8);
+    });
+
+    it('重叠双卡顺: 2,3,4,6,7 → 两个卡顺都缺5 → 去重后4 outs', () => {
+      const result = detectDraws(
+        [card('♠', '2'), card('♥', '3')],
+        [card('♣', '4'), card('♦', '6'), card('♥', '7')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'gutshot')).toBe(true);
+      expect(result.draws.find((d) => d.type === 'gutshot')?.outs).toBe(4);
+    });
   });
 
   describe('胜率估算', () => {
