@@ -13,7 +13,6 @@ import {
   getOpponentAdjustments,
   type OpponentAdjustments,
 } from './opponentModel';
-import { BIG_BLIND } from './opponentModelUtil';
 import { translations } from './translations';
 
 interface BotDecision {
@@ -940,7 +939,7 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
       ? state.players.some(p =>
           p.id !== player.id &&
           !p.folded &&
-          p.bet === BIG_BLIND &&
+          p.bet === state.smallBlind * 2 &&
           getPlayerPosition(p.id, state.dealer, state.players.length) > 2,
         )
       : false,

@@ -92,12 +92,12 @@ export function resetOpponentStats(): void {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-export function detectLimpers(): PlayerId[] {
+export function detectLimpers(bigBlind: number): PlayerId[] {
   loadFromStorage();
 
   if (!sessionData.currentHand) return [];
 
-  return detectLimpersFromEvents(sessionData.currentHand.events);
+  return detectLimpersFromEvents(sessionData.currentHand.events, bigBlind);
 }
 
 export function getOpponentVpipPfr(playerId: PlayerId): VpipPfrStats {

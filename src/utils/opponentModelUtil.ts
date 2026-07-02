@@ -1,8 +1,6 @@
 import type { PlayerId, Action } from '../types/poker';
 import type { ActionEvent } from '../types/stats';
 
-export const BIG_BLIND = 20;
-
 export type PlayerType =
   | 'Nit'
   | 'TAG'
@@ -314,11 +312,14 @@ export function computeAFFromEvents(events: ActionEvent[]): number | null {
   return passive > 0 ? aggressive / passive : null;
 }
 
-export function detectLimpersFromEvents(events: ActionEvent[]): PlayerId[] {
+export function detectLimpersFromEvents(
+  events: ActionEvent[],
+  bigBlind: number,
+): PlayerId[] {
   const preflopCalls = events.filter(
     e => e.phase === 'preflop' &&
          e.action === 'call' &&
-         e.toCall === BIG_BLIND
+         e.toCall === bigBlind
   );
 
   const raisers = new Set(
