@@ -1,4 +1,4 @@
-import { useReducer, useCallback } from 'react';
+import { useReducer, useCallback, useRef, useEffect } from 'react';
 import type {
   Card,
   GameState,
@@ -1043,6 +1043,11 @@ export function useGameState() {
     createInitialState(2, 0),
   );
 
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  });
+
   const startGame = useCallback(
     (
       realPlayerCount: number,
@@ -1088,21 +1093,19 @@ export function useGameState() {
 
   const resetRound = useCallback(() => {
     resetOpponentStats();
-    const resetInitialChips = (state.smallBlind || SMALL_BLIND) * 200;
-    const resetChips = state.players.map(
-      (p) => (p.chips > 0 ? p.chips : p.chips + resetInitialChips),
-    );
     dispatch({ type: 'RESET_ROUND' });
     setTimeout(() => {
+      const latest = stateRef.current;
       dispatch({
         type: 'START_GAME',
-        realPlayerCount: state.realPlayerCount,
-        botPlayerCount: state.botPlayerCount,
-        smallBlind: state.smallBlind || SMALL_BLIND,
-        playerChips: resetChips,
+        realPlayerCount: latest.realPlayerCount,
+        botPlayerCount: latest.botPlayerCount,
+        smallBlind: latest.smallBlind || SMALL_BLIND,
+        playerChips: latest.players.map(p => p.chips),
+        playerBuyInCounts: latest.players.map(p => p.buyInCount),
       });
     }, 0);
-  }, [state.realPlayerCount, state.botPlayerCount, state.smallBlind, state.players]);
+  }, []);
 
   const fold = useCallback((player: PlayerId) => {
     dispatch({ type: 'FOLD', player });
