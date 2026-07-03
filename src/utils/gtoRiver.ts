@@ -1,8 +1,9 @@
-import { Card, GameState, Player, HandRank, Suit } from '../types/poker';
+import type { Card, GameState, Player, HandRank, Suit } from '../types/poker';
 import { HAND_RANK_ORDER, RANK_ORDER } from '../types/poker';
-import { BotDecision, ActionFlags, ContextInfo } from './botAI';
-import { OpponentAdjustments } from './opponentModel';
-import { analyzeBoard, BoardTexture } from './boardTexture';
+import type { BotDecision, ActionFlags, ContextInfo } from './botAI';
+import type { OpponentAdjustments } from './opponentModel';
+import { analyzeBoard } from './boardTexture';
+import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateEquity } from './equityCalculator';
 
