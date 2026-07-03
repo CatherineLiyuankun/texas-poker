@@ -16,17 +16,19 @@ import {
 import { translations } from './translations';
 import { decidePreflopGTO } from './gtoPreflop';
 import { decidePostflopGTO } from './gtoPostflop';
+import { decideRiverGTO } from './gtoRiver';
 
 let useGtoStrategy = false;
 export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
 export function getGtoStrategy(): boolean { return useGtoStrategy; }
 
-interface BotDecision {
+export interface BotDecision {
   action: Action;
   amount?: number;
+  reasoning?: string;
 }
 
-interface ActionFlags {
+export interface ActionFlags {
   canCheckResult: boolean;
   canCallResult: boolean;
   canRaiseResult: boolean;
@@ -34,7 +36,7 @@ interface ActionFlags {
   canAllInResult: boolean;
 }
 
-interface ContextInfo {
+export interface ContextInfo {
   toCall: number;
   totalPot: number;
   potOdds: number;
@@ -966,7 +968,7 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
         : decidePostflop(player, state, flags, ctx, adj);
     case 'river':
       return useGtoStrategy
-        ? decidePostflopGTO(player, state, flags, ctx, adj)
+        ? decideRiverGTO(player, state, flags, ctx, adj)
         : decideRiver(player, state, flags, ctx, adj);
     default:
       return {
