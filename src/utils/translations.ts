@@ -157,8 +157,12 @@ export const translations = {
     pfr: 'PFR',
     af: 'AF',
     cbet: 'CBet',
-    wtsd: 'WTSD', // 摊牌率
+    wtsd: 'WTSD',
+    wsd: 'W$SD',
     checkRaise: 'C/R',
+    preflop: 'Pre-Flop',
+    postflop: 'Post-Flop',
+    showdown: 'Showdown',
     type: 'Type', // 类型
     name: 'Name', // 选手名称
     resetStats: '玩家数据Reset', // 重置玩家数据 Reset Stats

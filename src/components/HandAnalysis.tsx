@@ -139,6 +139,13 @@ function getCrColor(v: number): string {
   return 'text-red-400';
 }
 
+function getWsdColor(v: number): string {
+  if (v < 46) return 'text-red-400';
+  if (v < 48) return 'text-orange-400';
+  if (v <= 54) return 'text-green-400';
+  return 'text-blue-400';
+}
+
 function getGtoActionLabel(
   action: string,
   sizingBB?: number,
@@ -448,15 +455,22 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             </div>
             <table className="w-full text-[10px]">
               <thead>
+                <tr className="text-white/30 text-[8px]">
+                  <th className="text-left" />
+                  <th colSpan={3} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
+                  <th colSpan={3} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
+                  <th colSpan={2} className="text-center border-b border-white/10">{translations.playerStats.showdown}</th>
+                </tr>
                 <tr className="text-white/50">
                   <th className="text-left">{translations.playerStats.name}</th>
                   <th className="text-right">{translations.playerStats.vpip}</th>
                   <th className="text-right">{translations.playerStats.pfr}</th>
+                  <th className="text-right">{translations.playerStats.type}</th>
                   <th className="text-right">{translations.playerStats.af}</th>
                   <th className="text-right">{translations.playerStats.cbet}</th>
-                  <th className="text-right">{translations.playerStats.wtsd}</th>
                   <th className="text-right">{translations.playerStats.checkRaise}</th>
-                  <th className="text-right">{translations.playerStats.type}</th>
+                  <th className="text-right">{translations.playerStats.wtsd}</th>
+                  <th className="text-right">{translations.playerStats.wsd}</th>
                 </tr>
               </thead>
               <tbody>
@@ -472,22 +486,25 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       <td className={`text-right ${stat.handsDealt > 0 ? getPfrColor(stat.pfr * 100) : ''}`}>
                         {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
                       </td>
+                      <td className={`text-right font-medium ${typeColor}`}>
+                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
+                          ? translations.playerStats.insufficientData
+                          : typeLabel}
+                      </td>
                       <td className={`text-right ${stat.af !== null ? getAfColor(stat.af) : ''}`}>
                         {stat.af !== null ? stat.af.toFixed(1) : '—'}
                       </td>
                       <td className={`text-right ${stat.cbet !== null ? getCbetColor(stat.cbet) : ''}`}>
                         {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right ${stat.wtsd !== null ? getWtsdColor(stat.wtsd) : ''}`}>
-                        {stat.wtsd !== null ? `${stat.wtsd.toFixed(0)}%` : '—'}
-                      </td>
                       <td className={`text-right ${stat.checkRaise !== null ? getCrColor(stat.checkRaise) : ''}`}>
                         {stat.checkRaise !== null ? `${stat.checkRaise.toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right font-medium ${typeColor}`}>
-                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
-                          ? translations.playerStats.insufficientData
-                          : typeLabel}
+                      <td className={`text-right ${stat.wtsd !== null ? getWtsdColor(stat.wtsd) : ''}`}>
+                        {stat.wtsd !== null ? `${stat.wtsd.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right ${stat.wsd !== null ? getWsdColor(stat.wsd) : ''}`}>
+                        {stat.wsd !== null ? `${stat.wsd.toFixed(0)}%` : '—'}
                       </td>
                     </tr>
                   );
@@ -509,22 +526,25 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       <td className={`text-right ${display.handsDealt > 0 ? getPfrColor(display.pfr * 100) : ''}`}>
                         {display.handsDealt > 0 ? `${(display.pfr * 100).toFixed(0)}%` : '—'}
                       </td>
+                      <td className={`text-right font-medium ${typeColor}`}>
+                        {display.playerType === 'Unknown' && display.handsDealt < 10
+                          ? translations.playerStats.insufficientData
+                          : typeLabel}
+                      </td>
                       <td className={`text-right ${display.af !== null ? getAfColor(display.af) : ''}`}>
                         {display.af !== null ? display.af.toFixed(1) : '—'}
                       </td>
                       <td className={`text-right ${display.cbet !== null ? getCbetColor(display.cbet) : ''}`}>
                         {display.cbet !== null ? `${display.cbet.toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right ${display.wtsd !== null ? getWtsdColor(display.wtsd) : ''}`}>
-                        {display.wtsd !== null ? `${display.wtsd.toFixed(0)}%` : '—'}
-                      </td>
                       <td className={`text-right ${display.checkRaise !== null ? getCrColor(display.checkRaise) : ''}`}>
                         {display.checkRaise !== null ? `${display.checkRaise.toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right font-medium ${typeColor}`}>
-                        {display.playerType === 'Unknown' && display.handsDealt < 10
-                          ? translations.playerStats.insufficientData
-                          : typeLabel}
+                      <td className={`text-right ${display.wtsd !== null ? getWtsdColor(display.wtsd) : ''}`}>
+                        {display.wtsd !== null ? `${display.wtsd.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right ${display.wsd !== null ? getWsdColor(display.wsd) : ''}`}>
+                        {display.wsd !== null ? `${display.wsd.toFixed(0)}%` : '—'}
                       </td>
                     </tr>
                   );

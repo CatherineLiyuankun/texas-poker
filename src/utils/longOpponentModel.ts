@@ -7,6 +7,7 @@ import {
   computeAFFromEvents,
   computeCBetFromEvents,
   computeWTSDFromEvents,
+  computeWSDFromEvents,
   computeCheckRaiseFromEvents,
   classifyPlayerType,
 } from './opponentModelUtil';
@@ -17,6 +18,7 @@ export interface PlayerLongStats extends VpipPfrStats {
   af: number | null;
   cbet: number | null;
   wtsd: number | null;
+  wsd: number | null;
   checkRaise: number | null;
 }
 
@@ -131,6 +133,7 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
       af: null,
       cbet: null,
       wtsd: null,
+      wsd: null,
       checkRaise: null,
     };
   }
@@ -147,6 +150,7 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
   const af = computeAFFromEvents(allEvents);
   const cbet = computeCBetFromEvents(allEvents, playerHands);
   const wtsd = computeWTSDFromEvents(allEvents, playerHands);
+  const wsd = computeWSDFromEvents(allEvents, playerHands);
   const checkRaise = computeCheckRaiseFromEvents(allEvents);
 
   return {
@@ -159,6 +163,7 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
     af,
     cbet,
     wtsd,
+    wsd,
     checkRaise,
   };
 }

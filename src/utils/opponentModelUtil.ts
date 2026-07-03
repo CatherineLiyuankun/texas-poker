@@ -387,6 +387,32 @@ export function computeWTSDFromEvents(
   return flopsSeen > 0 ? (showdowns / flopsSeen) * 100 : null;
 }
 
+export function computeWSDFromEvents(
+  _events: ActionEvent[],
+  hands: {
+    handId: string;
+    events: ActionEvent[];
+    showdownPlayers?: PlayerId[];
+    result?: { winner: PlayerId | null; potAmount: number };
+  }[]
+): number | null {
+  let showdowns = 0;
+  let wins = 0;
+
+  for (const hand of hands) {
+    const playerId = hand.events[0]?.playerId;
+    if (!playerId || !hand.showdownPlayers?.includes(playerId)) continue;
+
+    showdowns++;
+
+    if (hand.result?.winner === playerId) {
+      wins++;
+    }
+  }
+
+  return showdowns > 0 ? (wins / showdowns) * 100 : null;
+}
+
 export function computeCheckRaiseFromEvents(events: ActionEvent[]): number | null {
   const eventsByHand = groupEventsByHand(events);
   let opportunities = 0;

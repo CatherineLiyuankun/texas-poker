@@ -7,6 +7,7 @@ import {
   computeAFFromEvents,
   computeCBetFromEvents,
   computeWTSDFromEvents,
+  computeWSDFromEvents,
   computeCheckRaiseFromEvents,
   detectLimpersFromEvents,
   classifyPlayerType,
@@ -199,6 +200,33 @@ export function getOpponentWTSD(playerId: PlayerId): number | null {
   return computeWTSDFromEvents(allEvents, allHands);
 }
 
+export function getOpponentWSD(playerId: PlayerId): number | null {
+  loadFromStorage();
+
+  const allEvents: ActionEvent[] = [];
+  const allHands: {
+    handId: string;
+    events: ActionEvent[];
+    showdownPlayers?: PlayerId[];
+    result?: { winner: PlayerId | null; potAmount: number };
+  }[] = [];
+
+  for (const hand of sessionData.sessionHands) {
+    const playerEvents = hand.events.filter(e => e.playerId === playerId);
+    allEvents.push(...playerEvents);
+    allHands.push({ handId: hand.handId, events: playerEvents, showdownPlayers: hand.showdownPlayers, result: hand.result });
+  }
+  if (sessionData.currentHand) {
+    const playerEvents = sessionData.currentHand.events.filter(e => e.playerId === playerId);
+    allEvents.push(...playerEvents);
+    allHands.push({ handId: sessionData.currentHand.handId, events: playerEvents, showdownPlayers: sessionData.currentHand.showdownPlayers, result: sessionData.currentHand.result });
+  }
+
+  if (allEvents.length === 0) return null;
+
+  return computeWSDFromEvents(allEvents, allHands);
+}
+
 export function getOpponentCheckRaise(playerId: PlayerId): number | null {
   loadFromStorage();
 
@@ -219,6 +247,7 @@ export interface BotStatsWithAF extends VpipPfrStats {
   af: number | null;
   cbet: number | null;
   wtsd: number | null;
+  wsd: number | null;
   checkRaise: number | null;
 }
 
@@ -232,6 +261,7 @@ export function getRealPlayerSessionStats(
       af: getOpponentAF(id),
       cbet: getOpponentCBet(id),
       wtsd: getOpponentWTSD(id),
+      wsd: getOpponentWSD(id),
       checkRaise: getOpponentCheckRaise(id),
     };
   });
@@ -336,6 +366,7 @@ export function calculateOpponentProfile(
         af: getOpponentAF(p.id),
         cbet: getOpponentCBet(p.id),
         wtsd: getOpponentWTSD(p.id),
+        wsd: getOpponentWSD(p.id),
         checkRaise: getOpponentCheckRaise(p.id),
       };
     }),
