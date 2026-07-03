@@ -244,23 +244,35 @@ const RFI_TABLES: Record<Position, GtoAction[][]> = {
 // ── BB defense (widest, closing action + price) ──
 
 const BB_VS_UTG = buildFacingRangeFromList(
-  ['QQ', 'KK', 'AA', 'AKs', 'AKo', 'A5s', 'A4s', 'A3s'],
+  ['QQ', 'KK', 'AA', 'AKs', 'AKo', 'A5s', 'A4s'],
   [
     'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
-    'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'QJs', 'QTs', 'Q9s', 'Q8s', 'JTs', 'J9s', 'T9s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '54s',
-    'AQo', 'AJo', 'ATo', 'A9o', 'KQo', 'KJo', 'KTo', 'K9o', 'QJo', 'QTo', 'JTo', 'J9o',
+    'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s',
+    'KQs', 'KJs', 'KTs', 'K9s',
+    'QJs', 'QTs', 'Q9s',
+    'JTs', 'J9s',
+    'T9s',
+    '98s', '87s', '76s', '65s',
+    'AQo', 'AJo', 'ATo',
+    'KQo', 'KJo',
+    'QJo',
   ],
 );
 
 const BB_VS_MP = buildFacingRangeFromList(
-  ['JJ', 'QQ', 'KK', 'AA', 'AQs', 'AKs', 'AQo', 'A5s', 'A4s', 'A3s', 'A2s'],
+  ['JJ', 'QQ', 'KK', 'AA', 'AQs', 'AKs', 'AQo', 'A5s', 'A4s', 'A3s'],
   [
     'TT', '99', '88', '77', '66', '55', '44', '33', '22',
-    'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s',
-    'QJs', 'QTs', 'Q9s', 'Q8s', 'JTs', 'J9s', 'J8s', 'T9s', 'T8s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '54s',
-    'AJo', 'ATo', 'A9o', 'KJo', 'KTo', 'K9o', 'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o',
+    'AJs', 'ATs', 'A9s', 'A8s', 'A7s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s',
+    'QJs', 'QTs', 'Q9s',
+    'JTs', 'J9s',
+    'T9s', '98s',
+    '87s', '76s', '65s',
+    'AJo', 'ATo',
+    'KJo', 'KTo',
+    'QJo', 'QTo',
+    'JTo',
   ],
 );
 
@@ -268,28 +280,53 @@ const BB_VS_CO = buildFacingRangeFromList(
   ['TT', 'JJ', 'QQ', 'KK', 'AA', 'AQs', 'AKs', 'AJs', 'AQo', 'A5s', 'A4s', 'A3s', 'A2s'],
   [
     '99', '88', '77', '66', '55', '44', '33', '22',
-    'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s',
-    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'JTs', 'J9s', 'J8s', 'J7s', 'T9s', 'T8s', '98s', '97s', '96s', '87s', '86s', '76s', '75s', '65s', '54s',
-    'AJo', 'ATo', 'A9o', 'A8o', 'A7o', 'A6o', 'KJo', 'KTo', 'K9o', 'K8o', 'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o', '98o',
+    'ATs', 'A9s', 'A8s', 'A7s',
+    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s',
+    'QJs', 'QTs', 'Q9s', 'Q8s',
+    'JTs', 'J9s', 'J8s',
+    'T9s', 'T8s',
+    '98s', '97s',
+    '87s', '86s',
+    '76s', '75s',
+    '65s', '54s',
+    'AJo', 'ATo', 'A9o',
+    'KJo', 'KTo', 'K9o',
+    'QJo', 'QTo',
+    'JTo',
   ],
 );
 
 const BB_VS_BTN = buildFacingRangeFromList(
   [
-    '99', 'TT', 'JJ', 'QQ', 'KK', 'AA',
-    'AQs', 'AKs', 'AJs', 'KQs', 'AQo',
+    'TT', 'JJ', 'QQ', 'KK', 'AA',
+    'AKs', 'AQs', 'AKo', 'AQo',
     'A5s', 'A4s', 'A3s', 'A2s',
+    'K9s', 'K8s', 'K7s', 'K6s',
   ],
   [
-    '88', '77', '66', '55', '44', '33', '22',
-    'ATs', 'A9s', 'A8s', 'A7s', 'A6s',
-    'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s',
-    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s',
-    'JTs', 'J9s', 'J8s', 'J7s', 'J6s',
-    'T9s', 'T8s', 'T7s', '98s', '97s', '96s', '87s', '86s', '76s', '75s', '74s', '65s', '54s',
-    'AJo', 'ATo', 'A9o', 'A8o', 'A7o', 'A6o', 'A5o', 'A4o', 'A3o', 'A2o',
-    'KJo', 'KTo', 'K9o', 'K8o', 'K7o', 'QJo', 'QTo', 'Q9o', 'Q8o', 'Q7o', 'JTo', 'J9o', 'J7o', 'T9o', '98o', '87o',
+    '22', '33', '44', '55', '66', '77', '88', '99',
+    'A2s', 'A3s', 'A4s', 'A5s', 'A6s', 'A7s', 'A8s', 'A9s', 'ATs', 'AJs',
+    'A2o', 'A3o', 'A4o', 'A5o', 'A6o', 'A7o', 'A8o', 'A9o', 'ATo', 'AJo',
+    'K2s', 'K3s', 'K4s', 'K5s', 'KJs', 'KTs',
+    'K2o', 'K3o', 'K4o', 'K5o', 'K6o', 'K7o', 'K8o', 'K9o', 'KTo', 'KJo',
+    'Q2s', 'Q3s', 'Q4s', 'Q5s', 'Q6s', 'Q7s', 'Q8s', 'Q9s', 'QTs', 'QJs',
+    'Q2o', 'Q3o', 'Q4o', 'Q5o', 'Q6o', 'Q7o', 'Q8o', 'Q9o', 'QTo', 'QJo',
+    'J2s', 'J3s', 'J4s', 'J5s', 'J6s', 'J7s', 'J8s', 'J9s', 'JTs',
+    'J2o', 'J3o', 'J4o', 'J5o', 'J6o', 'J7o', 'J8o', 'J9o', 'JTo',
+    'T2s', 'T3s', 'T4s', 'T5s', 'T6s', 'T7s', 'T8s', 'T9s',
+    'T2o', 'T3o', 'T4o', 'T5o', 'T6o', 'T7o', 'T8o', 'T9o',
+    '92s', '93s', '94s', '95s', '96s', '97s', '98s',
+    '92o', '93o', '94o', '95o', '96o', '97o', '98o',
+    '82s', '83s', '84s', '85s', '86s', '87s',
+    '82o', '83o', '84o', '85o', '86o', '87o',
+    '73s', '74s', '75s', '76s',
+    '73o', '74o', '75o', '76o',
+    '62s', '63s', '64s', '65s',
+    '62o', '63o', '64o', '65o',
+    '52s', '53s', '54s',
+    '52o', '53o', '54o',
+    '42s', '43s',
+    '42o', '43o',
   ],
 );
 
@@ -344,11 +381,9 @@ const SB_VS_BTN = buildFacingRangeFromList(
     '99', 'TT', 'JJ', 'QQ', 'KK', 'AA',
     'AKs', 'AQs', 'AJs', 'ATs', 'AQo', 'AKo',
     'A5s', 'A4s', 'A3s', 'A2s',
-    'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s',
-    'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s',
-    'JTs', 'J9s', 'J8s', 'J7s',
-    'T9s', 'T8s', '98s', '97s', '87s', '86s', '76s', '75s', '65s', '54s',
-    'AJo', 'ATo', 'KQo', 'KJo', 'KTo', 'QJo', 'Q9o', 'J9o', 'J8o',
+    'KQs', 'KJs', 'KTs',
+    'QJs', 'QTs',
+    'JTs',
   ],
   [],
 );
@@ -459,14 +494,26 @@ const FOUR_BET_BTN = build3betResponse(
   ['99', '88', 'AJs', 'ATs', 'AKo', 'AQo', 'KQs', 'KJs'],
 );
 
+// SB open vs 3bet: tightest — minimal bluffs
+const FOUR_BET_SB = build3betResponse(
+  ['QQ', 'KK', 'AA', 'AKs', 'AKo'],
+  ['JJ', 'TT', 'AQs', 'AQo'],
+);
+
+// BB open vs 3bet: moderate — some bluffs
+const FOUR_BET_BB = build3betResponse(
+  ['QQ', 'KK', 'AA', 'AKs', 'AKo', 'A5s', 'A4s'],
+  ['JJ', 'TT', 'AQs', 'AJs', 'AQo', 'KQs'],
+);
+
 // Combined tables: 'R' = 4-bet, 'C' = call vs 3bet, 'F' = fold
 const VS_3BET_TABLES: Record<string, GtoAction[][]> = {
   UTG: FOUR_BET_UTG,
   MP: FOUR_BET_MP,
   CO: FOUR_BET_CO,
   BTN: FOUR_BET_BTN,
-  SB: FOUR_BET_CO,
-  BB: FOUR_BET_UTG,
+  SB: FOUR_BET_SB,
+  BB: FOUR_BET_BB,
 };
 
 // ─── Cold 3-bet Defense Tables ───────────────────────────────
@@ -598,7 +645,7 @@ function getGto3betSize(
   isOOP: boolean,
   openSize: number,
 ): number {
-  return Math.floor(openSize * (isOOP ? 4.0 : 3.0));
+  return Math.floor(openSize * (isOOP ? 4.0 : 3.5));
 }
 
 function getGto4betSize(

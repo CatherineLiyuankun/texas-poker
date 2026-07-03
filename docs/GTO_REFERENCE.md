@@ -88,7 +88,7 @@
 | UTG | 25-30% | ~8% | ~17-22% | QQ+, AKs, AKo | A5s, A4s |
 | MP | 28-33% | ~9% | ~19-24% | JJ+, AQs+, AQo | A5s-A2s |
 | CO | 35-40% | ~11% | ~23-28% | TT+, AQs+, AJs, AQo | A5s-A2s |
-| BTN | 42-50% | ~14% | ~26-34% | 99+, AQs+, AJs, KQs, AQo | A5s-A2s |
+| BTN | 55-65% | ~15% | ~40-50% | TT+, AQs+, AKo | A5s-A2s, K9s-K6s |
 | SB | 35-42% | ~12% | ~22-28% | 88+, ATs+, AJo+, KQs | A5s-A2s |
 
 ### BB vs BTN Call Range Detail (should be ~26-34%):
@@ -104,7 +104,7 @@ Offsuit: AJo-A2o, KJo-K7o, QJo-Q7o, JTo-J8o, T9o-T8o, 98o-87o
 | UTG | 8-12% | QQ+, AKs, AKo | A5s, A4s |
 | MP | 10-15% | JJ+, AQs+, AQo, AKo | A5s-A2s, AJs (mixed) |
 | CO | 15-22% | TT+, AQs+, AJs, AQo, AKo | A5s-A2s, KQs, KJs (mixed) |
-| BTN | 28-35% | 99+, AQs+, AJs, ATs, AQo, AKo | A5s-A2s, KQs-K8s, QJs-Q7s, JTs-J8s, T9s-87s, AJo-KTo |
+| BTN | 13-15% | 99+, AQs+, AJs, ATs, AQo, AKo | A5s-A2s, K9s-K6s, Q9s, J9s, T9s, 87s, 76s |
 
 ---
 
@@ -123,7 +123,7 @@ Offsuit: AJo-A2o, KJo-K7o, QJo-Q7o, JTo-J8o, T9o-T8o, 98o-87o
 
 | Opener Pos | 4-bet Value | 4-bet Bluff | Call |
 |-----------|-------------|-------------|------|
-| UTG | QQ+, AKs | (none) | JJ, TT, AQs, AKo, AQo |
+| UTG | QQ+, AKs | A5s, A4s | JJ, TT, AQs, AKo, AQo |
 | MP | QQ+, AKs | A5s, A4s | JJ, TT, AQs, AJs, AKo, AQo, KQs |
 | CO | JJ+, AQs+ | A5s-A3s | TT, 99, AJs, AKo, AQo, KQs |
 | BTN | TT+, AQs+ | A5s-A2s | 99, 88, AJs, ATs, AKo, AQo, KQs, KJs |
@@ -137,7 +137,7 @@ Offsuit: AJo-A2o, KJo-K7o, QJo-Q7o, JTo-J8o, T9o-T8o, 98o-87o
 | Open UTG/MP/CO | 2.5 BB |
 | Open BTN | 2.0-2.5 BB |
 | Open SB | 2.5-3.0 BB |
-| 3-bet IP | 3.0× open |
+| 3-bet IP | 3.5× open |
 | 3-bet OOP | 4.0× open |
 | 4-bet IP | 2.2× 3-bet |
 | 4-bet OOP | 2.5× 3-bet |
@@ -178,9 +178,9 @@ Offsuit: AJo-A2o, KJo-K7o, QJo-Q7o, JTo-J8o, T9o-T8o, 98o-87o
 
 - [ ] `lookup()` correctly distinguishes suited (upper triangle) from offsuit (lower triangle)
 - [ ] RFI ranges within ±3% of targets for all positions
-- [ ] BB defense vs BTN ≥ 42%
+- [ ] BB defense vs BTN ≥ 55%
 - [ ] BB defense vs UTG ≥ 25%
-- [ ] SB vs BTN 3-bet ≥ 28%
+- [ ] SB vs BTN 3-bet ≥ 13% and ≤ 15%
 - [ ] SB vs UTG 3-bet ≥ 8%
 - [ ] IP vs BTN defense ≥ 25%
 - [ ] SB RFI never results in a limp (only raise or fold)
