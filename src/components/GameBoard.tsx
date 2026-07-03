@@ -196,13 +196,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           showdownPlayers,
           result: {
             winner: state.winner,
-            potAmount: state.mainPot,
+            potAmount: state.players.reduce((sum, p) => sum + p.totalBet, 0),
           },
         };
         saveHand(handWithResult);
       }
     }
-  }, [roundSettled, state.winner, state.mainPot]);
+  }, [roundSettled, state.winner, state.players]);
 
   const noRealCanAct = !state.players.some(
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
