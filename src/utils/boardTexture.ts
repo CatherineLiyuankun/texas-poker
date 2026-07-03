@@ -72,12 +72,18 @@ function getConnectedness(cards: Card[]): number {
   const values = cards.map(getRankValue).sort((a, b) => a - b);
   const uniqueValues = [...new Set(values)];
 
+  // Handle Ace-low wrap (A=14 → treat as 1 for A-2-3-4-5 check)
+  if (uniqueValues.includes(14) && uniqueValues.includes(2)) {
+    uniqueValues.push(1);
+    uniqueValues.sort((a, b) => a - b);
+  }
+
   if (uniqueValues.length < 2) return 0;
 
   let maxConsecutive = 1;
   let currentConsecutive = 1;
-  let maxGap = 0;
-  let totalGaps = 0;
+  let minGap = 99;
+  let hasOneGap = false;
 
   for (let i = 1; i < uniqueValues.length; i++) {
     const gap = uniqueValues[i] - uniqueValues[i - 1];
@@ -86,17 +92,20 @@ function getConnectedness(cards: Card[]): number {
       maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
     } else {
       currentConsecutive = 1;
-      if (gap <= 3) {
-        totalGaps++;
-        maxGap = Math.max(maxGap, gap);
+      if (gap === 2) {
+        hasOneGap = true;
+        minGap = Math.min(minGap, gap);
+      }
+      if (gap === 3) {
+        minGap = Math.min(minGap, gap);
       }
     }
   }
 
   if (maxConsecutive >= 3) return 3;
-  if (maxConsecutive === 2 && totalGaps > 0 && maxGap <= 2) return 2;
+  if (maxConsecutive === 2 && hasOneGap) return 2;
   if (maxConsecutive === 2) return 2;
-  if (totalGaps > 0 && maxGap <= 2) return 1;
+  if (hasOneGap || minGap <= 3) return 1;
   return 0;
 }
 
@@ -105,33 +114,27 @@ function countHighCards(cards: Card[]): number {
 }
 
 function calculateWetness(cards: Card[]): number {
+  const monotone = isBoardMonotone(cards);
+  const twoTone = !monotone && isBoardTwoTone(cards);
+  const connectedness = getConnectedness(cards);
+  const paired = isBoardPaired(cards);
+  const highCards = countHighCards(cards);
+
   let wetness = 0;
 
-  if (isBoardMonotone(cards)) {
-    wetness += 4;
-  } else if (isBoardTwoTone(cards)) {
-    wetness += 2;
-  }
+  if (monotone) wetness += 3;
+  else if (twoTone) wetness += 2;
 
-  const connectedness = getConnectedness(cards);
-  if (connectedness === 3) {
-    wetness += 3;
-  } else if (connectedness === 2) {
-    wetness += 2;
-  } else if (connectedness === 1) {
-    wetness += 1;
-  }
+  if (connectedness === 3) wetness += 4;
+  else if (connectedness === 2) wetness += 3;
+  else if (connectedness === 1) wetness += 2;
 
-  const highCards = countHighCards(cards);
-  if (highCards === 0) {
-    wetness += 1;
-  } else if (highCards >= 2) {
-    wetness -= 1;
-  }
+  if (highCards <= 1) wetness += 2;
 
-  if (isBoardPaired(cards)) {
-    wetness -= 2;
-  }
+  if (paired) wetness -= 1;
+
+  // Synergy: monotone + connected is extra wet
+  if (monotone && connectedness >= 1) wetness += 2;
 
   return Math.max(0, Math.min(10, wetness));
 }

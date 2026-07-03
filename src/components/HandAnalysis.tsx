@@ -8,6 +8,7 @@ import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { GtoPostflopRecommendation } from '../utils/gtoPostflop';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -22,6 +23,7 @@ interface HandAnalysisProps {
     freq?: { r: number; c: number; f: number };
     isAllIn?: boolean;
   } | null;
+  gtoPostflopRecommendation?: GtoPostflopRecommendation | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -183,7 +185,9 @@ function getGtoActionLabel(
 function getGtoActionColor(action: string): string {
   if (action === 'R') return 'text-green-400';
   if (action === 'C') return 'text-blue-400';
-  return 'text-red-400';
+  if (action === 'check') return 'text-yellow-400';
+  if (action === 'F') return 'text-red-400';
+  return 'text-white';
 }
 
 function getOutsColor(outs: number): string {
@@ -263,6 +267,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   potOdds,
   spr,
   gtoRecommendation,
+  gtoPostflopRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -588,6 +593,61 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
             color={getGtoActionColor(gtoRecommendation.action)}
           />
+        </div>
+      )}
+
+      {phase !== 'preflop' && gtoPostflopRecommendation && (
+        <div className="border-t border-white/10 pt-1 mt-1 space-y-0.5">
+          <Row
+            label={translations.gtoPostflop.board}
+            value={
+              <span className={`text-[10px] ${
+                gtoPostflopRecommendation.boardTexture.classification === 'very_dry' || gtoPostflopRecommendation.boardTexture.classification === 'dry'
+                  ? 'text-blue-400'
+                  : gtoPostflopRecommendation.boardTexture.classification === 'medium'
+                    ? 'text-yellow-400'
+                    : 'text-red-400'
+              }`}>
+                {({
+                  very_dry: translations.gtoPostflop.veryDry,
+                  dry: translations.gtoPostflop.dry,
+                  medium: translations.gtoPostflop.medium,
+                  wet: translations.gtoPostflop.wet,
+                  very_wet: translations.gtoPostflop.veryWet,
+                } as Record<string, string>)[gtoPostflopRecommendation.boardTexture.classification]}
+                {' '}({gtoPostflopRecommendation.boardTexture.wetness}/10)
+              </span>
+            }
+          />
+          <Row
+            label={translations.gtoPostflop.bet}
+            value={
+              <span className="text-[10px]">
+                {gtoPostflopRecommendation.isAllIn
+                  ? translations.gtoPostflop.allIn
+                  : gtoPostflopRecommendation.sizingPercent
+                    ? `${gtoPostflopRecommendation.sizingPercent}% pot`
+                    : gtoPostflopRecommendation.action === 'check'
+                      ? translations.gtoPostflop.check
+                      : gtoPostflopRecommendation.action === 'fold'
+                        ? translations.gtoPostflop.fold
+                        : gtoPostflopRecommendation.action === 'call'
+                          ? translations.gtoPostflop.call
+                          : translations.gtoPostflop.raise}
+              </span>
+            }
+            color={getGtoActionColor(gtoPostflopRecommendation.action === 'raise' ? 'R' : gtoPostflopRecommendation.action === 'call' ? 'C' : gtoPostflopRecommendation.action === 'fold' ? 'F' : 'check')}
+          />
+          {gtoPostflopRecommendation.freq && (
+            <Row
+              label={translations.gtoPostflop.reasoning}
+              value={
+                <span className="text-[9px] text-white/50">
+                  {gtoPostflopRecommendation.reasoning}
+                </span>
+              }
+            />
+          )}
         </div>
       )}
     </div>

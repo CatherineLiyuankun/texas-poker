@@ -15,6 +15,7 @@ import {
 } from './opponentModel';
 import { translations } from './translations';
 import { decidePreflopGTO } from './gtoPreflop';
+import { decidePostflopGTO } from './gtoPostflop';
 
 let useGtoStrategy = false;
 export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
@@ -960,9 +961,13 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
         : decidePreflop(player, state, flags, ctx, adj);
     case 'flop':
     case 'turn':
-      return decidePostflop(player, state, flags, ctx, adj);
+      return useGtoStrategy
+        ? decidePostflopGTO(player, state, flags, ctx, adj)
+        : decidePostflop(player, state, flags, ctx, adj);
     case 'river':
-      return decideRiver(player, state, flags, ctx, adj);
+      return useGtoStrategy
+        ? decidePostflopGTO(player, state, flags, ctx, adj)
+        : decideRiver(player, state, flags, ctx, adj);
     default:
       return {
         action: canCheckResult ? 'check' : canCallResult ? 'call' : 'fold',

@@ -7,6 +7,7 @@ import { translations } from '../utils/translations';
 import { SMALL_BLIND } from '../utils/constant';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { GtoPostflopRecommendation } from '../utils/gtoPostflop';
 
 interface PlayerAreaProps {
   player: Player;
@@ -29,6 +30,7 @@ interface PlayerAreaProps {
     freq?: { r: number; c: number; f: number };
     isAllIn?: boolean;
   } | null;
+  gtoPostflopRecommendation?: GtoPostflopRecommendation | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -53,6 +55,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   potOdds,
   spr,
   gtoRecommendation,
+  gtoPostflopRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -230,6 +233,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           potOdds={potOdds || 0}
           spr={spr}
           gtoRecommendation={gtoRecommendation}
+          gtoPostflopRecommendation={gtoPostflopRecommendation}
           opponentProfile={opponentProfile}
           longStats={longStats}
           viewingPlayerId={viewingPlayerId}
