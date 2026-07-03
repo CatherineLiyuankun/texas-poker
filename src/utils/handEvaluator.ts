@@ -28,7 +28,11 @@ function hasRoyalFlush(cards: Card[]): boolean {
 
 function hasStraightFlush(cards: Card[]): boolean {
   const ranks = cards.map(getRankValue).sort((a, b) => a - b);
-  return isSameSuit(cards) && isConsecutive(ranks) && !hasRoyalFlush(cards);
+  if (!isSameSuit(cards) || hasRoyalFlush(cards)) return false;
+  if (isConsecutive(ranks)) return true;
+  // Wheel straight flush: A-2-3-4-5 suited
+  if (ranks[0] === 2 && ranks[1] === 3 && ranks[2] === 4 && ranks[3] === 5 && ranks[4] === 14) return true;
+  return false;
 }
 
 function hasFourOfKind(cards: Card[]): boolean {
@@ -167,6 +171,15 @@ const tripleRank = sortedRanks.find(r =>
     case 'pair': {
       const pairRank = pairs[0] || 0;
       return [pairRank, kickers[0] || 0, kickers[1] || 0, kickers[2] || 0];
+    }
+    case 'straight':
+    case 'straight_flush': {
+      const straightRanks = [...new Set(cards.map(getRankValue))].sort((a, b) => b - a);
+      // 检测 wheel: A-2-3-4-5 (Ace 当作 1 使用)
+      if (straightRanks[0] === 14 && straightRanks[1] === 5 && straightRanks[2] === 4 && straightRanks[3] === 3 && straightRanks[4] === 2) {
+        return [5, 4, 3, 2, 1];
+      }
+      return straightRanks.slice(0, 5);
     }
     default:
       return sortedRanks.slice(0, 5);

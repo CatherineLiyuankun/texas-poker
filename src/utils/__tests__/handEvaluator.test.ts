@@ -206,6 +206,29 @@ describe('手牌评估 - 全部牌型', () => {
       const resultHigh = evaluateHand(handHigh, community);
       expect(compareHands(resultHigh, resultLow)).toBeGreaterThan(0);
     });
+
+    it('4-5-6-7-8 应大于 wheel A-2-3-4-5', () => {
+      const hand678: Card[] = [
+        { suit: '♠', rank: '6' },
+        { suit: '♥', rank: '7' },
+      ];
+      const handA3: Card[] = [
+        { suit: '♣', rank: 'A' },
+        { suit: '♦', rank: '3' },
+      ];
+      const community: Card[] = [
+        { suit: '♣', rank: '8' },
+        { suit: '♦', rank: '4' },
+        { suit: '♥', rank: 'J' },
+        { suit: '♠', rank: '2' },
+        { suit: '♦', rank: '5' },
+      ];
+      const result678 = evaluateHand(hand678, community);
+      const resultA3 = evaluateHand(handA3, community);
+      expect(result678.rank).toBe('straight');
+      expect(resultA3.rank).toBe('straight');
+      expect(compareHands(result678, resultA3)).toBeGreaterThan(0);
+    });
   });
 
   describe('同花 (Flush)', () => {
@@ -389,6 +412,22 @@ describe('手牌评估 - 全部牌型', () => {
       const resultSF = evaluateHand(sfHand, communitySF);
       const resultQuads = evaluateHand(quadsHand, communityQuads);
       expect(compareHands(resultSF, resultQuads)).toBeGreaterThan(0);
+    });
+
+    it('Wheel 同花顺 A-2-3-4-5 应被识别', () => {
+      const hand: Card[] = [
+        { suit: '♠', rank: 'A' },
+        { suit: '♠', rank: '2' },
+      ];
+      const community: Card[] = [
+        { suit: '♠', rank: '3' },
+        { suit: '♠', rank: '4' },
+        { suit: '♠', rank: '5' },
+        { suit: '♣', rank: '9' },
+        { suit: '♦', rank: 'K' },
+      ];
+      const result = evaluateHand(hand, community);
+      expect(result.rank).toBe('straight_flush');
     });
   });
 
