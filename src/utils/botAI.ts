@@ -18,6 +18,7 @@ import { decidePreflopGTO } from './gtoPreflop';
 import { decidePostflopGTO } from './gtoPostflop';
 import { decideRiverGTO } from './gtoRiver';
 import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
+import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
 
 let useGtoStrategy = false;
 export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
@@ -105,6 +106,18 @@ function decidePreflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
+  // 检测是否为短筹码 (≤20bb)
+  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
+  if (isShortStack(effectiveStack)) {
+    // 使用短筹码策略
+    const shortStackRec = getShortStackRecommendation(player, state, flags, ctx, adj);
+    return {
+      action: shortStackRec.action,
+      amount: shortStackRec.sizing,
+      reasoning: shortStackRec.reasoning,
+    };
+  }
+
   const tier = getPreflopTier(player.hand);
   const isFacingRaise = ctx.toCall > 0;
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
