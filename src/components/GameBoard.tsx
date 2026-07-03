@@ -15,7 +15,7 @@ import {
   getOpenerPosition,
 } from '../utils/gtoPreflop';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
 import {
   saveHand,
   getAllRealPlayerStats,
@@ -24,7 +24,7 @@ import {
   importStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
-import { HAND_RANK_NAMES, type Action } from '../types/poker';
+import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
 import type { ActionEvent } from '../types/stats';
 import { translations } from '../utils/translations';
 
@@ -67,27 +67,28 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [importMessage, setImportMessage] = React.useState<string | null>(null);
   const [gtoEnabled, setGtoEnabled] = useState(false);
 
-  // Helper function to create ActionEvent
   const createActionEvent = (
     playerId: number,
     action: Action,
     amount?: number,
+    phaseOverride?: GamePhase,
   ): ActionEvent => {
     const player = state.players.find((p) => p.id === playerId);
     const toCall = state.lastBet - (player?.bet || 0);
     const position = (playerId - state.dealer + state.players.length) % state.players.length;
+    const phase = phaseOverride ?? state.phase;
     
     return {
       handId: `${handCounterRef.current}-${state.dealer}`,
       playerId: playerId as ActionEvent['playerId'],
-      phase: state.phase,
+      phase,
       action,
       amount,
       toCall,
       currentBet: state.lastBet,
       potSize: state.mainPot + (state.sidePots?.reduce((sum, pot) => sum + pot.amount, 0) || 0),
       position,
-      isFacingRaise: state.lastBet > 0 && state.phase === 'preflop',
+      isFacingRaise: state.lastBet > 0 && phase === 'preflop',
       timestamp: Date.now(),
     };
   };
@@ -174,14 +175,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   }, [state.phase, state.players, state.dealer]);
 
-  // 当牌局结束时，保存手牌记录到长期统计
   useEffect(() => {
     if (roundSettled) {
       const currentHand = getCurrentHand();
+      const showdownPlayers = state.phase === 'showdown'
+        ? state.players.filter(p => !p.folded).map(p => p.id)
+        : undefined;
+
+      if (showdownPlayers) {
+        setCurrentHandShowdownPlayers(showdownPlayers);
+      }
+
       if (currentHand) {
-        // Add result to the hand record
         const handWithResult: typeof currentHand = {
           ...currentHand,
+          showdownPlayers,
           result: {
             winner: state.winner,
             potAmount: state.mainPot,
@@ -221,11 +229,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   const handleAction = (action: Action, amount?: number) => {
     const playerId = state.currentPlayer;
+    const currentPhase = state.phase;
     playerAction(playerId, action, amount);
     const player = state.players.find((p) => p.id === playerId);
     if (player) {
-      // Record action event for both opponentModel and longOpponentModel
-      const event = createActionEvent(playerId, action, amount);
+      const event = createActionEvent(playerId, action, amount, currentPhase);
       recordAction(event);
     }
   };

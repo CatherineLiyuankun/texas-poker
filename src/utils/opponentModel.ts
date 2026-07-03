@@ -83,6 +83,15 @@ export function endCurrentHand(winner: PlayerId | null, potAmount: number): void
   }
 }
 
+export function setCurrentHandShowdownPlayers(players: PlayerId[]): void {
+  loadFromStorage();
+
+  if (sessionData.currentHand) {
+    sessionData.currentHand.showdownPlayers = players;
+    saveToStorage();
+  }
+}
+
 export function resetOpponentStats(): void {
   sessionData = {
     version: 1,
@@ -172,17 +181,17 @@ export function getOpponentWTSD(playerId: PlayerId): number | null {
   loadFromStorage();
 
   const allEvents: ActionEvent[] = [];
-  const allHands: { handId: string; events: ActionEvent[] }[] = [];
+  const allHands: { handId: string; events: ActionEvent[]; showdownPlayers?: PlayerId[] }[] = [];
   
   for (const hand of sessionData.sessionHands) {
     const playerEvents = hand.events.filter(e => e.playerId === playerId);
     allEvents.push(...playerEvents);
-    allHands.push({ handId: hand.handId, events: playerEvents });
+    allHands.push({ handId: hand.handId, events: playerEvents, showdownPlayers: hand.showdownPlayers });
   }
   if (sessionData.currentHand) {
     const playerEvents = sessionData.currentHand.events.filter(e => e.playerId === playerId);
     allEvents.push(...playerEvents);
-    allHands.push({ handId: sessionData.currentHand.handId, events: playerEvents });
+    allHands.push({ handId: sessionData.currentHand.handId, events: playerEvents, showdownPlayers: sessionData.currentHand.showdownPlayers });
   }
 
   if (allEvents.length === 0) return null;

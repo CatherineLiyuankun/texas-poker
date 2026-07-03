@@ -19,6 +19,7 @@ export interface HandRecord {
   timestamp: number;
   events: ActionEvent[];
   players: PlayerId[];
+  showdownPlayers?: PlayerId[];
   result?: {
     winner: PlayerId | null;
     potAmount: number;

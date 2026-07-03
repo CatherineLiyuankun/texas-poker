@@ -367,7 +367,7 @@ export function computeCBetFromEvents(
 
 export function computeWTSDFromEvents(
   _events: ActionEvent[],
-  hands: { handId: string; events: ActionEvent[] }[]
+  hands: { handId: string; events: ActionEvent[]; showdownPlayers?: PlayerId[] }[]
 ): number | null {
   let flopsSeen = 0;
   let showdowns = 0;
@@ -378,8 +378,10 @@ export function computeWTSDFromEvents(
 
     flopsSeen++;
 
-    const hasShowdown = hand.events.some(e => e.phase === 'showdown');
-    if (hasShowdown) showdowns++;
+    const playerId = hand.events[0]?.playerId;
+    if (hand.showdownPlayers && playerId && hand.showdownPlayers.includes(playerId)) {
+      showdowns++;
+    }
   }
 
   return flopsSeen > 0 ? (showdowns / flopsSeen) * 100 : null;
