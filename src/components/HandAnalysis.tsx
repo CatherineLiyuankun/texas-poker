@@ -148,6 +148,31 @@ function getWsdColor(v: number): string {
   return 'text-blue-400';
 }
 
+function get3BetColor(v: number): string {
+  if (v < 5) return 'text-blue-400';
+  if (v <= 10) return 'text-green-400';
+  if (v <= 12) return 'text-orange-400';
+  return 'text-red-400';
+}
+
+function getFoldToCbetColor(v: number): string {
+  if (v < 40) return 'text-red-400';
+  if (v <= 60) return 'text-green-400';
+  return 'text-blue-400';
+}
+
+function getAFqColor(v: number): string {
+  if (v < 35) return 'text-blue-400';
+  if (v <= 55) return 'text-green-400';
+  return 'text-red-400';
+}
+
+function getTurnCbetColor(v: number): string {
+  if (v < 40) return 'text-blue-400';
+  if (v <= 65) return 'text-green-400';
+  return 'text-red-400';
+}
+
 function getGtoActionLabel(
   action: string,
   sizingBB?: number,
@@ -462,18 +487,22 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               <thead>
                 <tr className="text-white/30 text-[8px]">
                   <th className="text-left" />
-                  <th colSpan={3} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
-                  <th colSpan={3} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
+                  <th colSpan={4} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
+                  <th colSpan={6} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
                   <th colSpan={2} className="text-center border-b border-white/10">{translations.playerStats.showdown}</th>
                 </tr>
                 <tr className="text-white/50">
                   <th className="text-left">{translations.playerStats.name}</th>
                   <th className="text-right">{translations.playerStats.vpip}</th>
                   <th className="text-right">{translations.playerStats.pfr}</th>
-                  <th className="text-right">{translations.playerStats.type}</th>
+                  <th className="text-right">{translations.playerStats.threeBet}</th>
+                  <th className="text-right border-r border-white/10">{translations.playerStats.type}</th>
                   <th className="text-right">{translations.playerStats.af}</th>
+                  <th className="text-right">{translations.playerStats.afq}</th>
                   <th className="text-right">{translations.playerStats.cbet}</th>
-                  <th className="text-right">{translations.playerStats.checkRaise}</th>
+                  <th className="text-right">{translations.playerStats.foldToCbet}</th>
+                  <th className="text-right">{translations.playerStats.turnCbet}</th>
+                  <th className="text-right border-r border-white/10">{translations.playerStats.checkRaise}</th>
                   <th className="text-right">{translations.playerStats.wtsd}</th>
                   <th className="text-right">{translations.playerStats.wsd}</th>
                 </tr>
@@ -491,7 +520,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       <td className={`text-right ${stat.handsDealt > 0 ? getPfrColor(stat.pfr * 100) : ''}`}>
                         {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right font-medium ${typeColor}`}>
+                      <td className={`text-right ${stat.threeBet !== null ? get3BetColor(stat.threeBet) : ''}`}>
+                        {stat.threeBet !== null ? `${stat.threeBet.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
                         {stat.playerType === 'Unknown' && stat.handsDealt < 10
                           ? translations.playerStats.insufficientData
                           : typeLabel}
@@ -499,10 +531,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       <td className={`text-right ${stat.af !== null ? getAfColor(stat.af) : ''}`}>
                         {stat.af !== null ? stat.af.toFixed(1) : '—'}
                       </td>
+                      <td className={`text-right ${stat.afq !== null ? getAFqColor(stat.afq) : ''}`}>
+                        {stat.afq !== null ? `${stat.afq.toFixed(0)}%` : '—'}
+                      </td>
                       <td className={`text-right ${stat.cbet !== null ? getCbetColor(stat.cbet) : ''}`}>
                         {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right ${stat.checkRaise !== null ? getCrColor(stat.checkRaise) : ''}`}>
+                      <td className={`text-right ${stat.foldToCbet !== null ? getFoldToCbetColor(stat.foldToCbet) : ''}`}>
+                        {stat.foldToCbet !== null ? `${stat.foldToCbet.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right ${stat.turnCbet !== null ? getTurnCbetColor(stat.turnCbet) : ''}`}>
+                        {stat.turnCbet !== null ? `${stat.turnCbet.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right border-r border-white/10 ${stat.checkRaise !== null ? getCrColor(stat.checkRaise) : ''}`}>
                         {stat.checkRaise !== null ? `${stat.checkRaise.toFixed(0)}%` : '—'}
                       </td>
                       <td className={`text-right ${stat.wtsd !== null ? getWtsdColor(stat.wtsd) : ''}`}>
@@ -531,7 +572,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       <td className={`text-right ${display.handsDealt > 0 ? getPfrColor(display.pfr * 100) : ''}`}>
                         {display.handsDealt > 0 ? `${(display.pfr * 100).toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right font-medium ${typeColor}`}>
+                      <td className={`text-right ${display.threeBet !== null ? get3BetColor(display.threeBet) : ''}`}>
+                        {display.threeBet !== null ? `${display.threeBet.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
                         {display.playerType === 'Unknown' && display.handsDealt < 10
                           ? translations.playerStats.insufficientData
                           : typeLabel}
@@ -539,10 +583,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       <td className={`text-right ${display.af !== null ? getAfColor(display.af) : ''}`}>
                         {display.af !== null ? display.af.toFixed(1) : '—'}
                       </td>
+                      <td className={`text-right ${display.afq !== null ? getAFqColor(display.afq) : ''}`}>
+                        {display.afq !== null ? `${display.afq.toFixed(0)}%` : '—'}
+                      </td>
                       <td className={`text-right ${display.cbet !== null ? getCbetColor(display.cbet) : ''}`}>
                         {display.cbet !== null ? `${display.cbet.toFixed(0)}%` : '—'}
                       </td>
-                      <td className={`text-right ${display.checkRaise !== null ? getCrColor(display.checkRaise) : ''}`}>
+                      <td className={`text-right ${display.foldToCbet !== null ? getFoldToCbetColor(display.foldToCbet) : ''}`}>
+                        {display.foldToCbet !== null ? `${display.foldToCbet.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right ${display.turnCbet !== null ? getTurnCbetColor(display.turnCbet) : ''}`}>
+                        {display.turnCbet !== null ? `${display.turnCbet.toFixed(0)}%` : '—'}
+                      </td>
+                      <td className={`text-right border-r border-white/10 ${display.checkRaise !== null ? getCrColor(display.checkRaise) : ''}`}>
                         {display.checkRaise !== null ? `${display.checkRaise.toFixed(0)}%` : '—'}
                       </td>
                       <td className={`text-right ${display.wtsd !== null ? getWtsdColor(display.wtsd) : ''}`}>

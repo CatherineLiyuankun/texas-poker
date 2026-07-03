@@ -9,6 +9,10 @@ import {
   computeWTSDFromEvents,
   computeWSDFromEvents,
   computeCheckRaiseFromEvents,
+  compute3BetFromEvents,
+  computeFoldToCbetFromEvents,
+  computeAFqFromEvents,
+  computeTurnCbetFromEvents,
   detectLimpersFromEvents,
   classifyPlayerType,
 } from './opponentModelUtil';
@@ -243,12 +247,82 @@ export function getOpponentCheckRaise(playerId: PlayerId): number | null {
   return computeCheckRaiseFromEvents(allEvents);
 }
 
+export function getOpponent3Bet(playerId: PlayerId): number | null {
+  loadFromStorage();
+
+  const allEvents: ActionEvent[] = [];
+  for (const hand of sessionData.sessionHands) {
+    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
+  }
+  if (sessionData.currentHand) {
+    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
+  }
+
+  if (allEvents.length === 0) return null;
+
+  return compute3BetFromEvents(allEvents);
+}
+
+export function getOpponentFoldToCbet(playerId: PlayerId): number | null {
+  loadFromStorage();
+
+  const allHands: { handId: string; events: ActionEvent[] }[] = [];
+
+  for (const hand of sessionData.sessionHands) {
+    allHands.push({ handId: hand.handId, events: hand.events });
+  }
+  if (sessionData.currentHand) {
+    allHands.push({ handId: sessionData.currentHand.handId, events: sessionData.currentHand.events });
+  }
+
+  if (allHands.length === 0) return null;
+
+  return computeFoldToCbetFromEvents(playerId, allHands);
+}
+
+export function getOpponentAFq(playerId: PlayerId): number | null {
+  loadFromStorage();
+
+  const allEvents: ActionEvent[] = [];
+  for (const hand of sessionData.sessionHands) {
+    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
+  }
+  if (sessionData.currentHand) {
+    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
+  }
+
+  if (allEvents.length === 0) return null;
+
+  return computeAFqFromEvents(allEvents);
+}
+
+export function getOpponentTurnCbet(playerId: PlayerId): number | null {
+  loadFromStorage();
+
+  const allHands: { handId: string; events: ActionEvent[] }[] = [];
+
+  for (const hand of sessionData.sessionHands) {
+    allHands.push({ handId: hand.handId, events: hand.events });
+  }
+  if (sessionData.currentHand) {
+    allHands.push({ handId: sessionData.currentHand.handId, events: sessionData.currentHand.events });
+  }
+
+  if (allHands.length === 0) return null;
+
+  return computeTurnCbetFromEvents(playerId, allHands);
+}
+
 export interface BotStatsWithAF extends VpipPfrStats {
   af: number | null;
   cbet: number | null;
   wtsd: number | null;
   wsd: number | null;
   checkRaise: number | null;
+  threeBet: number | null;
+  foldToCbet: number | null;
+  afq: number | null;
+  turnCbet: number | null;
 }
 
 export function getRealPlayerSessionStats(
@@ -263,6 +337,10 @@ export function getRealPlayerSessionStats(
       wtsd: getOpponentWTSD(id),
       wsd: getOpponentWSD(id),
       checkRaise: getOpponentCheckRaise(id),
+      threeBet: getOpponent3Bet(id),
+      foldToCbet: getOpponentFoldToCbet(id),
+      afq: getOpponentAFq(id),
+      turnCbet: getOpponentTurnCbet(id),
     };
   });
 }
@@ -368,6 +446,10 @@ export function calculateOpponentProfile(
         wtsd: getOpponentWTSD(p.id),
         wsd: getOpponentWSD(p.id),
         checkRaise: getOpponentCheckRaise(p.id),
+        threeBet: getOpponent3Bet(p.id),
+        foldToCbet: getOpponentFoldToCbet(p.id),
+        afq: getOpponentAFq(p.id),
+        turnCbet: getOpponentTurnCbet(p.id),
       };
     }),
     avgFoldRate,

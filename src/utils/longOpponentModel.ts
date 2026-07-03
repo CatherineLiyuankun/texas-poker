@@ -9,6 +9,10 @@ import {
   computeWTSDFromEvents,
   computeWSDFromEvents,
   computeCheckRaiseFromEvents,
+  compute3BetFromEvents,
+  computeFoldToCbetFromEvents,
+  computeAFqFromEvents,
+  computeTurnCbetFromEvents,
   classifyPlayerType,
 } from './opponentModelUtil';
 
@@ -20,6 +24,10 @@ export interface PlayerLongStats extends VpipPfrStats {
   wtsd: number | null;
   wsd: number | null;
   checkRaise: number | null;
+  threeBet: number | null;
+  foldToCbet: number | null;
+  afq: number | null;
+  turnCbet: number | null;
 }
 
 interface PersistentData {
@@ -135,6 +143,10 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
       wtsd: null,
       wsd: null,
       checkRaise: null,
+      threeBet: null,
+      foldToCbet: null,
+      afq: null,
+      turnCbet: null,
     };
   }
 
@@ -152,6 +164,10 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
   const wtsd = computeWTSDFromEvents(allEvents, playerHands);
   const wsd = computeWSDFromEvents(allEvents, playerHands);
   const checkRaise = computeCheckRaiseFromEvents(allEvents);
+  const threeBet = compute3BetFromEvents(allEvents);
+  const foldToCbet = computeFoldToCbetFromEvents(playerId, playerHands);
+  const afq = computeAFqFromEvents(allEvents);
+  const turnCbet = computeTurnCbetFromEvents(playerId, playerHands);
 
   return {
     playerId,
@@ -165,6 +181,10 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
     wtsd,
     wsd,
     checkRaise,
+    threeBet,
+    foldToCbet,
+    afq,
+    turnCbet,
   };
 }
 

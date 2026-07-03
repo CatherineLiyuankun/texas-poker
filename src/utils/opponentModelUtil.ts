@@ -461,3 +461,142 @@ function groupEventsByHand(events: ActionEvent[]): Map<string, ActionEvent[]> {
   }
   return map;
 }
+
+export function compute3BetFromEvents(events: ActionEvent[]): number | null {
+  const eventsByHand = groupEventsByHand(events);
+  let opportunities = 0;
+  let threeBets = 0;
+
+  for (const handEvents of eventsByHand.values()) {
+    const preflopEvents = handEvents
+      .filter(e => e.phase === 'preflop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (preflopEvents.length === 0) continue;
+
+    const playerId = preflopEvents[0].playerId;
+    const otherRaises = preflopEvents.filter(
+      e => e.playerId !== playerId && (e.action === 'raise' || e.action === 'allin')
+    );
+    if (otherRaises.length === 0) continue;
+
+    opportunities++;
+
+    const playerPreflopEvents = preflopEvents.filter(e => e.playerId === playerId);
+    const firstAction = playerPreflopEvents[0];
+    if (firstAction && (firstAction.action === 'raise' || firstAction.action === 'allin')) {
+      threeBets++;
+    }
+  }
+
+  return opportunities > 0 ? (threeBets / opportunities) * 100 : null;
+}
+
+export function computeFoldToCbetFromEvents(
+  playerId: PlayerId,
+  hands: {
+    handId: string;
+    events: ActionEvent[];
+  }[]
+): number | null {
+  let opportunities = 0;
+  let folds = 0;
+
+  for (const hand of hands) {
+    const preflopEvents = hand.events
+      .filter(e => e.phase === 'preflop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const lastRaiser = preflopEvents
+      .filter(e => e.action === 'raise')
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    if (!lastRaiser || lastRaiser.playerId === playerId) continue;
+
+    const flopEvents = hand.events
+      .filter(e => e.phase === 'flop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (flopEvents.length === 0) continue;
+
+    const raiserFlopEvents = flopEvents.filter(e => e.playerId === lastRaiser.playerId);
+    if (raiserFlopEvents.length === 0) continue;
+
+    const firstFlopAction = raiserFlopEvents[0];
+    if (firstFlopAction.action !== 'raise' && firstFlopAction.action !== 'allin') continue;
+
+    opportunities++;
+
+    const playerFlopEvents = flopEvents.filter(e => e.playerId === playerId);
+    const playerFirstAction = playerFlopEvents.sort((a, b) => a.timestamp - b.timestamp)[0];
+    if (playerFirstAction && playerFirstAction.action === 'fold') {
+      folds++;
+    }
+  }
+
+  return opportunities > 0 ? (folds / opportunities) * 100 : null;
+}
+
+export function computeAFqFromEvents(events: ActionEvent[]): number | null {
+  const postflopEvents = events.filter(e => e.phase !== 'preflop');
+  if (postflopEvents.length === 0) return null;
+
+  const aggressive = postflopEvents.filter(
+    e => e.action === 'raise' || e.action === 'allin'
+  ).length;
+
+  return (aggressive / postflopEvents.length) * 100;
+}
+
+export function computeTurnCbetFromEvents(
+  playerId: PlayerId,
+  hands: {
+    handId: string;
+    events: ActionEvent[];
+  }[]
+): number | null {
+  let flopCbets = 0;
+  let turnCbets = 0;
+
+  for (const hand of hands) {
+    const preflopEvents = hand.events
+      .filter(e => e.phase === 'preflop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    const lastRaiser = preflopEvents
+      .filter(e => e.action === 'raise')
+      .sort((a, b) => b.timestamp - a.timestamp)[0];
+
+    if (!lastRaiser || lastRaiser.playerId !== playerId) continue;
+
+    const flopEvents = hand.events
+      .filter(e => e.phase === 'flop')
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (flopEvents.length === 0) continue;
+
+    const raiserFlopEvents = flopEvents.filter(e => e.playerId === lastRaiser.playerId);
+    if (raiserFlopEvents.length === 0) continue;
+
+    const firstFlopAction = raiserFlopEvents[0];
+    if (firstFlopAction.action !== 'raise' && firstFlopAction.action !== 'allin') continue;
+
+    flopCbets++;
+
+    const turnEvents = hand.events
+      .filter(e => e.phase === 'turn')
+      .sort((a, b) => a.timestamp - b.timestamp);
+
+    if (turnEvents.length === 0) continue;
+
+    const raiserTurnEvents = turnEvents.filter(e => e.playerId === lastRaiser.playerId);
+    if (raiserTurnEvents.length === 0) continue;
+
+    const firstTurnAction = raiserTurnEvents[0];
+    if (firstTurnAction.action === 'raise' || firstTurnAction.action === 'allin') {
+      turnCbets++;
+    }
+  }
+
+  return flopCbets > 0 ? (turnCbets / flopCbets) * 100 : null;
+}
