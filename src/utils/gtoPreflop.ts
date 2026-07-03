@@ -86,14 +86,18 @@ function parseHandStr(notation: string): [number, number, boolean] {
   return [RI[r1Str], RI[r2Str], suited];
 }
 
-function handToIndex(hand: Card[]): [number, number] {
+function handToIndex(hand: Card[]): [number, number] | null {
+  if (!hand || hand.length < 2 || !hand[0] || !hand[1]) return null;
   const i = RI[hand[0].rank];
   const j = RI[hand[1].rank];
+  if (i === undefined || j === undefined) return null;
   return [i, j];
 }
 
 function lookup(m: GtoAction[][], hand: Card[]): GtoAction {
-  const [i, j] = handToIndex(hand);
+  const result = handToIndex(hand);
+  if (!result) return 'F';
+  const [i, j] = result;
   if (i === j) return m[i][j];
   const suited = hand[0].suit === hand[1].suit;
   const lo = Math.min(i, j);
@@ -552,7 +556,9 @@ function freqKey(
   pos: string,
   hand: Card[],
 ): string {
-  const [i, j] = handToIndex(hand);
+  const result = handToIndex(hand);
+  if (!result) return `${scenario}:${pos}:??`;
+  const [i, j] = result;
   const suited = hand[0].suit === hand[1].suit;
   let hk: string;
   if (i === j) hk = `${RN[i]}${RN[j]}`;
@@ -725,6 +731,9 @@ export function decidePreflopGTO(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _adj: OpponentAdjustments,
 ): BotDecision {
+  if (!player.hand || player.hand.length < 2) {
+    return { action: 'fold' };
+  }
   const hand = player.hand;
   const facingOpen = ctx.toCall > 0;
   const facing3bet = isFacing3bet(state, player);
