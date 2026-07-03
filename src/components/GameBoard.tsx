@@ -80,9 +80,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     const toCall = state.lastBet - (player?.bet || 0);
     const position = (playerId - state.dealer + state.players.length) % state.players.length;
     const phase = phaseOverride ?? state.phase;
+    const timestamp = Date.now();
     
     return {
-      handId: `${handCounterRef.current}-${state.dealer}`,
+      handId: `${handCounterRef.current}-${state.dealer}-${state.players[0]?.hand[0]?.rank}-${state.players[0]?.hand[1]?.rank}`,
       playerId: playerId as ActionEvent['playerId'],
       phase,
       action,
@@ -92,7 +93,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       potSize: state.mainPot + (state.sidePots?.reduce((sum, pot) => sum + pot.amount, 0) || 0),
       position,
       isFacingRaise: state.lastBet > 0 && phase === 'preflop',
-      timestamp: Date.now(),
+      timestamp: timestamp,
     };
   };
 
@@ -171,7 +172,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       if (handKeyRef.current !== currentHandKey) {
         handKeyRef.current = currentHandKey;
         handCounterRef.current++;
-        const handId = `${handCounterRef.current}-${state.dealer}`;
+        const handId = `${handCounterRef.current}-${state.dealer}-${state.players[0]?.hand[0]?.rank}-${state.players[0]?.hand[1]?.rank}`;
         const allPlayerIds = state.players.map((p) => p.id);
         startNewHand(handId, allPlayerIds);
       }

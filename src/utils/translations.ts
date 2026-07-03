@@ -22,9 +22,9 @@ export const translations = {
     allin: 'All In', // 全押
   },
   playerArea: {
-    folded: '已弃牌 Folded',
-    showingHand: '已看牌 Showed',
-    viewingHand: '查看底牌', // View Hole Cards
+    folded: 'Folded', // 已弃牌 
+    showingHand: 'Showed', // 已看牌 
+    viewingHand: '查看', // View Hand Cards
     waiting: 'Waiting', // 等待中
     viewCards: 'Show', // 查看手牌
     hideCards: 'Hide', // 隐藏手牌
