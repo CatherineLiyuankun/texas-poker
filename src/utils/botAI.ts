@@ -17,6 +17,7 @@ import { translations } from './translations';
 import { decidePreflopGTO } from './gtoPreflop';
 import { decidePostflopGTO } from './gtoPostflop';
 import { decideRiverGTO } from './gtoRiver';
+import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
 
 let useGtoStrategy = false;
 export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
@@ -692,6 +693,18 @@ function decidePostflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
+  // 检测是否为深筹码 (>150bb)
+  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
+  if (isDeepStack(effectiveStack)) {
+    // 使用深筹码策略
+    const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
+    return {
+      action: deepStackRec.action,
+      amount: deepStackRec.amount,
+      reasoning: deepStackRec.reasoning,
+    };
+  }
+
   const community = getCommunityCardsByPhase(state);
 
   const iterations = state.phase === 'flop' ? 200 : 300;
@@ -805,6 +818,18 @@ function decideRiver(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
+  // 检测是否为深筹码 (>150bb)
+  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
+  if (isDeepStack(effectiveStack)) {
+    // 使用深筹码策略
+    const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
+    return {
+      action: deepStackRec.action,
+      amount: deepStackRec.amount,
+      reasoning: deepStackRec.reasoning,
+    };
+  }
+
   const community = getCommunityCardsByPhase(state);
   const equity = calculateEquity(
     player.hand, community, ctx.numOpponents, 500,
