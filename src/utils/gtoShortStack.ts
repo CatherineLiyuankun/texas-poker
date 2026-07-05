@@ -261,7 +261,7 @@ export function getShortStackRecommendation(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
-  _adj: OpponentAdjustments,
+  adj: OpponentAdjustments,
 ): ShortStackRecommendation {
   const effectiveStack = player.chips / 10;
   const position = getPositionName(ctx.position, state.players.length);
@@ -285,24 +285,29 @@ export function getShortStackRecommendation(
   const evaluated = evaluateHand(player.hand, community);
   const strength = classifyHandStrength(equity, evaluated.rank);
 
+  // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
+  const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
+  const defendTighten = adj.callPenalty > 0 ? 0.05 : 0;
+
   if (effectiveStack <= 20) {
     if (config.action === 'rfi') {
       if (shouldPush(player.hand, effectiveStack, position)) {
         const sizing = getShortStackSizing(effectiveStack);
-        if (flags.canAllInResult) {
+        // 对手弃牌率高时，加注偷盲概率提升
+        if (flags.canAllInResult && Math.random() < (1.0 + stealBoost)) {
           return {
             action: 'allin',
             sizing,
             pushRange: getPushRange(effectiveStack, position),
-            reasoning: `Short stack push: ${effectiveStack}bb from ${position}`,
+            reasoning: `Short stack push: ${effectiveStack}bb from ${position} (opponent fold boost)`,
           };
         }
-        if (flags.canRaiseResult) {
+        if (flags.canRaiseResult && Math.random() < (1.0 + stealBoost)) {
           return {
             action: 'raise',
             sizing,
             pushRange: getPushRange(effectiveStack, position),
-            reasoning: `Short stack raise: ${effectiveStack}bb from ${position}`,
+            reasoning: `Short stack raise: ${effectiveStack}bb from ${position} (opponent fold boost)`,
           };
         }
       }
@@ -317,21 +322,25 @@ export function getShortStackRecommendation(
     }
 
     if (config.action === 'facing_open') {
-      if (shouldDefend(player.hand, effectiveStack, position)) {
+      // 对手激进时收紧防守范围，对手被动时放宽
+      const shouldDefendAdjusted = shouldDefend(player.hand, effectiveStack, position) &&
+        Math.random() >= defendTighten;
+
+      if (shouldDefendAdjusted) {
         if (flags.canAllInResult) {
           const sizing = getShortStackSizing(effectiveStack);
           return {
             action: 'allin',
             sizing,
             callRange: getDefendRange(effectiveStack, position),
-            reasoning: `Short stack defend: ${effectiveStack}bb from ${position}`,
+            reasoning: `Short stack defend: ${effectiveStack}bb from ${position} (adjusted for opponent)`,
           };
         }
         if (flags.canCallResult) {
           return {
             action: 'call',
             callRange: getDefendRange(effectiveStack, position),
-            reasoning: `Short stack call: ${effectiveStack}bb from ${position}`,
+            reasoning: `Short stack call: ${effectiveStack}bb from ${position} (adjusted for opponent)`,
           };
         }
       }

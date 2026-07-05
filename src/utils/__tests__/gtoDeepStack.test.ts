@@ -1,6 +1,6 @@
-import { GameState, Player, Card, Rank, Suit } from '../../types/poker';
-import { ActionFlags, ContextInfo } from '../botAI';
-import { OpponentAdjustments } from '../opponentModel';
+import type { GameState, Player, Card, Rank, Suit } from '../../types/poker';
+import type { ActionFlags, ContextInfo } from '../botAI';
+import type { OpponentAdjustments } from '../opponentModel';
 import { getDeepStackRecommendation, isDeepStack, getDeepStackAdjustments } from '../gtoDeepStack';
 
 function createCard(rank: Rank, suit: Suit): Card {

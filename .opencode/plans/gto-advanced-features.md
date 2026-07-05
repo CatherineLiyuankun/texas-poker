@@ -11,13 +11,17 @@
 | GTO River Engine | gtoRiver.ts | ✅ 已完成 |
 | Multiway Pots (部分) | gtoRiver.ts | ✅ 已实现基础多路处理 |
 
-### 待实现功能（P0优先级）
-| 功能 | 预计工作量 | 优先级 |
-|------|-----------|--------|
-| Deep Stack 策略 | 3-5天 | P0 |
-| Short Stack 策略 | 3-5天 | P0 |
-| ICM 策略 | 5-7天 | P1 |
-| Nodelock 策略 | 3-5天 | P1 |
+### 已实现功能（P0优先级）
+| 功能 | 文件 | 状态 |
+|------|------|------|
+| Deep Stack 策略 | gtoDeepStack.ts | ✅ 已完成 (18 tests passing) |
+| Short Stack 策略 | gtoShortStack.ts | ✅ 已完成 (16 tests passing) |
+
+### 待实现功能（P1优先级）
+| 功能 | 预计工作量 | 优先级 | 详细计划 |
+|------|-----------|--------|----------|
+| ICM 策略 | 5-7天 | P1 | icm-nodelock-implementation.md |
+| Nodelock 策略 | 3-5天 | P1 | icm-nodelock-implementation.md |
 
 ---
 

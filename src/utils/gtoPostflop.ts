@@ -119,8 +119,7 @@ export function decidePostflopGTO(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _adj: OpponentAdjustments,
+  adj: OpponentAdjustments,
 ): BotDecision {
   const community = getCommunityByPhase(state);
   if (community.length < 3) {
@@ -142,6 +141,10 @@ export function decidePostflopGTO(
   const facingBet = ctx.toCall > 0;
   const facingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
 
+  // 对手调整因子
+  const stealBoost = adj.raiseBonus > 0 ? 0.05 : 0;
+  const callTighten = adj.callPenalty > 0 ? 0.03 : 0;
+
   // River: polarized strategy
   if (state.phase === 'river') {
     if (facingBet) {
@@ -159,7 +162,7 @@ export function decidePostflopGTO(
         if (flags.canCallResult) return { action: 'call' };
       }
       if (strength === 'medium') {
-        if (equity >= ctx.potOdds + 0.05 && flags.canCallResult) return { action: 'call' };
+        if (equity >= ctx.potOdds + 0.05 - callTighten && flags.canCallResult) return { action: 'call' };
         if (flags.canFoldResult) return { action: 'fold' };
       }
       if (strength === 'weak' || strength === 'air') {
@@ -183,7 +186,9 @@ export function decidePostflopGTO(
       }
     }
     if (strength === 'air' && ip && ctx.numOpponents <= 2) {
-      if (flags.canRaiseResult && Math.random() < 0.30) {
+      // 对手弃牌率高时，增加诈唬频率
+      const bluffProb = 0.30 + stealBoost;
+      if (flags.canRaiseResult && Math.random() < bluffProb) {
         const target = Math.floor(ctx.totalPot * 0.75);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
       }

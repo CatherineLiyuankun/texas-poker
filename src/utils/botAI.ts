@@ -19,6 +19,7 @@ import { decidePostflopGTO } from './gtoPostflop';
 import { decideRiverGTO } from './gtoRiver';
 import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
 import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
+import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
 
 let useGtoStrategy = false;
 export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
@@ -66,6 +67,20 @@ function getPlayerPosition(
   return (playerIdx - dealerIdx + totalPlayers) % totalPlayers;
 }
 
+function getPositionName(position: number, totalPlayers: number): Position {
+  if (totalPlayers === 6) {
+    const positions: Position[] = ['BTN', 'SB', 'BB', 'UTG', 'MP', 'CO'];
+    return positions[position] || 'BTN';
+  }
+
+  if (position === 0) return 'BTN';
+  if (position === 1) return 'SB';
+  if (position === 2) return 'BB';
+  if (position <= Math.floor(totalPlayers * 0.3)) return 'UTG';
+  if (position <= Math.floor(totalPlayers * 0.6)) return 'MP';
+  return 'CO';
+}
+
 function calculateRaiseAmount(
   player: Player,
   state: GameState,
@@ -106,6 +121,26 @@ function decidePreflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
+  // 检测是否为锦标赛泡沫期
+  if (isTournamentBubble(state)) {
+    const icmConfig = getICMConfig(state);
+    const position = getPositionName(ctx.position, state.players.length);
+    const action = ctx.toCall > 0 ? (ctx.toCall > state.lastRaiseBet * 2 ? 'facing_3bet' : 'facing_open') : 'rfi';
+    const icmRec = getICMRecommendation(icmConfig, player.hand, position, action);
+
+    if (icmRec.riskPremium > 0.10) {
+      if (icmRec.action === 'fold' && flags.canFoldResult) {
+        return { action: 'fold', reasoning: icmRec.reasoning };
+      }
+      if (icmRec.action === 'raise' && flags.canRaiseResult) {
+        return { action: 'raise', amount: icmRec.sizing, reasoning: icmRec.reasoning };
+      }
+      if (icmRec.action === 'call' && flags.canCallResult) {
+        return { action: 'call', reasoning: icmRec.reasoning };
+      }
+    }
+  }
+
   // 检测是否为短筹码 (≤20bb)
   const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
   if (isShortStack(effectiveStack)) {

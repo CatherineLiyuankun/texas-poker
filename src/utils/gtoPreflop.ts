@@ -728,8 +728,7 @@ export function decidePreflopGTO(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _adj: OpponentAdjustments,
+  adj: OpponentAdjustments,
 ): BotDecision {
   if (!player.hand || player.hand.length < 2) {
     return { action: 'fold' };
@@ -738,6 +737,10 @@ export function decidePreflopGTO(
   const facingOpen = ctx.toCall > 0;
   const facing3bet = isFacing3bet(state, player);
   const cold3bet = !facing3bet && facingOpen && isCold3bet(state, player);
+
+  // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
+  const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
+  const callTighten = adj.callPenalty > 0 ? 0.05 : 0;
 
   if (facing3bet) {
     const pos = getRfiPosition(ctx);
@@ -829,7 +832,8 @@ export function decidePreflopGTO(
     }
 
     if (code === 'C') {
-      if (flags.canCallResult) return { action: 'call' };
+      // 对手激进时收紧跟注范围
+      if (flags.canCallResult && Math.random() >= callTighten) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
     }
 
@@ -861,12 +865,13 @@ export function decidePreflopGTO(
 
   if (code === 'R') {
     const target = getGtoOpenSize(pos, state.smallBlind);
-    if (flags.canAllInResult && shouldAllInBySPR(
+    // 对手弃牌率高时，加注偷盲概率提升
+    if (flags.canAllInResult && Math.random() < (1.0 + stealBoost) && shouldAllInBySPR(
       player.chips, 0, ctx.totalPot, player.bet, target,
     )) {
       return { action: 'allin' };
     }
-    if (flags.canRaiseResult) {
+    if (flags.canRaiseResult && Math.random() < (1.0 + stealBoost)) {
       return {
         action: 'raise',
         amount: calculateRaiseAmount(player, state, target),

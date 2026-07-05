@@ -510,8 +510,7 @@ export function getDeepStackRecommendation(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _adj: OpponentAdjustments,
+  adj: OpponentAdjustments,
 ): DeepStackRecommendation {
   const community = getCommunityByPhase(state);
   const texture = analyzeBoard(community);
@@ -523,6 +522,10 @@ export function getDeepStackRecommendation(
 
   const handAdjustment = getHandAdjustment(player.hand, effectiveStack);
   const sprDecision = getSPRDecision(spr);
+
+  // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
+  const stealBoost = adj.raiseBonus > 0 ? 0.05 : 0;
+  const callTighten = adj.callPenalty > 0 ? 0.03 : 0;
 
   const config: DeepStackConfig = {
     effectiveStack,
@@ -538,16 +541,39 @@ export function getDeepStackRecommendation(
   };
 
   if (ctx.toCall > 0) {
-    return handleDeepStackFacingBet(
+    const result = handleDeepStackFacingBet(
       player, state, flags, ctx, config,
       player.hand, equity, handAdjustment, sprDecision,
     );
+
+    // 对手跟注率高时，减少诈唬下注
+    if (callTighten > 0 && result.action === 'raise' && equity < 0.5) {
+      return {
+        ...result,
+        action: 'check',
+        reasoning: `${result.reasoning} (opponent calls too much, checking instead)`,
+      };
+    }
+
+    return result;
   }
 
-  return handleDeepStackNoBet(
+  const result = handleDeepStackNoBet(
     player, state, flags, ctx, config,
     player.hand, equity, handAdjustment, sprDecision,
   );
+
+  // 对手弃牌率高时，增加偷盲/持续下注频率
+  if (stealBoost > 0 && result.action === 'check' && equity < 0.4) {
+    return {
+      ...result,
+      action: 'raise',
+      sizing: 0.33,
+      reasoning: `${result.reasoning} (opponent folds often, stealing)`,
+    };
+  }
+
+  return result;
 }
 
 export function isDeepStack(effectiveStack: number): boolean {
