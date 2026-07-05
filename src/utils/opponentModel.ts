@@ -2,19 +2,13 @@ import type { PlayerId, Player } from '../types/poker';
 import type { ActionEvent, HandRecord } from '../types/stats';
 import {
   type VpipPfrStats,
-  computeVPIPFromEvents,
-  computePFRFromEvents,
-  computeAFFromEvents,
-  computeCBetFromEvents,
-  computeWTSDFromEvents,
-  computeWSDFromEvents,
-  computeCheckRaiseFromEvents,
-  compute3BetFromEvents,
-  computeFoldToCbetFromEvents,
-  computeAFqFromEvents,
-  computeTurnCbetFromEvents,
+  type PlayerStats,
+  collectPlayerEvents,
+  collectPlayerHands,
+  computeTendencyFromEvents,
+  computeFoldRateFromEvents,
+  computePlayerStatsFromEvents,
   detectLimpersFromEvents,
-  classifyPlayerType,
 } from './opponentModelUtil';
 
 const STORAGE_KEY = 'texas-poker-session-stats';
@@ -117,231 +111,238 @@ export function detectLimpers(bigBlind: number): PlayerId[] {
 export function getOpponentVpipPfr(playerId: PlayerId): VpipPfrStats {
   loadFromStorage();
 
-  // Aggregate events from all hands in the session
-  const allEvents: ActionEvent[] = [];
-  
-  // Add events from sessionHands (completed hands)
-  for (const hand of sessionData.sessionHands) {
-    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
-  }
-  
-  // Add events from currentHand (if exists)
-  if (sessionData.currentHand) {
-    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
-  }
-
-  const handsDealt = sessionData.sessionHands.length + (sessionData.currentHand ? 1 : 0);
-  const vpip = computeVPIPFromEvents(allEvents, handsDealt);
-  const pfr = computePFRFromEvents(allEvents, handsDealt);
-
-  return {
+  const allEvents = collectPlayerEvents(
     playerId,
-    handsDealt,
-    vpip,
-    pfr,
-    gap: vpip - pfr,
-    playerType: classifyPlayerType(vpip, pfr, handsDealt),
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return {
+    playerId: stats.playerId,
+    handsDealt: stats.handsDealt,
+    vpip: stats.vpip,
+    pfr: stats.pfr,
+    gap: stats.gap,
+    playerType: stats.playerType,
   };
 }
 
 export function getOpponentAF(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  for (const hand of sessionData.sessionHands) {
-    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
-  }
-  if (sessionData.currentHand) {
-    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return computeAFFromEvents(allEvents);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.af;
 }
 
 export function getOpponentCBet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  const allHands: { handId: string; events: ActionEvent[] }[] = [];
-  
-  for (const hand of sessionData.sessionHands) {
-    const playerEvents = hand.events.filter(e => e.playerId === playerId);
-    allEvents.push(...playerEvents);
-    allHands.push({ handId: hand.handId, events: playerEvents });
-  }
-  if (sessionData.currentHand) {
-    const playerEvents = sessionData.currentHand.events.filter(e => e.playerId === playerId);
-    allEvents.push(...playerEvents);
-    allHands.push({ handId: sessionData.currentHand.handId, events: playerEvents });
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return computeCBetFromEvents(allEvents, allHands);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.cbet;
 }
 
 export function getOpponentWTSD(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  const allHands: { handId: string; events: ActionEvent[]; showdownPlayers?: PlayerId[] }[] = [];
-  
-  for (const hand of sessionData.sessionHands) {
-    const playerEvents = hand.events.filter(e => e.playerId === playerId);
-    allEvents.push(...playerEvents);
-    allHands.push({ handId: hand.handId, events: playerEvents, showdownPlayers: hand.showdownPlayers });
-  }
-  if (sessionData.currentHand) {
-    const playerEvents = sessionData.currentHand.events.filter(e => e.playerId === playerId);
-    allEvents.push(...playerEvents);
-    allHands.push({ handId: sessionData.currentHand.handId, events: playerEvents, showdownPlayers: sessionData.currentHand.showdownPlayers });
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return computeWTSDFromEvents(allEvents, allHands);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.wtsd;
 }
 
 export function getOpponentWSD(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  const allHands: {
-    handId: string;
-    events: ActionEvent[];
-    showdownPlayers?: PlayerId[];
-    result?: { winner: PlayerId | null; potAmount: number };
-  }[] = [];
-
-  for (const hand of sessionData.sessionHands) {
-    const playerEvents = hand.events.filter(e => e.playerId === playerId);
-    allEvents.push(...playerEvents);
-    allHands.push({ handId: hand.handId, events: playerEvents, showdownPlayers: hand.showdownPlayers, result: hand.result });
-  }
-  if (sessionData.currentHand) {
-    const playerEvents = sessionData.currentHand.events.filter(e => e.playerId === playerId);
-    allEvents.push(...playerEvents);
-    allHands.push({ handId: sessionData.currentHand.handId, events: playerEvents, showdownPlayers: sessionData.currentHand.showdownPlayers, result: sessionData.currentHand.result });
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return computeWSDFromEvents(allEvents, allHands);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.wsd;
 }
 
 export function getOpponentCheckRaise(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  for (const hand of sessionData.sessionHands) {
-    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
-  }
-  if (sessionData.currentHand) {
-    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return computeCheckRaiseFromEvents(allEvents);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.checkRaise;
 }
 
 export function getOpponent3Bet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  for (const hand of sessionData.sessionHands) {
-    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
-  }
-  if (sessionData.currentHand) {
-    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return compute3BetFromEvents(allEvents);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.threeBet;
 }
 
 export function getOpponentFoldToCbet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allHands: { handId: string; events: ActionEvent[] }[] = [];
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
-  for (const hand of sessionData.sessionHands) {
-    allHands.push({ handId: hand.handId, events: hand.events });
-  }
-  if (sessionData.currentHand) {
-    allHands.push({ handId: sessionData.currentHand.handId, events: sessionData.currentHand.events });
-  }
+  if (allEvents.length === 0) return null;
 
-  if (allHands.length === 0) return null;
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
-  return computeFoldToCbetFromEvents(playerId, allHands);
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.foldToCbet;
 }
 
 export function getOpponentAFq(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents: ActionEvent[] = [];
-  for (const hand of sessionData.sessionHands) {
-    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
-  }
-  if (sessionData.currentHand) {
-    allEvents.push(...sessionData.currentHand.events.filter(e => e.playerId === playerId));
-  }
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
   if (allEvents.length === 0) return null;
 
-  return computeAFqFromEvents(allEvents);
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
+
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.afq;
 }
 
 export function getOpponentTurnCbet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allHands: { handId: string; events: ActionEvent[] }[] = [];
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
-  for (const hand of sessionData.sessionHands) {
-    allHands.push({ handId: hand.handId, events: hand.events });
-  }
-  if (sessionData.currentHand) {
-    allHands.push({ handId: sessionData.currentHand.handId, events: sessionData.currentHand.events });
-  }
+  if (allEvents.length === 0) return null;
 
-  if (allHands.length === 0) return null;
+  const allHands = collectPlayerHands(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
+  );
 
-  return computeTurnCbetFromEvents(playerId, allHands);
+  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  return stats.turnCbet;
 }
 
-export interface BotStatsWithAF extends VpipPfrStats {
-  af: number | null;
-  cbet: number | null;
-  wtsd: number | null;
-  wsd: number | null;
-  checkRaise: number | null;
-  threeBet: number | null;
-  foldToCbet: number | null;
-  afq: number | null;
-  turnCbet: number | null;
-}
+// 导出统一的PlayerStats接口作为BotStatsWithAF的别名（向后兼容）
+export type BotStatsWithAF = PlayerStats;
 
 export function getRealPlayerSessionStats(
   playerIds: PlayerId[],
-): BotStatsWithAF[] {
+): PlayerStats[] {
   return playerIds.map((id) => {
-    const vpipPfr = getOpponentVpipPfr(id);
-    return {
-      ...vpipPfr,
-      af: getOpponentAF(id),
-      cbet: getOpponentCBet(id),
-      wtsd: getOpponentWTSD(id),
-      wsd: getOpponentWSD(id),
-      checkRaise: getOpponentCheckRaise(id),
-      threeBet: getOpponent3Bet(id),
-      foldToCbet: getOpponentFoldToCbet(id),
-      afq: getOpponentAFq(id),
-      turnCbet: getOpponentTurnCbet(id),
-    };
+    const allEvents = collectPlayerEvents(
+      id,
+      sessionData.sessionHands,
+      sessionData.currentHand,
+    );
+
+    const allHands = collectPlayerHands(
+      id,
+      sessionData.sessionHands,
+      sessionData.currentHand,
+    );
+
+    return computePlayerStatsFromEvents(id, allEvents, allHands);
   });
 }
 
@@ -369,47 +370,25 @@ export interface OpponentAdjustments {
 export function getOpponentTendency(playerId: PlayerId): 'aggressive' | 'passive' | 'unknown' {
   loadFromStorage();
 
-  if (!sessionData.currentHand) return 'unknown';
-
-  const playerEvents = sessionData.currentHand.events.filter(
-    e => e.playerId === playerId
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
   );
 
-  if (playerEvents.length < 5) return 'unknown';
-
-  const voluntaryActions = playerEvents.filter(
-    e => e.action === 'raise' || e.action === 'call'
-  ).length;
-
-  const raises = playerEvents.filter(e => e.action === 'raise').length;
-
-  const voluntaryRate = voluntaryActions / playerEvents.length;
-  const aggressionRate = raises / (voluntaryActions || 1);
-
-  if (aggressionRate > 0.40 && voluntaryRate > 0.25) {
-    return 'aggressive';
-  }
-
-  if (aggressionRate < 0.20 && voluntaryRate > 0.30) {
-    return 'passive';
-  }
-
-  return 'unknown';
+  return computeTendencyFromEvents(allEvents);
 }
 
 export function getOpponentFoldRate(playerId: PlayerId): number {
   loadFromStorage();
 
-  if (!sessionData.currentHand) return 0.3;
-
-  const playerEvents = sessionData.currentHand.events.filter(
-    e => e.playerId === playerId
+  const allEvents = collectPlayerEvents(
+    playerId,
+    sessionData.sessionHands,
+    sessionData.currentHand,
   );
 
-  if (playerEvents.length < 5) return 0.3;
-
-  const folds = playerEvents.filter(e => e.action === 'fold').length;
-  return folds / playerEvents.length;
+  return computeFoldRateFromEvents(allEvents);
 }
 
 export function calculateOpponentProfile(
@@ -438,19 +417,19 @@ export function calculateOpponentProfile(
   return {
     opponents: opponentInfos,
     botStats: opponents.map((p) => {
-      const vpipPfr = getOpponentVpipPfr(p.id);
-      return {
-        ...vpipPfr,
-        af: getOpponentAF(p.id),
-        cbet: getOpponentCBet(p.id),
-        wtsd: getOpponentWTSD(p.id),
-        wsd: getOpponentWSD(p.id),
-        checkRaise: getOpponentCheckRaise(p.id),
-        threeBet: getOpponent3Bet(p.id),
-        foldToCbet: getOpponentFoldToCbet(p.id),
-        afq: getOpponentAFq(p.id),
-        turnCbet: getOpponentTurnCbet(p.id),
-      };
+      const allEvents = collectPlayerEvents(
+        p.id,
+        sessionData.sessionHands,
+        sessionData.currentHand,
+      );
+
+      const allHands = collectPlayerHands(
+        p.id,
+        sessionData.sessionHands,
+        sessionData.currentHand,
+      );
+
+      return computePlayerStatsFromEvents(p.id, allEvents, allHands);
     }),
     avgFoldRate,
     hasAggressive,

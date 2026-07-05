@@ -9,6 +9,7 @@ import { translations } from '../utils/translations';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
 import type { GtoPostflopRecommendation } from '../utils/gtoPostflop';
+import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -24,6 +25,7 @@ interface HandAnalysisProps {
     isAllIn?: boolean;
   } | null;
   gtoPostflopRecommendation?: GtoPostflopRecommendation | null;
+  nodelockRecommendation?: NodelockRecommendation | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -241,6 +243,30 @@ function getSprBarColor(v: number): string {
   return 'bg-green-400';
 }
 
+function getLeakTypeLabel(leakType: LeakType): string {
+  const labels: Record<LeakType, string> = {
+    overfold: '过度弃牌',
+    underfold: '过度跟注',
+    overfold_to_bet: '面对下注过度弃牌',
+    underfold_to_bet: '面对下注过度跟注',
+    overaggressive: '过度激进',
+    passive: '被动',
+    neutral: '无明显漏洞',
+  };
+  return labels[leakType] || '未知';
+}
+
+function getLeakTypeColor(leakType: LeakType): string {
+  switch (leakType) {
+    case 'overfold': return 'text-orange-400';
+    case 'underfold': return 'text-blue-400';
+    case 'overaggressive': return 'text-red-400';
+    case 'passive': return 'text-green-400';
+    case 'neutral': return 'text-white/50';
+    default: return 'text-white/50';
+  }
+}
+
 function getPotOddsColor(odds: number): string {
   if (odds <= 0.10) return 'text-green-400';
   if (odds <= 0.25) return 'text-yellow-400';
@@ -293,6 +319,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   spr,
   gtoRecommendation,
   gtoPostflopRecommendation,
+  nodelockRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -701,6 +728,44 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               }
             />
           )}
+        </div>
+      )}
+
+      {nodelockRecommendation && nodelockRecommendation.adjustmentType !== 'neutral' && (
+        <div className="border-t border-white/10 pt-1 mt-1 space-y-0.5">
+          <Row
+            label="对手漏洞"
+            value={
+              <span className={`text-[10px] ${getLeakTypeColor(nodelockRecommendation.adjustmentType)}`}>
+                {getLeakTypeLabel(nodelockRecommendation.adjustmentType)}
+              </span>
+            }
+          />
+          <Row
+            label="调整建议"
+            value={
+              <span className="text-[10px] text-white/70">
+                {nodelockRecommendation.adjustmentMagnitude > 0 ? '+' : ''}
+                {(nodelockRecommendation.adjustmentMagnitude * 100).toFixed(0)}%
+              </span>
+            }
+          />
+          <Row
+            label="置信度"
+            value={
+              <span className="text-[10px]">
+                {(nodelockRecommendation.confidence * 100).toFixed(0)}%
+              </span>
+            }
+          />
+          <Row
+            label="调整说明"
+            value={
+              <span className="text-[9px] text-white/50">
+                {nodelockRecommendation.reasoning}
+              </span>
+            }
+          />
         </div>
       )}
     </div>

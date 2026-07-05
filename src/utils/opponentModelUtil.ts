@@ -1,5 +1,5 @@
-import type { PlayerId, Action } from '../types/poker';
-import type { ActionEvent } from '../types/stats';
+import type { PlayerId } from '../types/poker';
+import type { ActionEvent, HandRecord } from '../types/stats';
 
 export type PlayerType =
   | 'Nit'
@@ -19,67 +19,7 @@ export interface VpipPfrStats {
   playerType: PlayerType;
 }
 
-export interface HandStats {
-  handsDealt: number;
-  vpipCount: number;
-  pfrCount: number;
-  preflopActed: boolean;
-}
-
 const MIN_HANDS_FOR_CLASSIFICATION = 10;
-
-export function createHandStats(): HandStats {
-  return {
-    handsDealt: 0,
-    vpipCount: 0,
-    pfrCount: 0,
-    preflopActed: false,
-  };
-}
-
-export function incrementHandCount(stats: HandStats): void {
-  stats.handsDealt++;
-  stats.preflopActed = false;
-}
-
-export function applyPreflopAction(
-  stats: HandStats,
-  action: Action,
-  allInAmount?: number,
-  currentBet?: number,
-): void {
-  if (stats.preflopActed) return;
-  stats.preflopActed = true;
-
-  let isVpip = false;
-  let isPfr = false;
-
-  switch (action) {
-    case 'raise':
-      isVpip = true;
-      isPfr = true;
-      break;
-    case 'call':
-      isVpip = true;
-      break;
-    case 'allin':
-      isVpip = true;
-      if (
-        allInAmount !== undefined &&
-        currentBet !== undefined &&
-        allInAmount > currentBet
-      ) {
-        isPfr = true;
-      }
-      break;
-    case 'check':
-    case 'fold':
-      break;
-  }
-
-  if (isVpip) stats.vpipCount++;
-  if (isPfr) stats.pfrCount++;
-}
 
 export function classifyPlayerType(
   vpip: number,
@@ -97,143 +37,6 @@ export function classifyPlayerType(
   if (vpip <= 0.38 && pfr >= 0.20 && pfr <= 0.32 && gap <= 0.08) return 'LAG';
 
   return 'Others';
-}
-
-export function computeVpipPfr(
-  playerId: PlayerId,
-  stats: HandStats,
-): VpipPfrStats {
-  const handsDealt = stats.handsDealt;
-  const vpip = handsDealt > 0 ? stats.vpipCount / handsDealt : 0;
-  const pfr = handsDealt > 0 ? stats.pfrCount / handsDealt : 0;
-
-  return {
-    playerId,
-    handsDealt,
-    vpip,
-    pfr,
-    gap: vpip - pfr,
-    playerType: classifyPlayerType(vpip, pfr, handsDealt),
-  };
-}
-
-export interface PostflopStats {
-  bets: number;
-  raises: number;
-  calls: number;
-  cbetOpportunities: number;
-  cbetCount: number;
-  flopsSeen: number;
-  showdownsReached: number;
-  checkRaiseOpportunities: number;
-  checkRaises: number;
-}
-
-export function createPostflopStats(): PostflopStats {
-  return {
-    bets: 0,
-    raises: 0,
-    calls: 0,
-    cbetOpportunities: 0,
-    cbetCount: 0,
-    flopsSeen: 0,
-    showdownsReached: 0,
-    checkRaiseOpportunities: 0,
-    checkRaises: 0,
-  };
-}
-
-export function recordPostflopAction(stats: PostflopStats, action: Action): void {
-  switch (action) {
-    case 'raise':
-      stats.raises++;
-      break;
-    case 'call':
-      stats.calls++;
-      break;
-    case 'allin':
-      stats.raises++;
-      break;
-    case 'check':
-    case 'fold':
-      break;
-  }
-}
-
-export function calculateAF(stats: PostflopStats): number | null {
-  if (stats.calls === 0) return null;
-  return (stats.bets + stats.raises) / stats.calls;
-}
-
-export function getAFLabel(af: number | null): string {
-  if (af === null) return '—';
-  if (af > 3) return '激进 Agg';
-  if (af >= 1) return '平衡 Bal';
-  return '被动 Pas';
-}
-
-export function calculateCBet(stats: PostflopStats): number | null {
-  if (stats.cbetOpportunities === 0) return null;
-  return (stats.cbetCount / stats.cbetOpportunities) * 100;
-}
-
-export function calculateWTSD(stats: PostflopStats): number | null {
-  if (stats.flopsSeen === 0) return null;
-  return (stats.showdownsReached / stats.flopsSeen) * 100;
-}
-
-export function calculateCheckRaise(stats: PostflopStats): number | null {
-  if (stats.checkRaiseOpportunities === 0) return null;
-  return (stats.checkRaises / stats.checkRaiseOpportunities) * 100;
-}
-
-let currentPreflopAggressor: PlayerId | null = null;
-let flopFirstActionRecorded = false;
-
-export function setPreflopAggressor(playerId: PlayerId): void {
-  currentPreflopAggressor = playerId;
-  flopFirstActionRecorded = false;
-}
-
-export function getPreflopAggressor(): PlayerId | null {
-  return currentPreflopAggressor;
-}
-
-export function clearPreflopAggressor(): void {
-  currentPreflopAggressor = null;
-  flopFirstActionRecorded = false;
-}
-
-export function isFlopFirstActionRecorded(): boolean {
-  return flopFirstActionRecorded;
-}
-
-export function markFlopFirstActionRecorded(): void {
-  flopFirstActionRecorded = true;
-}
-
-const checkedPlayers = new Set<PlayerId>();
-let currentStreet: 'preflop' | 'flop' | 'turn' | 'river' | 'showdown' | 'ended' | null = null;
-
-export function recordPlayerCheck(playerId: PlayerId, street: 'flop' | 'turn' | 'river'): void {
-  if (currentStreet !== street) {
-    checkedPlayers.clear();
-    currentStreet = street;
-  }
-  checkedPlayers.add(playerId);
-}
-
-export function getCheckedPlayers(): Set<PlayerId> {
-  return checkedPlayers;
-}
-
-export function clearCheckedPlayers(): void {
-  checkedPlayers.clear();
-  currentStreet = null;
-}
-
-export function isPlayerChecked(playerId: PlayerId): boolean {
-  return checkedPlayers.has(playerId);
 }
 
 // ============================================================================
@@ -599,4 +402,175 @@ export function computeTurnCbetFromEvents(
   }
 
   return flopCbets > 0 ? (turnCbets / flopCbets) * 100 : null;
+}
+
+/**
+ * 统一的玩家统计数据接口
+ * 替代 BotStatsWithAF 和 PlayerLongStats
+ */
+export interface PlayerStats extends VpipPfrStats {
+  af: number | null;
+  cbet: number | null;
+  wtsd: number | null;
+  wsd: number | null;
+  checkRaise: number | null;
+  threeBet: number | null;
+  foldToCbet: number | null;
+  afq: number | null;
+  turnCbet: number | null;
+}
+
+/**
+ * 从会话数据中收集玩家的所有事件
+ */
+export function collectPlayerEvents(
+  playerId: PlayerId,
+  sessionHands: HandRecord[],
+  currentHand: HandRecord | null,
+): ActionEvent[] {
+  const allEvents: ActionEvent[] = [];
+
+  for (const hand of sessionHands) {
+    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
+  }
+
+  if (currentHand) {
+    allEvents.push(...currentHand.events.filter(e => e.playerId === playerId));
+  }
+
+  return allEvents;
+}
+
+/**
+ * 从会话数据中收集玩家的手牌记录
+ */
+export function collectPlayerHands(
+  playerId: PlayerId,
+  sessionHands: HandRecord[],
+  currentHand: HandRecord | null,
+): {
+  handId: string;
+  events: ActionEvent[];
+  showdownPlayers?: PlayerId[];
+  result?: { winner: PlayerId | null; potAmount: number };
+}[] {
+  const allHands: {
+    handId: string;
+    events: ActionEvent[];
+    showdownPlayers?: PlayerId[];
+    result?: { winner: PlayerId | null; potAmount: number };
+  }[] = [];
+
+  for (const hand of sessionHands) {
+    const playerEvents = hand.events.filter(e => e.playerId === playerId);
+    allHands.push({
+      handId: hand.handId,
+      events: playerEvents,
+      showdownPlayers: hand.showdownPlayers,
+      result: hand.result,
+    });
+  }
+
+  if (currentHand) {
+    const playerEvents = currentHand.events.filter(e => e.playerId === playerId);
+    allHands.push({
+      handId: currentHand.handId,
+      events: playerEvents,
+      showdownPlayers: currentHand.showdownPlayers,
+      result: currentHand.result,
+    });
+  }
+
+  return allHands;
+}
+
+/**
+ * 从事件计算攻击性倾向（使用标准AF公式）
+ */
+export function computeTendencyFromEvents(
+  events: ActionEvent[],
+): 'aggressive' | 'passive' | 'unknown' {
+  // 考虑所有事件（包括preflop）
+  if (events.length < 5) return 'unknown';
+
+  // 计算激进行为（raise + allin）
+  const aggressiveActions = events.filter(
+    e => e.action === 'raise' || e.action === 'allin'
+  ).length;
+
+  // 计算被动行为（call）
+  const passiveActions = events.filter(
+    e => e.action === 'call'
+  ).length;
+
+  // 计算总决策点（不包括check和fold）
+  const totalDecisions = aggressiveActions + passiveActions;
+
+  // 如果没有足够的决策点，返回unknown
+  if (totalDecisions < 3) return 'unknown';
+
+  // 计算攻击性比例
+  const aggressionRatio = aggressiveActions / totalDecisions;
+
+  // 使用与AF一致的阈值
+  // 高攻击性：> 66% 的行为是激进的
+  // 低攻击性：< 33% 的行为是激进的
+  if (aggressionRatio > 0.66) return 'aggressive';
+  if (aggressionRatio < 0.33) return 'passive';
+
+  return 'unknown';
+}
+
+/**
+ * 从事件计算弃牌率（使用完整会话历史）
+ */
+export function computeFoldRateFromEvents(
+  events: ActionEvent[],
+): number {
+  if (events.length === 0) return 0.3;
+
+  const decisionPoints = events.filter(
+    e => e.action === 'fold' || e.action === 'call' || e.action === 'raise' || e.action === 'allin'
+  );
+
+  if (decisionPoints.length === 0) return 0.3;
+
+  const folds = decisionPoints.filter(e => e.action === 'fold').length;
+  return folds / decisionPoints.length;
+}
+
+/**
+ * 从事件计算完整的玩家统计数据
+ */
+export function computePlayerStatsFromEvents(
+  playerId: PlayerId,
+  events: ActionEvent[],
+  hands: {
+    handId: string;
+    events: ActionEvent[];
+    showdownPlayers?: PlayerId[];
+    result?: { winner: PlayerId | null; potAmount: number };
+  }[],
+): PlayerStats {
+  const handsDealt = hands.length;
+  const vpip = computeVPIPFromEvents(events, handsDealt);
+  const pfr = computePFRFromEvents(events, handsDealt);
+
+  return {
+    playerId,
+    handsDealt,
+    vpip,
+    pfr,
+    gap: vpip - pfr,
+    playerType: classifyPlayerType(vpip, pfr, handsDealt),
+    af: computeAFFromEvents(events),
+    cbet: computeCBetFromEvents(events, hands),
+    wtsd: computeWTSDFromEvents(events, hands),
+    wsd: computeWSDFromEvents(events, hands),
+    checkRaise: computeCheckRaiseFromEvents(events),
+    threeBet: compute3BetFromEvents(events),
+    foldToCbet: computeFoldToCbetFromEvents(playerId, hands),
+    afq: computeAFqFromEvents(events),
+    turnCbet: computeTurnCbetFromEvents(playerId, hands),
+  };
 }

@@ -20,6 +20,11 @@ import { decideRiverGTO } from './gtoRiver';
 import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
 import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
 import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
+import {
+  buildNodelockProfile,
+  getNodelockRecommendation,
+  isSampleSufficient,
+} from './gtoNodelock';
 
 let useGtoStrategy = false;
 export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
@@ -1028,6 +1033,34 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
 
   const oppProfile = calculateOpponentProfile(state.players, player.id);
   const adj = getOpponentAdjustments(oppProfile);
+
+  // Nodelock策略：当有足够对手数据时应用
+  if (oppProfile.botStats.length > 0) {
+    const firstOpponentStats = oppProfile.botStats[0];
+    if (firstOpponentStats && isSampleSufficient(buildNodelockProfile(firstOpponentStats))) {
+      const nodelockConfig = {
+        opponentProfile: buildNodelockProfile(firstOpponentStats),
+        street: state.phase as 'preflop' | 'flop' | 'turn' | 'river',
+        nodeType: (state.lastBet > 0 ? 'call' : 'bet') as 'call' | 'bet',
+        baseStrategy: {
+          action: 'check' as Action,
+          sizing: 0.5,
+        },
+        leakThreshold: 0.10,
+      };
+
+      const community = getCommunityCardsByPhase(state);
+      const equity = community.length >= 3
+        ? calculateEquity(player.hand, community, ctx.numOpponents, 200)
+        : 0.5;
+
+      getNodelockRecommendation(
+        nodelockConfig,
+        player.hand,
+        equity,
+      );
+    }
+  }
 
   switch (state.phase) {
     case 'preflop':

@@ -1,34 +1,14 @@
 import type { PlayerId } from '../types/poker';
 import type { ActionEvent, HandRecord } from '../types/stats';
 import {
-  type VpipPfrStats,
-  computeVPIPFromEvents,
-  computePFRFromEvents,
-  computeAFFromEvents,
-  computeCBetFromEvents,
-  computeWTSDFromEvents,
-  computeWSDFromEvents,
-  computeCheckRaiseFromEvents,
-  compute3BetFromEvents,
-  computeFoldToCbetFromEvents,
-  computeAFqFromEvents,
-  computeTurnCbetFromEvents,
-  classifyPlayerType,
+  type PlayerStats,
+  computePlayerStatsFromEvents,
 } from './opponentModelUtil';
 
-export type { PlayerType, VpipPfrStats } from './opponentModelUtil';
+export type { PlayerType, VpipPfrStats, PlayerStats } from './opponentModelUtil';
 
-export interface PlayerLongStats extends VpipPfrStats {
-  af: number | null;
-  cbet: number | null;
-  wtsd: number | null;
-  wsd: number | null;
-  checkRaise: number | null;
-  threeBet: number | null;
-  foldToCbet: number | null;
-  afq: number | null;
-  turnCbet: number | null;
-}
+// 导出PlayerLongStats作为PlayerStats的别名（向后兼容）
+export type PlayerLongStats = PlayerStats;
 
 interface PersistentData {
   version: number;
@@ -123,7 +103,7 @@ export function endCurrentHand(winner: PlayerId | null, potAmount: number): void
   saveToStorage();
 }
 
-export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
+export function getPlayerLongStats(playerId: PlayerId): PlayerStats {
   loadFromStorage();
 
   // Get all hands where this player participated
@@ -157,38 +137,10 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerLongStats {
   }
 
   // Compute statistics from events
-  const vpip = computeVPIPFromEvents(allEvents, handsDealt);
-  const pfr = computePFRFromEvents(allEvents, handsDealt);
-  const af = computeAFFromEvents(allEvents);
-  const cbet = computeCBetFromEvents(allEvents, playerHands);
-  const wtsd = computeWTSDFromEvents(allEvents, playerHands);
-  const wsd = computeWSDFromEvents(allEvents, playerHands);
-  const checkRaise = computeCheckRaiseFromEvents(allEvents);
-  const threeBet = compute3BetFromEvents(allEvents);
-  const foldToCbet = computeFoldToCbetFromEvents(playerId, playerHands);
-  const afq = computeAFqFromEvents(allEvents);
-  const turnCbet = computeTurnCbetFromEvents(playerId, playerHands);
-
-  return {
-    playerId,
-    handsDealt,
-    vpip,
-    pfr,
-    gap: vpip - pfr,
-    playerType: classifyPlayerType(vpip, pfr, handsDealt),
-    af,
-    cbet,
-    wtsd,
-    wsd,
-    checkRaise,
-    threeBet,
-    foldToCbet,
-    afq,
-    turnCbet,
-  };
+  return computePlayerStatsFromEvents(playerId, allEvents, playerHands);
 }
 
-export function getAllRealPlayerStats(realPlayerIds: PlayerId[]): PlayerLongStats[] {
+export function getAllRealPlayerStats(realPlayerIds: PlayerId[]): PlayerStats[] {
   return realPlayerIds.map(id => getPlayerLongStats(id));
 }
 

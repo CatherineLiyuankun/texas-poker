@@ -165,8 +165,9 @@ describe('calculateOpponentProfile', () => {
   });
 
   it('汇总对手风格和弃牌率', () => {
-    for (let i = 0; i < 5; i++) recordAction(createActionEvent(2, 'raise'));
-    for (let i = 0; i < 5; i++) recordAction(createActionEvent(3, 'call'));
+    // 使用flop阶段，因为computeTendencyFromEvents只考虑postflop事件
+    for (let i = 0; i < 5; i++) recordAction(createActionEvent(2, 'raise', 'flop'));
+    for (let i = 0; i < 5; i++) recordAction(createActionEvent(3, 'call', 'flop'));
 
     const players = [
       createMockPlayer(1),
