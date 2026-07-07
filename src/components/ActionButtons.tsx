@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { Action } from '../types/poker';
 import { translations } from '../utils/translations';
 
@@ -16,6 +16,7 @@ interface ActionButtonsProps {
   raiseRightsOpened: boolean;
   disabled?: boolean;
   isBot?: boolean;
+  onRaiseAmountChange?: (amount: number | null) => void;
 }
 
 export const ActionButtons: React.FC<ActionButtonsProps> = ({
@@ -32,14 +33,28 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
   raiseRightsOpened,
   disabled = false,
   isBot = false,
+  onRaiseAmountChange,
 }) => {
   const [showRaiseInput, setShowRaiseInput] = useState(false);
   const [raiseAmount, setRaiseAmount] = useState('');
 
-  React.useEffect(() => {
-    setShowRaiseInput(false);
-    setRaiseAmount('');
-  }, [lastBet, playerBet, canRaise]);
+  // 使用 ref 存储回调，避免 useEffect 依赖问题
+  const onRaiseAmountChangeRef = useRef(onRaiseAmountChange);
+
+  // 每次渲染时更新 ref（保持回调最新）
+  useEffect(() => {
+    onRaiseAmountChangeRef.current = onRaiseAmountChange;
+  }, [onRaiseAmountChange]);
+
+  // 通知父组件（当 raiseAmount 变化时）
+  useEffect(() => {
+    const amount = parseInt(raiseAmount);
+    if (!isNaN(amount) && amount > 0) {
+      onRaiseAmountChangeRef.current?.(amount);
+    } else {
+      onRaiseAmountChangeRef.current?.(null);
+    }
+  }, [raiseAmount]); // 不依赖 onRaiseAmountChange
 
   const toCall = lastBet - playerBet;
   const minRaiseTotal = lastBet + lastRaiseBet;

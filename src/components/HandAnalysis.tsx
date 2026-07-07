@@ -28,6 +28,7 @@ interface HandAnalysisProps {
   currentPot?: number;
   betToCall?: number;
   spr?: number;
+  playerRaiseAmount?: number | null;
   gtoRecommendation?: {
     action: string;
     sizingBB?: number;
@@ -378,6 +379,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   currentPot,
   betToCall,
   spr,
+  playerRaiseAmount,
   gtoRecommendation,
   gtoPostflopRecommendation,
   nodelockRecommendation,
@@ -450,43 +452,74 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const pot = currentPot ?? 0;
     const bet = betToCall ?? 0;
     const eq = displayEquity ?? 0;
+    const raiseSize = playerRaiseAmount ?? 0;
 
     // MDF: only when facing a bet
     const mdf = bet > 0 && pot > 0 ? calculateMDF(bet, pot) : null;
 
     // Value/Bluff ratio: when considering betting
-    const vbRatio = bet > 0 && pot > 0
-      ? calculateValueBluffRatio(bet, pot)
+    const vbRatio = (bet > 0 || raiseSize > 0) && pot > 0
+      ? calculateValueBluffRatio(bet > 0 ? bet : raiseSize, pot)
       : null;
 
     // Bluff frequency
-    const bluffFreq = bet > 0 && pot > 0
-      ? calculateBluffFrequency(bet, pot)
+    const bluffFreq = (bet > 0 || raiseSize > 0) && pot > 0
+      ? calculateBluffFrequency(bet > 0 ? bet : raiseSize, pot)
       : null;
 
     // EV calculations
     const callEV = bet > 0 ? calculateCallEV(eq, pot, bet) : null;
-    const raiseEV = null; // Could be extended with raise size
 
-    let bestAction: 'call' | 'fold' | 'check' = 'check';
+    // Raise EV: when player is considering a bet/raise
+    let raiseEV: number | null = null;
+    if (raiseSize > 0 && pot > 0) {
+      // Estimate fold equity (simplified model)
+      const betSizePercent = (raiseSize / pot) * 100;
+      const estimatedFoldPct = Math.min(
+        0.3 + (betSizePercent - 50) * 0.005,
+        0.7
+      );
+      const callPct = 1 - estimatedFoldPct;
+
+      // Raise EV = fold% × pot + call% × (equity × (pot + bet) - (1-equity) × bet)
+      raiseEV = estimatedFoldPct * pot +
+        callPct * (eq * (pot + raiseSize) - (1 - eq) * raiseSize);
+    }
+
+    // Select best action
+    let bestAction: 'call' | 'fold' | 'check' | 'raise' = 'check';
     let bestEV = 0;
-    if (callEV !== null) {
-      if (callEV > 0) {
-        bestAction = 'call';
-        bestEV = callEV;
-      } else {
-        bestAction = 'fold';
-        bestEV = 0;
-      }
+
+    if (raiseEV !== null && raiseEV > bestEV) {
+      bestAction = 'raise';
+      bestEV = raiseEV;
+    }
+    if (callEV !== null && callEV > bestEV) {
+      bestAction = 'call';
+      bestEV = callEV;
+    }
+    if (bestEV <= 0 && callEV !== null) {
+      bestAction = 'fold';
+      bestEV = 0;
     }
 
     // Range classification
     const rangeCat = eq > 0
-      ? classifyRange(eq, bet, pot, phase)
+      ? classifyRange(eq, bet > 0 ? bet : raiseSize, pot, phase)
       : null;
 
     return { mdf, vbRatio, bluffFreq, callEV, raiseEV, bestAction, bestEV, rangeCat };
-  }, [displayEquity, currentPot, betToCall, phase]);
+  }, [displayEquity, currentPot, betToCall, playerRaiseAmount, phase]);
+
+  // Calculate pot odds to display (facing bet OR making bet)
+  const displayPotOdds = useMemo(() => {
+    // If player is making a bet/raise, show odds offered to opponent
+    if (playerRaiseAmount && playerRaiseAmount > 0 && currentPot) {
+      return playerRaiseAmount / (currentPot + playerRaiseAmount);
+    }
+    // Otherwise show pot odds when facing a bet
+    return potOdds > 0 ? potOdds : null;
+  }, [playerRaiseAmount, currentPot, potOdds]);
 
   return (
     <div className="w-54 bg-black/50 rounded-lg p-2 text-xs space-y-1 border border-white/10">
@@ -572,15 +605,15 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       )}
 
       {/* All phases: Pot odds + SPR (独立计算) */}
-      {(potOdds > 0 || (spr !== undefined && spr > 0)) && (
+      {(displayPotOdds !== null || (spr !== undefined && spr > 0)) && (
         <div className="border-t border-white/10 pt-1 mt-1">
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
             {/* Left column: Pot odds */}
-            {potOdds > 0 && (
+            {displayPotOdds !== null && (
               <GridRow
                 label={translations.handAnalysis.potOdds}
-                value={`${(potOdds * 100).toFixed(0)}%`}
-                color={getPotOddsColor(potOdds)}
+                value={`${(displayPotOdds * 100).toFixed(0)}%`}
+                color={getPotOddsColor(displayPotOdds)}
               />
             )}
 
@@ -629,11 +662,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             value={recommendation}
             color={getRecColor(recommendation)}
           />
-          {phase !== 'preflop' && equity !== null && equity > 0 && potOdds >= 0 && (
+          {phase !== 'preflop' && equity !== null && equity > 0 && displayPotOdds !== null && displayPotOdds >= 0 && (
             <div className="text-white/30 text-center mt-0.5">
-              {equity >= potOdds ? '>=' : '<'}
+              {equity >= displayPotOdds ? '>=' : '<'}
               {' '}
-              {(equity * 100).toFixed(0)}% vs {(potOdds * 100).toFixed(0)}%
+              {(equity * 100).toFixed(0)}% vs {(displayPotOdds * 100).toFixed(0)}%
             </div>
           )}
         </div>
@@ -655,6 +688,70 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
             color={getGtoActionColor(gtoRecommendation.action)}
           />
+        </div>
+      )}
+
+      {phase !== 'preflop' && gtoPostflopRecommendation && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: Board texture */}
+            <GridRow
+              label={translations.gtoPostflop.board}
+              value={
+                <span className={`text-[10px] ${
+                  gtoPostflopRecommendation.boardTexture.classification === 'very_dry' || gtoPostflopRecommendation.boardTexture.classification === 'dry'
+                    ? 'text-blue-400'
+                    : gtoPostflopRecommendation.boardTexture.classification === 'medium'
+                      ? 'text-yellow-400'
+                      : 'text-red-400'
+                }`}>
+                  {({
+                    very_dry: translations.gtoPostflop.veryDry,
+                    dry: translations.gtoPostflop.dry,
+                    medium: translations.gtoPostflop.medium,
+                    wet: translations.gtoPostflop.wet,
+                    very_wet: translations.gtoPostflop.veryWet,
+                  } as Record<string, string>)[gtoPostflopRecommendation.boardTexture.classification]}
+                  {' '}({gtoPostflopRecommendation.boardTexture.wetness}/10)
+                </span>
+              }
+            />
+
+            {/* Right column: Bet action */}
+            <GridRow
+              label={translations.gtoPostflop.bet}
+              value={
+                <span className="text-[10px]">
+                  {gtoPostflopRecommendation.isAllIn
+                    ? translations.gtoPostflop.allIn
+                    : gtoPostflopRecommendation.sizingPercent
+                      ? `${gtoPostflopRecommendation.sizingPercent}% pot`
+                      : gtoPostflopRecommendation.action === 'check'
+                        ? translations.gtoPostflop.check
+                        : gtoPostflopRecommendation.action === 'fold'
+                          ? translations.gtoPostflop.fold
+                          : gtoPostflopRecommendation.action === 'call'
+                            ? translations.gtoPostflop.call
+                            : translations.gtoPostflop.raise}
+                </span>
+              }
+              color={getGtoActionColor(gtoPostflopRecommendation.action === 'raise' ? 'R' : gtoPostflopRecommendation.action === 'call' ? 'C' : gtoPostflopRecommendation.action === 'fold' ? 'F' : 'check')}
+            />
+
+            {/* Full width: Reasoning */}
+            {gtoPostflopRecommendation.freq && (
+              <div className="col-span-2">
+                <GridRow
+                  label={translations.gtoPostflop.reasoning}
+                  value={
+                    <span className="text-[9px] text-white/50">
+                      {gtoPostflopRecommendation.reasoning}
+                    </span>
+                  }
+                />
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -798,78 +895,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         );
       })()}
 
-      {phase !== 'preflop' && gtoPostflopRecommendation && (
-        <div className="border-t border-white/10 pt-1 mt-1">
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {/* Left column: Board texture */}
-            <GridRow
-              label={translations.gtoPostflop.board}
-              value={
-                <span className={`text-[10px] ${
-                  gtoPostflopRecommendation.boardTexture.classification === 'very_dry' || gtoPostflopRecommendation.boardTexture.classification === 'dry'
-                    ? 'text-blue-400'
-                    : gtoPostflopRecommendation.boardTexture.classification === 'medium'
-                      ? 'text-yellow-400'
-                      : 'text-red-400'
-                }`}>
-                  {({
-                    very_dry: translations.gtoPostflop.veryDry,
-                    dry: translations.gtoPostflop.dry,
-                    medium: translations.gtoPostflop.medium,
-                    wet: translations.gtoPostflop.wet,
-                    very_wet: translations.gtoPostflop.veryWet,
-                  } as Record<string, string>)[gtoPostflopRecommendation.boardTexture.classification]}
-                  {' '}({gtoPostflopRecommendation.boardTexture.wetness}/10)
-                </span>
-              }
-            />
-
-            {/* Right column: Bet action */}
-            <GridRow
-              label={translations.gtoPostflop.bet}
-              value={
-                <span className="text-[10px]">
-                  {gtoPostflopRecommendation.isAllIn
-                    ? translations.gtoPostflop.allIn
-                    : gtoPostflopRecommendation.sizingPercent
-                      ? `${gtoPostflopRecommendation.sizingPercent}% pot`
-                      : gtoPostflopRecommendation.action === 'check'
-                        ? translations.gtoPostflop.check
-                        : gtoPostflopRecommendation.action === 'fold'
-                          ? translations.gtoPostflop.fold
-                          : gtoPostflopRecommendation.action === 'call'
-                            ? translations.gtoPostflop.call
-                            : translations.gtoPostflop.raise}
-                </span>
-              }
-              color={getGtoActionColor(gtoPostflopRecommendation.action === 'raise' ? 'R' : gtoPostflopRecommendation.action === 'call' ? 'C' : gtoPostflopRecommendation.action === 'fold' ? 'F' : 'check')}
-            />
-
-            {/* Full width: Reasoning */}
-            {gtoPostflopRecommendation.freq && (
-              <div className="col-span-2">
-                <GridRow
-                  label={translations.gtoPostflop.reasoning}
-                  value={
-                    <span className="text-[9px] text-white/50">
-                      {gtoPostflopRecommendation.reasoning}
-                    </span>
-                  }
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* GTO Math: Two-Column Grid */}
-      {(gtoMath.mdf !== null || gtoMath.callEV !== null) && (
+      {(gtoMath.mdf !== null || gtoMath.callEV !== null || gtoMath.raiseEV !== null) && (
         <div className="border-t border-white/10 pt-1 mt-1">
           <div className="text-white/50 font-medium text-center tracking-wide text-[9px] mb-1">
             {translations.gtoMath.title}
           </div>
           <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {/* Left column: MDF + EV */}
+            {/* Left column: MDF + Call EV + Raise EV */}
             <div className="space-y-1">
               {gtoMath.mdf !== null && (
                 <GridRow
@@ -894,6 +927,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                       {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
                       {gtoMath.bestAction === 'call' && ' ✅call'}
                       {gtoMath.bestAction === 'fold' && ' ❌fold'}
+                    </span>
+                  }
+                />
+              )}
+              {gtoMath.raiseEV !== null && (
+                <GridRow
+                  label={translations.gtoMath.raiseEV}
+                  value={
+                    <span className={getEVColor(gtoMath.raiseEV)}>
+                      {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
+                      {gtoMath.bestAction === 'raise' && ' ✅'}
                     </span>
                   }
                 />

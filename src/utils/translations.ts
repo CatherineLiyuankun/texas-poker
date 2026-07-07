@@ -147,6 +147,7 @@ export const translations = {
     title: 'GTO Math',
     mdf: 'MDF防御频率:', // Minimum Defense Frequency
     callEv: 'Call EV:',
+    raiseEV: 'Raise EV:',
     vbRatio: 'V:B价值:诈唬:',
     rangeCategories: {
       value: 'Value', // 价值牌

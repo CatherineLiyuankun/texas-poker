@@ -26,6 +26,7 @@ interface PlayerAreaProps {
   currentPot?: number;
   betToCall?: number;
   spr?: number;
+  playerRaiseAmount?: number | null;
   gtoRecommendation?: {
     action: string;
     sizingBB?: number;
@@ -58,6 +59,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   currentPot,
   betToCall,
   spr,
+  playerRaiseAmount,
   gtoRecommendation,
   gtoPostflopRecommendation,
   opponentProfile,
@@ -238,6 +240,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           currentPot={currentPot}
           betToCall={betToCall}
           spr={spr}
+          playerRaiseAmount={playerRaiseAmount}
           gtoRecommendation={gtoRecommendation}
           gtoPostflopRecommendation={gtoPostflopRecommendation}
           opponentProfile={opponentProfile}

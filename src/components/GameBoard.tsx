@@ -69,6 +69,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const importFileRef = useRef<HTMLInputElement | null>(null);
   const [importMessage, setImportMessage] = React.useState<string | null>(null);
   const [gtoEnabled, setGtoEnabled] = useState(false);
+  const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
 
   const createActionEvent = (
     playerId: number,
@@ -95,6 +96,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       isFacingRaise: state.lastBet > 0 && phase === 'preflop',
       timestamp: timestamp,
     };
+  };
+
+  const handleRaiseAmountChange = (playerId: number, amount: number | null) => {
+    setPlayerRaiseAmounts(prev => ({
+      ...prev,
+      [playerId]: amount,
+    }));
   };
 
   useEffect(() => {
@@ -621,6 +629,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               : player.chips;
                           return effectiveStack / totalPot;
                         })()}
+                        playerRaiseAmount={playerRaiseAmounts[player.id] ?? null}
                         gtoRecommendation={(() => {
                           if (
                             state.phase !== 'preflop' ||
@@ -771,6 +780,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         actionButtons={
                           showActionButtons ? (
                             <ActionButtons
+                              key={`${player.id}-${state.lastBet}-${player.bet}-${canPlayerAct(player.id, 'raise')}`}
                               onAction={handleAction}
                               canCheck={canPlayerAct(player.id, 'check')}
                               canCall={canPlayerAct(player.id, 'call')}
@@ -788,6 +798,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                                 !player.isRealPlayer
                               }
                               isBot={!player.isRealPlayer}
+                              onRaiseAmountChange={(amount) => handleRaiseAmountChange(player.id, amount)}
                             />
                           ) : undefined
                         }
