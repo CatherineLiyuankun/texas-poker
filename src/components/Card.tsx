@@ -49,9 +49,11 @@ export const Card: React.FC<CardProps> = ({ card, hidden = false, small = false,
     <div 
       className={`card-front ${small ? 'w-12 h-16 text-[8px]' : 'w-20 h-28'} flex flex-col items-center justify-between p-0.5 select-none`}
       style={{ 
-        animation: 'slideUp 0.3s ease-out',
+        animationName: 'slideUp',
+        animationDuration: '0.3s',
+        animationTimingFunction: 'ease-out',
         animationDelay: `${delay}ms`,
-        animationFillMode: 'both'
+        animationFillMode: 'both',
       }}
     >
       <div className={`${isRed ? 'text-red-600' : 'text-black'} font-bold leading-none`}>
