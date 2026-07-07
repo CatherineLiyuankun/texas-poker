@@ -23,6 +23,8 @@ interface PlayerAreaProps {
   communityCards?: CardType[];
   numActiveOpponents?: number;
   potOdds?: number;
+  currentPot?: number;
+  betToCall?: number;
   spr?: number;
   gtoRecommendation?: {
     action: string;
@@ -53,6 +55,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   communityCards,
   numActiveOpponents,
   potOdds,
+  currentPot,
+  betToCall,
   spr,
   gtoRecommendation,
   gtoPostflopRecommendation,
@@ -231,6 +235,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           phase={phase}
           numOpponents={numActiveOpponents || 0}
           potOdds={potOdds || 0}
+          currentPot={currentPot}
+          betToCall={betToCall}
           spr={spr}
           gtoRecommendation={gtoRecommendation}
           gtoPostflopRecommendation={gtoPostflopRecommendation}

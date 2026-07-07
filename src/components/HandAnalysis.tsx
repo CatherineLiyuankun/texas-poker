@@ -10,6 +10,14 @@ import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
 import type { GtoPostflopRecommendation } from '../utils/gtoPostflop';
 import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
+import {
+  calculateMDF,
+  calculateValueBluffRatio,
+  calculateCallEV,
+  calculateBluffFrequency,
+  classifyRange,
+  type RangeCategory,
+} from '../utils/gtoMath';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -17,6 +25,8 @@ interface HandAnalysisProps {
   phase: GamePhase;
   numOpponents: number;
   potOdds: number;
+  currentPot?: number;
+  betToCall?: number;
   spr?: number;
   gtoRecommendation?: {
     action: string;
@@ -244,16 +254,8 @@ function getSprBarColor(v: number): string {
 }
 
 function getLeakTypeLabel(leakType: LeakType): string {
-  const labels: Record<LeakType, string> = {
-    overfold: '过度弃牌',
-    underfold: '过度跟注',
-    overfold_to_bet: '面对下注过度弃牌',
-    underfold_to_bet: '面对下注过度跟注',
-    overaggressive: '过度激进',
-    passive: '被动',
-    neutral: '无明显漏洞',
-  };
-  return labels[leakType] || '未知';
+  const { leakTypes } = translations.nodelock;
+  return leakTypes[leakType] || leakType;
 }
 
 function getLeakTypeColor(leakType: LeakType): string {
@@ -271,6 +273,46 @@ function getPotOddsColor(odds: number): string {
   if (odds <= 0.10) return 'text-green-400';
   if (odds <= 0.25) return 'text-yellow-400';
   return 'text-red-400';
+}
+
+function getMDFColor(mdf: number): string {
+  if (mdf >= 0.75) return 'text-green-400';
+  if (mdf >= 0.50) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+function getEVColor(ev: number): string {
+  if (ev > 0) return 'text-green-400';
+  if (ev < 0) return 'text-red-400';
+  return 'text-yellow-400';
+}
+
+function getRangeCategoryColor(cat: RangeCategory): string {
+  switch (cat) {
+    case 'value': return 'text-green-400';
+    case 'bluff_catcher': return 'text-yellow-400';
+    case 'bluff': return 'text-orange-400';
+    case 'fold': return 'text-red-400';
+  }
+}
+
+function getRangeCategoryLabel(cat: RangeCategory): string {
+  const { rangeCategories } = translations.gtoMath;
+  switch (cat) {
+    case 'value': return rangeCategories.value;
+    case 'bluff_catcher': return rangeCategories.bluffCatcher;
+    case 'bluff': return rangeCategories.bluff;
+    case 'fold': return rangeCategories.fold;
+  }
+}
+
+function getRangeCategoryEmoji(cat: RangeCategory): string {
+  switch (cat) {
+    case 'value': return '🟢';
+    case 'bluff_catcher': return '🟡';
+    case 'bluff': return '🟠';
+    case 'fold': return '🔴';
+  }
 }
 
 function getCardsToCome(phase: GamePhase): number {
@@ -310,12 +352,31 @@ function Row({
   );
 }
 
+function GridRow({
+  label,
+  value,
+  color = 'text-white',
+}: {
+  label: string;
+  value: React.ReactNode;
+  color?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-white/60 text-[9px]">{label}</span>
+      <span className={`text-[10px] font-medium ${color}`}>{value}</span>
+    </div>
+  );
+}
+
 export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   holeCards,
   communityCards,
   phase,
   numOpponents,
   potOdds,
+  currentPot,
+  betToCall,
   spr,
   gtoRecommendation,
   gtoPostflopRecommendation,
@@ -384,6 +445,49 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return getRecommendation(displayEquity, potOdds, phase);
   }, [displayEquity, potOdds, phase]);
 
+  // GTO Math calculations
+  const gtoMath = useMemo(() => {
+    const pot = currentPot ?? 0;
+    const bet = betToCall ?? 0;
+    const eq = displayEquity ?? 0;
+
+    // MDF: only when facing a bet
+    const mdf = bet > 0 && pot > 0 ? calculateMDF(bet, pot) : null;
+
+    // Value/Bluff ratio: when considering betting
+    const vbRatio = bet > 0 && pot > 0
+      ? calculateValueBluffRatio(bet, pot)
+      : null;
+
+    // Bluff frequency
+    const bluffFreq = bet > 0 && pot > 0
+      ? calculateBluffFrequency(bet, pot)
+      : null;
+
+    // EV calculations
+    const callEV = bet > 0 ? calculateCallEV(eq, pot, bet) : null;
+    const raiseEV = null; // Could be extended with raise size
+
+    let bestAction: 'call' | 'fold' | 'check' = 'check';
+    let bestEV = 0;
+    if (callEV !== null) {
+      if (callEV > 0) {
+        bestAction = 'call';
+        bestEV = callEV;
+      } else {
+        bestAction = 'fold';
+        bestEV = 0;
+      }
+    }
+
+    // Range classification
+    const rangeCat = eq > 0
+      ? classifyRange(eq, bet, pot, phase)
+      : null;
+
+    return { mdf, vbRatio, bluffFreq, callEV, raiseEV, bestAction, bestEV, rangeCat };
+  }, [displayEquity, currentPot, betToCall, phase]);
+
   return (
     <div className="w-54 bg-black/50 rounded-lg p-2 text-xs space-y-1 border border-white/10">
       <div className="text-white/50 font-medium text-center mb-1 tracking-wide">
@@ -427,76 +531,130 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </>
       )}
 
+      {/* Postflop: Win rate + Current hand (需要 community cards) */}
       {phase !== 'preflop' && shouldCalculate && (
-        <Row
-          label={translations.handAnalysis.winRate}
-          value={
-            equity !== null ? (
-              <>
-                {(equity * 100).toFixed(0)}%
-                <StrengthBar
-                  value={equity}
-                  color={
-                    equity >= 0.6
-                      ? 'bg-green-400'
-                      : equity >= 0.4
-                        ? 'bg-yellow-400'
-                        : 'bg-red-400'
-                  }
-                />
-              </>
-            ) : (
-              <span className="text-yellow-400 animate-pulse">...</span>
-            )
-          }
-        />
-      )}
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: Win rate */}
+            <GridRow
+              label={translations.handAnalysis.winRate}
+              value={
+                equity !== null ? (
+                  <>
+                    {(equity * 100).toFixed(0)}%
+                    <StrengthBar
+                      value={equity}
+                      color={
+                        equity >= 0.6
+                          ? 'bg-green-400'
+                          : equity >= 0.4
+                            ? 'bg-yellow-400'
+                            : 'bg-red-400'
+                      }
+                    />
+                  </>
+                ) : (
+                  <span className="text-yellow-400 animate-pulse">...</span>
+                )
+              }
+            />
 
-      {currentHandRank && currentHandRank !== 'high_card' && (
-        <Row
-          label={translations.handAnalysis.currentHand}
-          value={HAND_RANK_NAMES[currentHandRank]}
-          color="text-emerald-300"
-        />
-      )}
-
-      {potOdds > 0 && (
-        <Row
-          label={translations.handAnalysis.potOdds}
-          value={`${(potOdds * 100).toFixed(0)}%`}
-          color={getPotOddsColor(potOdds)}
-        />
-      )}
-
-      {spr !== undefined && spr > 0 && (
-        <Row
-          label={translations.handAnalysis.spr}
-          value={
-            <>
-              {spr.toFixed(1)}
-              <StrengthBar
-                value={Math.min(spr / 12, 1)}
-                color={getSprBarColor(spr)}
+            {/* Right column: Current hand */}
+            {currentHandRank && currentHandRank !== 'high_card' && (
+              <GridRow
+                label={translations.handAnalysis.currentHand}
+                value={HAND_RANK_NAMES[currentHandRank]}
+                color="text-emerald-300"
               />
-              <span className={`ml-1 text-[10px] ${getSprColor(spr)}`}>
-                {getSprLabel(spr)}
-              </span>
-            </>
-          }
-          color={getSprColor(spr)}
-        />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* All phases: Pot odds + SPR (独立计算) */}
+      {(potOdds > 0 || (spr !== undefined && spr > 0)) && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: Pot odds */}
+            {potOdds > 0 && (
+              <GridRow
+                label={translations.handAnalysis.potOdds}
+                value={`${(potOdds * 100).toFixed(0)}%`}
+                color={getPotOddsColor(potOdds)}
+              />
+            )}
+
+            {/* Right column: SPR */}
+            {spr !== undefined && spr > 0 && (
+              <GridRow
+                label={translations.handAnalysis.spr}
+                value={
+                  <>
+                    {spr.toFixed(1)}
+                    <StrengthBar
+                      value={Math.min(spr / 12, 1)}
+                      color={getSprBarColor(spr)}
+                    />
+                    <span className={`ml-1 text-[9px] ${getSprColor(spr)}`}>
+                      {getSprLabel(spr)}
+                    </span>
+                  </>
+                }
+                color={getSprColor(spr)}
+              />
+            )}
+          </div>
+        </div>
       )}
 
       {drawInfo && drawInfo.draws.length > 0 && (
-        <div className="space-y-0.5">
-          {drawInfo.draws.map((d, i) => (
-            <Row
-              key={i}
-              label={drawLabel(d.type)}
-              value={`${d.outs} outs`}
-              color={getOutsColor(d.outs)}
-            />
-          ))}
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {drawInfo.draws.map((d, i) => (
+              <GridRow
+                key={i}
+                label={drawLabel(d.type)}
+                value={`${d.outs} outs`}
+                color={getOutsColor(d.outs)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {displayEquity !== null && recommendation && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <Row
+            label={translations.handAnalysis.suggest}
+            value={recommendation}
+            color={getRecColor(recommendation)}
+          />
+          {phase !== 'preflop' && equity !== null && equity > 0 && potOdds >= 0 && (
+            <div className="text-white/30 text-center mt-0.5">
+              {equity >= potOdds ? '>=' : '<'}
+              {' '}
+              {(equity * 100).toFixed(0)}% vs {(potOdds * 100).toFixed(0)}%
+            </div>
+          )}
+        </div>
+      )}
+
+      {phase === 'preflop' && gtoRecommendation && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <Row
+            label={translations.handAnalysis.gto}
+            value={
+              <span className="text-[10px]">
+                {getGtoActionLabel(
+                  gtoRecommendation.action,
+                  gtoRecommendation.sizingBB,
+                  gtoRecommendation.freq,
+                  gtoRecommendation.isAllIn,
+                )}
+              </span>
+            }
+            color={getGtoActionColor(gtoRecommendation.action)}
+          />
         </div>
       )}
 
@@ -640,132 +798,178 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         );
       })()}
 
-      {displayEquity !== null && recommendation && (
-        <div className="border-t border-white/10 pt-1 mt-1">
-          <Row
-            label={translations.handAnalysis.suggest}
-            value={recommendation}
-            color={getRecColor(recommendation)}
-          />
-          {phase !== 'preflop' && equity !== null && equity > 0 && potOdds > 0 && (
-            <div className="text-white/30 text-center mt-0.5">
-              {equity >= potOdds ? '>=' : '<'}
-              {' '}
-              {(equity * 100).toFixed(0)}% vs {(potOdds * 100).toFixed(0)}%
-            </div>
-          )}
-        </div>
-      )}
-
-      {phase === 'preflop' && gtoRecommendation && (
-        <div className="border-t border-white/10 pt-1 mt-1">
-          <Row
-            label={translations.handAnalysis.gto}
-            value={
-              <span className="text-[10px]">
-                {getGtoActionLabel(
-                  gtoRecommendation.action,
-                  gtoRecommendation.sizingBB,
-                  gtoRecommendation.freq,
-                  gtoRecommendation.isAllIn,
-                )}
-              </span>
-            }
-            color={getGtoActionColor(gtoRecommendation.action)}
-          />
-        </div>
-      )}
-
       {phase !== 'preflop' && gtoPostflopRecommendation && (
-        <div className="border-t border-white/10 pt-1 mt-1 space-y-0.5">
-          <Row
-            label={translations.gtoPostflop.board}
-            value={
-              <span className={`text-[10px] ${
-                gtoPostflopRecommendation.boardTexture.classification === 'very_dry' || gtoPostflopRecommendation.boardTexture.classification === 'dry'
-                  ? 'text-blue-400'
-                  : gtoPostflopRecommendation.boardTexture.classification === 'medium'
-                    ? 'text-yellow-400'
-                    : 'text-red-400'
-              }`}>
-                {({
-                  very_dry: translations.gtoPostflop.veryDry,
-                  dry: translations.gtoPostflop.dry,
-                  medium: translations.gtoPostflop.medium,
-                  wet: translations.gtoPostflop.wet,
-                  very_wet: translations.gtoPostflop.veryWet,
-                } as Record<string, string>)[gtoPostflopRecommendation.boardTexture.classification]}
-                {' '}({gtoPostflopRecommendation.boardTexture.wetness}/10)
-              </span>
-            }
-          />
-          <Row
-            label={translations.gtoPostflop.bet}
-            value={
-              <span className="text-[10px]">
-                {gtoPostflopRecommendation.isAllIn
-                  ? translations.gtoPostflop.allIn
-                  : gtoPostflopRecommendation.sizingPercent
-                    ? `${gtoPostflopRecommendation.sizingPercent}% pot`
-                    : gtoPostflopRecommendation.action === 'check'
-                      ? translations.gtoPostflop.check
-                      : gtoPostflopRecommendation.action === 'fold'
-                        ? translations.gtoPostflop.fold
-                        : gtoPostflopRecommendation.action === 'call'
-                          ? translations.gtoPostflop.call
-                          : translations.gtoPostflop.raise}
-              </span>
-            }
-            color={getGtoActionColor(gtoPostflopRecommendation.action === 'raise' ? 'R' : gtoPostflopRecommendation.action === 'call' ? 'C' : gtoPostflopRecommendation.action === 'fold' ? 'F' : 'check')}
-          />
-          {gtoPostflopRecommendation.freq && (
-            <Row
-              label={translations.gtoPostflop.reasoning}
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: Board texture */}
+            <GridRow
+              label={translations.gtoPostflop.board}
               value={
-                <span className="text-[9px] text-white/50">
-                  {gtoPostflopRecommendation.reasoning}
+                <span className={`text-[10px] ${
+                  gtoPostflopRecommendation.boardTexture.classification === 'very_dry' || gtoPostflopRecommendation.boardTexture.classification === 'dry'
+                    ? 'text-blue-400'
+                    : gtoPostflopRecommendation.boardTexture.classification === 'medium'
+                      ? 'text-yellow-400'
+                      : 'text-red-400'
+                }`}>
+                  {({
+                    very_dry: translations.gtoPostflop.veryDry,
+                    dry: translations.gtoPostflop.dry,
+                    medium: translations.gtoPostflop.medium,
+                    wet: translations.gtoPostflop.wet,
+                    very_wet: translations.gtoPostflop.veryWet,
+                  } as Record<string, string>)[gtoPostflopRecommendation.boardTexture.classification]}
+                  {' '}({gtoPostflopRecommendation.boardTexture.wetness}/10)
                 </span>
               }
             />
-          )}
+
+            {/* Right column: Bet action */}
+            <GridRow
+              label={translations.gtoPostflop.bet}
+              value={
+                <span className="text-[10px]">
+                  {gtoPostflopRecommendation.isAllIn
+                    ? translations.gtoPostflop.allIn
+                    : gtoPostflopRecommendation.sizingPercent
+                      ? `${gtoPostflopRecommendation.sizingPercent}% pot`
+                      : gtoPostflopRecommendation.action === 'check'
+                        ? translations.gtoPostflop.check
+                        : gtoPostflopRecommendation.action === 'fold'
+                          ? translations.gtoPostflop.fold
+                          : gtoPostflopRecommendation.action === 'call'
+                            ? translations.gtoPostflop.call
+                            : translations.gtoPostflop.raise}
+                </span>
+              }
+              color={getGtoActionColor(gtoPostflopRecommendation.action === 'raise' ? 'R' : gtoPostflopRecommendation.action === 'call' ? 'C' : gtoPostflopRecommendation.action === 'fold' ? 'F' : 'check')}
+            />
+
+            {/* Full width: Reasoning */}
+            {gtoPostflopRecommendation.freq && (
+              <div className="col-span-2">
+                <GridRow
+                  label={translations.gtoPostflop.reasoning}
+                  value={
+                    <span className="text-[9px] text-white/50">
+                      {gtoPostflopRecommendation.reasoning}
+                    </span>
+                  }
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* GTO Math: Two-Column Grid */}
+      {(gtoMath.mdf !== null || gtoMath.callEV !== null) && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="text-white/50 font-medium text-center tracking-wide text-[9px] mb-1">
+            {translations.gtoMath.title}
+          </div>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: MDF + EV */}
+            <div className="space-y-1">
+              {gtoMath.mdf !== null && (
+                <GridRow
+                  label={translations.gtoMath.mdf}
+                  value={
+                    <>
+                      {(gtoMath.mdf * 100).toFixed(0)}%
+                      <StrengthBar
+                        value={gtoMath.mdf}
+                        color={gtoMath.mdf >= 0.67 ? 'bg-green-400' : gtoMath.mdf >= 0.50 ? 'bg-yellow-400' : 'bg-red-400'}
+                      />
+                    </>
+                  }
+                  color={getMDFColor(gtoMath.mdf)}
+                />
+              )}
+              {gtoMath.callEV !== null && (
+                <GridRow
+                  label={translations.gtoMath.callEv}
+                  value={
+                    <span className={getEVColor(gtoMath.callEV)}>
+                      {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
+                      {gtoMath.bestAction === 'call' && ' ✅call'}
+                      {gtoMath.bestAction === 'fold' && ' ❌fold'}
+                    </span>
+                  }
+                />
+              )}
+            </div>
+
+            {/* Right column: V:B ratio + Range classification */}
+            <div className="space-y-1">
+              {gtoMath.vbRatio !== null && (
+                <GridRow
+                  label={translations.gtoMath.vbRatio}
+                  value={`${Math.round(gtoMath.vbRatio.valuePct * 100)}:${Math.round(gtoMath.vbRatio.bluffPct * 100)}`}
+                />
+              )}
+              {gtoMath.rangeCat !== null && phase !== 'preflop' && (
+                <GridRow
+                  label=""
+                  value={
+                    <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
+                      {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
+                    </span>
+                  }
+                />
+              )}
+            </div>
+          </div>
         </div>
       )}
 
       {nodelockRecommendation && nodelockRecommendation.adjustmentType !== 'neutral' && (
-        <div className="border-t border-white/10 pt-1 mt-1 space-y-0.5">
-          <Row
-            label="对手漏洞"
-            value={
-              <span className={`text-[10px] ${getLeakTypeColor(nodelockRecommendation.adjustmentType)}`}>
-                {getLeakTypeLabel(nodelockRecommendation.adjustmentType)}
-              </span>
-            }
-          />
-          <Row
-            label="调整建议"
-            value={
-              <span className="text-[10px] text-white/70">
-                {nodelockRecommendation.adjustmentMagnitude > 0 ? '+' : ''}
-                {(nodelockRecommendation.adjustmentMagnitude * 100).toFixed(0)}%
-              </span>
-            }
-          />
-          <Row
-            label="置信度"
-            value={
-              <span className="text-[10px]">
-                {(nodelockRecommendation.confidence * 100).toFixed(0)}%
-              </span>
-            }
-          />
-          <Row
-            label="调整说明"
-            value={
-              <span className="text-[9px] text-white/50">
-                {nodelockRecommendation.reasoning}
-              </span>
-            }
-          />
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="text-white/50 font-medium text-center tracking-wide text-[9px] mb-1">
+            {translations.nodelock.title}
+          </div>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: Leak + Confidence */}
+            <div className="space-y-1">
+              <GridRow
+                label={translations.nodelock.leak}
+                value={
+                  <span className={`text-[10px] ${getLeakTypeColor(nodelockRecommendation.adjustmentType)}`}>
+                    {getLeakTypeLabel(nodelockRecommendation.adjustmentType)}
+                  </span>
+                }
+              />
+              <GridRow
+                label={translations.nodelock.confidence}
+                value={
+                  <span className="text-[10px]">
+                    {(nodelockRecommendation.confidence * 100).toFixed(0)}%
+                  </span>
+                }
+              />
+            </div>
+
+            {/* Right column: Adjustment + Reasoning */}
+            <div className="space-y-1">
+              <GridRow
+                label={translations.nodelock.adjustment}
+                value={
+                  <span className="text-[10px] text-white/70">
+                    {nodelockRecommendation.adjustmentMagnitude > 0 ? '+' : ''}
+                    {(nodelockRecommendation.adjustmentMagnitude * 100).toFixed(0)}%
+                  </span>
+                }
+              />
+              <GridRow
+                label={translations.nodelock.reasoning}
+                value={
+                  <span className="text-[9px] text-white/50">
+                    {nodelockRecommendation.reasoning}
+                  </span>
+                }
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

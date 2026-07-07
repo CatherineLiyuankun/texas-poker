@@ -81,10 +81,10 @@ export const translations = {
   },
   handAnalysis: {
     title: 'AI Analysis',
-    preflop: 'Preflop', // 翻牌前
-    winRate: '胜率', //  Win Rate
-    potOdds: '底池赔率 Pot Odds',
-    gto: 'GTO',
+    preflop: '手牌强度Chen Formula', // 翻牌前preflopStrength Chen Formula 
+    winRate: '胜率 Win Rate', //  Win Rate
+    potOdds: '赔率 Pot Odds',
+    gto: 'GTO preflop', // GTO建议
     spr: 'SPR',
     sprShallow: '浅 Shallow',
     sprMedium: '中等 Medium',
@@ -142,6 +142,34 @@ export const translations = {
     allIn: 'All-in',
     reasoning: 'Reasoning',
     wetness: 'Wetness',
+  },
+  gtoMath: {
+    title: 'GTO Math',
+    mdf: 'MDF防御频率:', // Minimum Defense Frequency
+    callEv: 'Call EV:',
+    vbRatio: 'V:B价值:诈唬:',
+    rangeCategories: {
+      value: 'Value', // 价值牌
+      bluffCatcher: 'Bluff Catcher', // 诈唬捕手
+      bluff: 'Bluff', // 诈唬
+      fold: 'Fold', // 弃牌
+    },
+  },
+  nodelock: {
+    title: 'Exploit对手漏洞', // 利用对手漏洞
+    leak: 'Leak漏洞:', // 漏洞
+    adjustment: 'Adj调整:', // 调整
+    confidence: 'Conf置信度:', // 置信度
+    reasoning: 'Reason:',
+    leakTypes: {
+      overfold: 'Overfold', // 过度弃牌
+      underfold: 'Underfold', // 过度跟注
+      overfold_to_bet: 'Overfold to Bet', // 面对下注过度弃牌
+      underfold_to_bet: 'Underfold to Bet', // 面对下注过度跟注
+      overaggressive: 'Overaggressive', // 过度激进
+      passive: 'Passive', // 被动
+      neutral: 'Neutral', // 无明显漏洞
+    },
   },
   chipSummary: {
     title: '筹码变化 Chip Summary',

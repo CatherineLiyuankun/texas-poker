@@ -485,7 +485,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           <>
             <div
               className="relative mx-auto"
-              style={{ width: '1100px', height: '700px', marginTop: '100px' }}
+              style={{ width: '1100px', height: '700px', marginTop: '125px' }}
             >
               <div
                 className="absolute"
@@ -579,6 +579,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         }
                         smallBlind={state.smallBlind}
                         adminRevealAll={adminRevealAll}
+                        currentPot={(() => {
+                          return state.mainPot +
+                            state.sidePots.reduce(
+                              (sum, sp) => sum + sp.amount,
+                              0,
+                            );
+                        })()}
+                        betToCall={(() => {
+                          const toCall = state.lastBet - player.bet;
+                          return toCall > 0 ? toCall : 0;
+                        })()}
                         potOdds={(() => {
                           const toCall = state.lastBet - player.bet;
                           if (toCall <= 0) return 0;
@@ -612,7 +623,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         })()}
                         gtoRecommendation={(() => {
                           if (
-                            !gtoEnabled ||
                             state.phase !== 'preflop' ||
                             !player.isRealPlayer ||
                             player.hand.length < 2
@@ -710,7 +720,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         })()}
                         gtoPostflopRecommendation={(() => {
                           if (
-                            !gtoEnabled ||
                             state.phase === 'preflop' ||
                             state.phase === 'showdown' ||
                             state.phase === 'ended' ||
