@@ -719,13 +719,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
             {/* Right column: Bet action */}
             <GridRow
-              label={translations.gtoPostflop.bet}
+              label={translations.gtoPostflop.action}
               value={
                 <span className="text-[10px]">
                   {gtoPostflopRecommendation.isAllIn
                     ? translations.gtoPostflop.allIn
                     : gtoPostflopRecommendation.sizingPercent
-                      ? `${gtoPostflopRecommendation.sizingPercent}% pot`
+                      ? `${translations.gtoPostflop.raise} ${gtoPostflopRecommendation.sizingPercent}% pot`
                       : gtoPostflopRecommendation.action === 'check'
                         ? translations.gtoPostflop.check
                         : gtoPostflopRecommendation.action === 'fold'

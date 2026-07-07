@@ -134,11 +134,11 @@ export const translations = {
     wet: 'Wet 湿润',
     veryWet: 'Very Wet 极湿',
     cbet: 'C-bet',
-    bet: 'Bet 下注',
-    check: 'Check 过牌',
-    fold: 'Fold 弃牌',
-    call: 'Call 跟注',
-    raise: 'Raise 加注',
+    action: 'Action',
+    check: 'Check', // 过牌
+    fold: 'Fold',
+    call: 'Call', // 跟注
+    raise: 'Raise', // 加注
     allIn: 'All-in',
     reasoning: 'Reasoning',
     wetness: 'Wetness',
