@@ -58,9 +58,9 @@ export function getPositionLabel(
   const earlyCount = Math.ceil(middleCount / 2);
   const mpCount = middleCount - earlyCount;
 
-  if (offset - middleStart < earlyCount) {
-    const idx = offset - middleStart;
-    return earlyCount === 1 ? pos.UTG : pos.utgPlus(idx);
+  const utgIdx = offset - middleStart;
+  if (utgIdx < earlyCount) {
+    return earlyCount === 1 || utgIdx === 0 ? pos.UTG : pos.utgPlus(utgIdx);
   }
 
   const idx = offset - middleStart - earlyCount;
