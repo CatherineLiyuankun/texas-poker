@@ -261,35 +261,36 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       (p) => !p.folded && !p.allIn && p.chips > 0,
     );
 
-    console.groupCollapsed(
-      '%c[canContinue] 检查',
-      'color: blue; font-weight: bold; font-size: 12px;',
-    );
+    // keep this console.groupCollapsed for debugging purposes
+    // console.groupCollapsed(
+    //   '%c[canContinue] 检查',
+    //   'color: blue; font-weight: bold; font-size: 12px;',
+    // );
 
-    console.log('状态上下文:', {
-      phase: state.phase,
-      currentPlayer: state.currentPlayer,
-      lastBet: state.lastBet,
-      mainPot: state.mainPot,
-    });
+    // console.log('状态上下文:', {
+    //   phase: state.phase,
+    //   currentPlayer: state.currentPlayer,
+    //   lastBet: state.lastBet,
+    //   mainPot: state.mainPot,
+    // });
 
-    console.table(
-      activePlayers.map((p) => ({
-        ID: p.id,
-        筹码: p.chips,
-        下注: p.bet,
-        已行动: p.hasActed ? '✓' : '✗',
-        AllIn: p.allIn ? '✓' : '✗',
-      })),
-    );
+    // console.table(
+    //   activePlayers.map((p) => ({
+    //     ID: p.id,
+    //     筹码: p.chips,
+    //     下注: p.bet,
+    //     已行动: p.hasActed ? '✓' : '✗',
+    //     AllIn: p.allIn ? '✓' : '✗',
+    //   })),
+    // );
 
-    console.log(
-      `统计: ${activePlayers.length}未弃牌 / ${canActPlayers.length}可行动`,
-    );
+    // console.log(
+    //   `统计: ${activePlayers.length}未弃牌 / ${canActPlayers.length}可行动`,
+    // );
 
     if (activePlayers.length === 0 || canActPlayers.length === 0) {
-      console.log('✅ 可继续（无活跃玩家）');
-      console.groupEnd();
+      // console.log('✅ 可继续（无活跃玩家）');
+      // console.groupEnd();
       return true;
     }
 
