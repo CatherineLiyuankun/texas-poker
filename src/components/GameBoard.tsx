@@ -70,6 +70,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [importMessage, setImportMessage] = React.useState<string | null>(null);
   const [gtoEnabled, setGtoEnabled] = useState(false);
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
+  const [gameScale, setGameScale] = useState(1);
+  const [chipSummaryOpen, setChipSummaryOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const updateScale = () => {
+      const availableWidth = window.innerWidth - 16;
+      const availableHeight = window.innerHeight - 160;
+      const scaleX = availableWidth / 1100;
+      const scaleY = availableHeight / 700;
+      const scale = Math.min(1, scaleX, scaleY);
+      setGameScale(scale);
+    };
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    return () => window.removeEventListener('resize', updateScale);
+  }, []);
 
   const createActionEvent = (
     playerId: number,
@@ -404,18 +421,18 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     : undefined;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-x-hidden">
       <div className="max-w-[1200px] mx-auto">
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 mb-2 sm:mb-4">
           <div className="flex items-center gap-2">
             <button
               onClick={handleBackToMenu}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-bold"
+              className="px-3 py-1.5 sm:px-4 sm:py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg font-bold text-sm sm:text-base"
             >
               {translations.gameBoard.backToMenu}
             </button>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
             {importMessage && (
               <span className="text-xs text-yellow-400">{importMessage}</span>
             )}
@@ -464,11 +481,75 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 className="hidden"
               />
             </label>
-            <div className="text-white/60">
+            <div className="text-white/60 text-xs sm:text-sm whitespace-nowrap">
               {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
               {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
             </div>
           </div>
+        </div>
+
+        <div className="flex flex-col items-start gap-2 mb-2">
+          {roundSettled && (
+            <div className="text-left">
+              <div className="flex flex-wrap gap-2 sm:gap-3 mb-2">
+                <button
+                  onClick={handleResetRound}
+                  className="px-4 py-1.5 sm:px-6 sm:py-2 text-sm sm:text-base bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
+                >
+                  {translations.gameBoard.nextRound}
+                </button>
+                <button
+                  onClick={() => setAdminRevealAll((v) => !v)}
+                  className={`px-3 py-1.5 sm:px-4 sm:py-2 text-sm sm:text-base rounded-lg font-bold ${
+                    adminRevealAll
+                      ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                      : 'bg-gray-600 hover:bg-gray-700 text-white'
+                  }`}
+                >
+                  {adminRevealAll
+                    ? translations.gameBoard.adminOff
+                    : translations.gameBoard.adminOn}
+                </button>
+              </div>
+
+              <div className="text-lg sm:text-3xl font-bold text-yellow-400 mb-1">
+                {state.winner !== null
+                  ? translations.gameBoard.playerWins(
+                      getPlayerDisplayName(
+                        state.players[state.winner - 1],
+                        state.winner - 1,
+                      ),
+                    )
+                  : translations.gameBoard.splitPot}
+              </div>
+              {state.phase === 'showdown' && (
+                <div className="text-white/80 text-sm sm:text-base">
+                  {state.players.map((p, idx) => {
+                    if (p.folded) return null;
+                    return (
+                      <div key={p.id}>
+                        {getPlayerDisplayName(p, idx)}:{' '}
+                        {
+                          HAND_RANK_NAMES[
+                            evaluateHand(p.hand, state.communityCards).rank
+                          ]
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!roundSettled && canContinue() && state.phase !== 'showdown' && (
+            <button
+              onClick={handleNextPhase}
+              className="px-5 py-2 sm:px-8 sm:py-3 bg-yellow-500 hover:bg-yellow-600 text-black text-sm sm:text-xl font-bold rounded-xl"
+            >
+              {getNextPhaseLabel()}
+            </button>
+          )}
         </div>
 
         {state.phase === 'preflop' && state.players[0].hand.length === 0 ? (
@@ -493,9 +574,24 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         ) : (
           <>
             <div
-              className="relative mx-auto"
-              style={{ width: '1100px', height: '700px', marginTop: '125px' }}
+              ref={containerRef}
+              className="relative z-[40] mx-auto"
+              style={{
+                width: `${1100 * gameScale}px`,
+                height: `${700 * gameScale}px`,
+                marginTop: `${Math.max(10, 125 * gameScale)}px`,
+                marginBottom: `${20 * gameScale}px`,
+              }}
             >
+              <div
+                className="relative"
+                style={{
+                  width: '1100px',
+                  height: '700px',
+                  transform: `scale(${gameScale})`,
+                  transformOrigin: 'top left',
+                }}
+              >
               <div
                 className="absolute"
                 style={{
@@ -808,11 +904,23 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   );
                 });
               })()}
+
+              </div>
             </div>
 
             {roundSettled && state.chipsAtRoundStart.length > 0 && state.chipsBeforeSettlement.length > 0 && (
-              <div className="fixed bottom-4 left-4 z-50 max-h-[80vh] overflow-y-auto">
-                <div className="bg-black/60 rounded-lg p-3 text-left backdrop-blur-sm">
+              <>
+              <button
+                onClick={() => setChipSummaryOpen((v) => !v)}
+                className="fixed bottom-4 left-4 z-[50] bg-black/80 backdrop-blur-sm rounded-lg px-3 py-2 text-yellow-400 text-sm font-bold shadow-lg border border-white/20 min-[1400px]:hidden"
+              >
+                {chipSummaryOpen ? '✕' : '📊'}
+              </button>
+
+              <div className={`fixed bottom-14 left-2 right-2 sm:left-4 sm:right-auto z-[50] max-h-[60vh] sm:max-h-[80vh] overflow-y-auto overflow-x-auto transition-all ${
+                chipSummaryOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+              } min-[1400px]:opacity-100 min-[1400px]:pointer-events-auto min-[1400px]:bottom-4`}>
+                <div className="bg-black/60 rounded-lg p-3 text-left backdrop-blur-sm min-w-0">
                   <div className="text-sm font-bold text-white mb-2">
                     {translations.chipSummary.title}
                   </div>
@@ -911,71 +1019,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 )}
 
               </div>
+              </>
             )}
 
-            <div className="fixed top-[60px] right-30 z-50 flex flex-col items-start gap-3">
-              {roundSettled && (
-                <div className="text-left">
-                  <div className="flex gap-3 mb-4">
-                    <button
-                      onClick={handleResetRound}
-                      className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-bold"
-                    >
-                      {translations.gameBoard.nextRound}
-                    </button>
-                    <button
-                      onClick={() => setAdminRevealAll((v) => !v)}
-                      className={`px-4 py-2 rounded-lg font-bold ${
-                        adminRevealAll
-                          ? 'bg-orange-500 hover:bg-orange-600 text-white'
-                          : 'bg-gray-600 hover:bg-gray-700 text-white'
-                      }`}
-                    >
-                      {adminRevealAll
-                        ? translations.gameBoard.adminOff
-                        : translations.gameBoard.adminOn}
-                    </button>
-                  </div>
 
-                  <div className="text-3xl font-bold text-yellow-400 mb-2">
-                    {state.winner !== null
-                      ? translations.gameBoard.playerWins(
-                          getPlayerDisplayName(
-                            state.players[state.winner - 1],
-                            state.winner - 1,
-                          ),
-                        )
-                      : translations.gameBoard.splitPot}
-                  </div>
-                  {state.phase === 'showdown' && (
-                    <div className="text-white/80">
-                      {state.players.map((p, idx) => {
-                        if (p.folded) return null;
-                        return (
-                          <div key={p.id}>
-                            {getPlayerDisplayName(p, idx)}:{' '}
-                            {
-                              HAND_RANK_NAMES[
-                                evaluateHand(p.hand, state.communityCards).rank
-                              ]
-                            }
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!roundSettled && canContinue() && state.phase !== 'showdown' && (
-                <button
-                  onClick={handleNextPhase}
-                  className="px-8 py-3 bg-yellow-500 hover:bg-yellow-600 text-black text-xl font-bold rounded-xl"
-                >
-                  {getNextPhaseLabel()}
-                </button>
-              )}
-            </div>
           </>
         )}
         <HandRankingGuide />

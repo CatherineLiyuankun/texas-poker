@@ -33,13 +33,13 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 flex flex-col items-center justify-center p-4">
-      <div className="bg-green-800/80 backdrop-blur-sm rounded-2xl p-8 max-w-lg w-full shadow-2xl border border-green-700">
+      <div className="bg-green-800/80 backdrop-blur-sm rounded-2xl p-4 sm:p-8 max-w-lg w-full shadow-2xl border border-green-700">
         <h1 className="text-4xl font-bold text-white text-center mb-8">
           {translations.startPage.title}
         </h1>
 
         <div className="space-y-6 mb-8">
-          <div className="flex items-start gap-6">
+          <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
             <div className="flex-1 space-y-4">
               <div>
                 <label className="block text-white/80 text-lg mb-3">
@@ -98,7 +98,7 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
             </div>
           </div>
 
-          <div className="flex items-start gap-6">
+          <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
             <div className="flex-1">
               <label className="block text-white/80 text-lg mb-3">
                 {translations.startPage.smallBlindLabel}
