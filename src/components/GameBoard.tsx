@@ -434,7 +434,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-col items-start gap-2 mb-2">
+        <div className="flex flex-col items-start gap-2">
           {roundSettled && (
             <div className="text-left">
               <div className="flex flex-wrap gap-2 sm:gap-3 mb-2">
