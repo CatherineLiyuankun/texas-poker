@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { StartPage } from './components/StartPage';
 import { GameBoard } from './components/GameBoard';
 import { clearGameProgress } from './utils/gamePersistence';
@@ -48,10 +49,20 @@ function App() {
   };
 
   if (!gameStarted) {
-    return <StartPage onStartGame={handleStartGame} onResumeGame={handleResumeGame} />;
+    return (
+      <>
+        <StartPage onStartGame={handleStartGame} onResumeGame={handleResumeGame} />
+        <Analytics />
+      </>
+    );
   }
 
-  return <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} onBackToMenu={handleBackToMenu} />;
+  return (
+    <>
+      <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} onBackToMenu={handleBackToMenu} />
+      <Analytics />
+    </>
+  );
 }
 
 export default App;
