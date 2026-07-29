@@ -22,9 +22,6 @@ import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordActio
 import {
   saveHand,
   getAllRealPlayerStats,
-  resetLongTermStats,
-  exportStats,
-  importStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
 import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
@@ -66,8 +63,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const wasBettingCompleteRef = useRef(false);
   const handCounterRef = useRef(0);
   const handKeyRef = useRef<string>('');
-  const importFileRef = useRef<HTMLInputElement | null>(null);
-  const [importMessage, setImportMessage] = React.useState<string | null>(null);
   const [gtoEnabled, setGtoEnabled] = useState(false);
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
   const [gameScale, setGameScale] = useState(1);
@@ -399,21 +394,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   };
 
-  const handleExport = () => {
-    exportStats();
-  };
-
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const success = await importStats(file);
-    setImportMessage(
-      success ? translations.playerStats.importSuccess : translations.playerStats.importFailed,
-    );
-    setTimeout(() => setImportMessage(null), 3000);
-    e.target.value = '';
-  };
-
   const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
   const longStats = realPlayerIds.length > 0 ? getAllRealPlayerStats(realPlayerIds) : undefined;
   const allRealSessionStats = realPlayerIds.length > 1
@@ -433,9 +413,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
-            {importMessage && (
-              <span className="text-xs text-yellow-400">{importMessage}</span>
-            )}
             <button
               onClick={() => {
                 const next = !gtoEnabled;
@@ -450,37 +427,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             >
               {translations.gtoStrategy.toggle} {gtoEnabled ? translations.gtoStrategy.on : translations.gtoStrategy.off}
             </button>
-            <button
-              onClick={() => {
-                if (confirm(translations.playerStats.resetStats + '?')) {
-                  resetLongTermStats();
-                }
-              }}
-              className="px-2 py-1 bg-blue-900/40 hover:bg-red-700/60 text-white/70 hover:text-white text-xs rounded"
-              title={translations.playerStats.resetStats}
-            >
-              {translations.playerStats.resetStats}
-            </button>
-            <button
-              onClick={handleExport}
-              className="px-2 py-1 bg-blue-900/40 hover:bg-blue-700/60 text-white/70 hover:text-white text-xs rounded"
-              title={translations.playerStats.exportStats}
-            >
-              {translations.playerStats.exportStats}
-            </button>
-            <label
-              className="px-2 py-1 bg-blue-900/40 hover:bg-green-700/60 text-white/70 hover:text-white text-xs rounded cursor-pointer"
-              title={translations.playerStats.importStats}
-            >
-              {translations.playerStats.importStats}
-              <input
-                ref={importFileRef}
-                type="file"
-                accept=".json"
-                onChange={handleImport}
-                className="hidden"
-              />
-            </label>
             <div className="text-white/60 text-xs sm:text-sm whitespace-nowrap">
               {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
               {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}

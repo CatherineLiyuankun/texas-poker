@@ -220,6 +220,7 @@ export const translations = {
     importStats: 'Import', // 导入玩家数据
     insufficientData: '--', // 数据不足
     importSuccess: 'Import Success', // 导入成功
+    importSuccessWithProgress: 'Import Success (game progress restored)', // 导入成功（已恢复游戏进度）
     importFailed: 'Import Failed', // 导入失败
     types: {
       Nit: 'Nit 紧弱',

@@ -4,6 +4,7 @@ import {
   type PlayerStats,
   computePlayerStatsFromEvents,
 } from './opponentModelUtil';
+import { saveGameProgress, loadGameProgress } from './gamePersistence';
 
 export type { PlayerType, VpipPfrStats, PlayerStats } from './opponentModelUtil';
 
@@ -153,31 +154,38 @@ export function resetLongTermStats(): void {
 export function exportStats(): void {
   loadFromStorage();
 
+  const progress = loadGameProgress();
+
   const data = {
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     hands: persistentData.hands,
+    progress,
   };
 
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'player-stats.json';
+  a.download = 'poker-data.json';
   a.click();
   URL.revokeObjectURL(url);
 }
 
-export async function importStats(file: File): Promise<boolean> {
+export interface ImportResult {
+  success: boolean;
+  hasProgress: boolean;
+}
+
+export async function importStats(file: File): Promise<ImportResult> {
+  const fail: ImportResult = { success: false, hasProgress: false };
   try {
     const text = await file.text();
     const data = JSON.parse(text);
 
-    // Only handle v2 format
-    if (data.version === 2 && Array.isArray(data.hands)) {
+    if ((data.version === 2 || data.version === 3) && Array.isArray(data.hands)) {
       loadFromStorage();
 
-      // Merge hands (avoid duplicates by handId)
       const existingHandIds = new Set(persistentData.hands.map(h => h.handId));
       for (const hand of data.hands) {
         if (!existingHandIds.has(hand.handId)) {
@@ -186,12 +194,19 @@ export async function importStats(file: File): Promise<boolean> {
       }
 
       saveToStorage();
-      return true;
+
+      let hasProgress = false;
+      if (data.version === 3 && data.progress && data.progress.version === 1) {
+        saveGameProgress(data.progress);
+        hasProgress = true;
+      }
+
+      return { success: true, hasProgress };
     }
 
-    return false;
+    return fail;
   } catch {
-    return false;
+    return fail;
   }
 }
 

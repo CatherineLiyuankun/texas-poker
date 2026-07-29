@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { translations } from '../utils/translations';
 import { loadGameProgress, clearGameProgress } from '../utils/gamePersistence';
+import { resetLongTermStats, exportStats, importStats } from '../utils/longOpponentModel';
 import type { SavedProgress } from '../utils/gamePersistence';
 
 interface StartPageProps {
@@ -19,12 +20,36 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
   const [savedProgress, setSavedProgress] = useState<SavedProgress | null>(
     () => loadGameProgress(),
   );
+  const importFileRef = useRef<HTMLInputElement | null>(null);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
 
   const handleClearProgress = () => {
     if (confirm(translations.persistence.confirmClear)) {
       clearGameProgress();
       setSavedProgress(null);
     }
+  };
+
+  const handleExport = () => {
+    exportStats();
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const result = await importStats(file);
+    if (result.success) {
+      setSavedProgress(loadGameProgress());
+      setImportMessage(
+        result.hasProgress
+          ? translations.playerStats.importSuccessWithProgress
+          : translations.playerStats.importSuccess,
+      );
+    } else {
+      setImportMessage(translations.playerStats.importFailed);
+    }
+    setTimeout(() => setImportMessage(null), 3000);
+    e.target.value = '';
   };
 
   const totalPlayers = realPlayers + botPlayers;
@@ -198,6 +223,45 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
             </div>
           </div>
         )}
+
+        <div className="mt-6 border-t border-green-600 pt-4">
+          {importMessage && (
+            <p className="text-center text-yellow-400 text-sm mb-3">{importMessage}</p>
+          )}
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => {
+                if (confirm(translations.playerStats.resetStats + '?')) {
+                  resetLongTermStats();
+                }
+              }}
+              className="px-3 py-1.5 bg-blue-900/40 hover:bg-red-700/60 text-white/70 hover:text-white text-xs rounded font-bold"
+              title={translations.playerStats.resetStats}
+            >
+              {translations.playerStats.resetStats}
+            </button>
+            <button
+              onClick={handleExport}
+              className="px-3 py-1.5 bg-blue-900/40 hover:bg-blue-700/60 text-white/70 hover:text-white text-xs rounded font-bold"
+              title={translations.playerStats.exportStats}
+            >
+              {translations.playerStats.exportStats}
+            </button>
+            <label
+              className="px-3 py-1.5 bg-blue-900/40 hover:bg-green-700/60 text-white/70 hover:text-white text-xs rounded font-bold cursor-pointer"
+              title={translations.playerStats.importStats}
+            >
+              {translations.playerStats.importStats}
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </div>
       </div>
     </div>
   );
