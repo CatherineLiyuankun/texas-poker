@@ -74,7 +74,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       const availableWidth = window.innerWidth - 16;
       const availableHeight = window.innerHeight - 160;
       const scaleX = availableWidth / 1100;
-      const scaleY = availableHeight / 700;
+      const scaleY = availableHeight / 500;
       const scale = Math.min(1, scaleX, scaleY);
       setGameScale(scale);
     };
@@ -403,7 +403,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-x-hidden">
       <div className="max-w-[1200px] mx-auto">
-        <div className="flex flex-wrap justify-between items-center gap-2 mb-2 sm:mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-2 sm">
           <div className="flex items-center gap-2">
             <button
               onClick={handleBackToMenu}
