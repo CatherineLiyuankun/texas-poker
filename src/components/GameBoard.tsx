@@ -71,16 +71,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
   useEffect(() => {
     const updateScale = () => {
-      const availableWidth = window.innerWidth - 16;
-      const availableHeight = window.innerHeight - 160;
-      const scaleX = availableWidth / 1100;
+      const availableWidth = window.screen.width - 16;
+      const availableHeight = window.screen.height - 160;
+      const scaleX = availableWidth / 1050;
       const scaleY = availableHeight / 500;
       const scale = Math.min(1, scaleX, scaleY);
       setGameScale(scale);
     };
     updateScale();
+    const mql = window.matchMedia('(orientation: portrait)');
+    mql.addEventListener('change', updateScale);
     window.addEventListener('resize', updateScale);
-    return () => window.removeEventListener('resize', updateScale);
+    return () => {
+      mql.removeEventListener('change', updateScale);
+      window.removeEventListener('resize', updateScale);
+    };
   }, []);
 
   const createActionEvent = (
