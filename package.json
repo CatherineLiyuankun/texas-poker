@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "jest"
+    "test": "jest",
+    "e2eTests": "jest src/e2eTests"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
