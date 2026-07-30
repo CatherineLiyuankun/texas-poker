@@ -107,12 +107,12 @@ export const translations = {
       gutshot: '卡顺 Gutshot',
     },
     rec: {
-      raise: 'Raise 加注',
+      raise: 'Raise',
       callRaise: 'Call/Raise',
-      call: 'Call 跟注',
-      check: 'Check 过牌',
-      fold: 'Fold 弃牌',
-      callCheap: 'Call 跟注 (cheap)',
+      call: 'Call',
+      check: 'Check',
+      fold: 'Fold',
+      callCheap: 'Call (cheap)',
     },
     // 对手画像风格标签
     opponentStyle: {

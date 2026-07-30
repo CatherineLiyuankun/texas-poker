@@ -364,8 +364,8 @@ function GridRow({
 }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="text-white/60 text-[9px]">{label}</span>
-      <span className={`text-[10px] font-medium ${color}`}>{value}</span>
+      <span className="text-white/60">{label}</span>
+      <span className={`font-medium ${color}`}>{value}</span>
     </div>
   );
 }
@@ -522,8 +522,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   }, [playerRaiseAmount, currentPot, potOdds]);
 
   return (
-    <div className="w-54 bg-black/50 rounded-lg p-2 text-xs space-y-1 border border-white/10">
-      <div className="text-white/50 font-medium text-center mb-1 tracking-wide">
+    <div className="w-54 bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
+      <div className="text-white/50 font-medium text-center mb-1 tracking-wide text-[12px]">
         {translations.handAnalysis.title}
       </div>
 
@@ -755,6 +755,128 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
+      {/* GTO Math: Two-Column Grid */}
+      {(gtoMath.mdf !== null || gtoMath.callEV !== null || gtoMath.raiseEV !== null) && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="text-white/50 font-medium text-center tracking-wide text-[12px] mb-1">
+            {translations.gtoMath.title}
+          </div>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: MDF + Call EV + Raise EV */}
+            <div className="space-y-1">
+              {gtoMath.mdf !== null && (
+                <GridRow
+                  label={translations.gtoMath.mdf}
+                  value={
+                    <>
+                      {(gtoMath.mdf * 100).toFixed(0)}%
+                      <StrengthBar
+                        value={gtoMath.mdf}
+                        color={gtoMath.mdf >= 0.67 ? 'bg-green-400' : gtoMath.mdf >= 0.50 ? 'bg-yellow-400' : 'bg-red-400'}
+                      />
+                    </>
+                  }
+                  color={getMDFColor(gtoMath.mdf)}
+                />
+              )}
+              {gtoMath.callEV !== null && (
+                <GridRow
+                  label={translations.gtoMath.callEv}
+                  value={
+                    <span className={getEVColor(gtoMath.callEV)}>
+                      {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
+                      {gtoMath.bestAction === 'call' && ' ✅call'}
+                      {gtoMath.bestAction === 'fold' && ' ❌fold'}
+                    </span>
+                  }
+                />
+              )}
+              {gtoMath.raiseEV !== null && (
+                <GridRow
+                  label={translations.gtoMath.raiseEV}
+                  value={
+                    <span className={getEVColor(gtoMath.raiseEV)}>
+                      {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
+                      {gtoMath.bestAction === 'raise' && ' ✅'}
+                    </span>
+                  }
+                />
+              )}
+            </div>
+
+            {/* Right column: V:B ratio + Range classification */}
+            <div className="space-y-1">
+              {gtoMath.vbRatio !== null && (
+                <GridRow
+                  label={translations.gtoMath.vbRatio}
+                  value={`${Math.round(gtoMath.vbRatio.valuePct * 100)}:${Math.round(gtoMath.vbRatio.bluffPct * 100)}`}
+                />
+              )}
+              {gtoMath.rangeCat !== null && phase !== 'preflop' && (
+                <GridRow
+                  label=""
+                  value={
+                    <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
+                      {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
+                    </span>
+                  }
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {nodelockRecommendation && nodelockRecommendation.adjustmentType !== 'neutral' && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <div className="text-white/50 font-medium text-center tracking-wide text-[12px] mb-1">
+            {translations.nodelock.title}
+          </div>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+            {/* Left column: Leak + Confidence */}
+            <div className="space-y-1">
+              <GridRow
+                label={translations.nodelock.leak}
+                value={
+                  <span className={`text-[10px] ${getLeakTypeColor(nodelockRecommendation.adjustmentType)}`}>
+                    {getLeakTypeLabel(nodelockRecommendation.adjustmentType)}
+                  </span>
+                }
+              />
+              <GridRow
+                label={translations.nodelock.confidence}
+                value={
+                  <span className="text-[10px]">
+                    {(nodelockRecommendation.confidence * 100).toFixed(0)}%
+                  </span>
+                }
+              />
+            </div>
+
+            {/* Right column: Adjustment + Reasoning */}
+            <div className="space-y-1">
+              <GridRow
+                label={translations.nodelock.adjustment}
+                value={
+                  <span className="text-[10px] text-white/70">
+                    {nodelockRecommendation.adjustmentMagnitude > 0 ? '+' : ''}
+                    {(nodelockRecommendation.adjustmentMagnitude * 100).toFixed(0)}%
+                  </span>
+                }
+              />
+              <GridRow
+                label={translations.nodelock.reasoning}
+                value={
+                  <span className="text-[9px] text-white/50">
+                    {nodelockRecommendation.reasoning}
+                  </span>
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 统一玩家统计 VPIP/PFR/AF 表格 */}
       {(() => {
         const botStats: BotStatsWithAF[] = opponentProfile?.botStats ?? [];
@@ -762,7 +884,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         if (botStats.length === 0 && realStats.length === 0) return null;
         return (
           <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
-            <div className="text-white/50 font-medium text-center tracking-wide">
+            <div className="text-white/50 font-medium text-center tracking-wide text-[12px]">
               {translations.playerStats.title}
             </div>
             <table className="w-full text-[10px]">
@@ -894,128 +1016,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
         );
       })()}
-
-      {/* GTO Math: Two-Column Grid */}
-      {(gtoMath.mdf !== null || gtoMath.callEV !== null || gtoMath.raiseEV !== null) && (
-        <div className="border-t border-white/10 pt-1 mt-1">
-          <div className="text-white/50 font-medium text-center tracking-wide text-[9px] mb-1">
-            {translations.gtoMath.title}
-          </div>
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {/* Left column: MDF + Call EV + Raise EV */}
-            <div className="space-y-1">
-              {gtoMath.mdf !== null && (
-                <GridRow
-                  label={translations.gtoMath.mdf}
-                  value={
-                    <>
-                      {(gtoMath.mdf * 100).toFixed(0)}%
-                      <StrengthBar
-                        value={gtoMath.mdf}
-                        color={gtoMath.mdf >= 0.67 ? 'bg-green-400' : gtoMath.mdf >= 0.50 ? 'bg-yellow-400' : 'bg-red-400'}
-                      />
-                    </>
-                  }
-                  color={getMDFColor(gtoMath.mdf)}
-                />
-              )}
-              {gtoMath.callEV !== null && (
-                <GridRow
-                  label={translations.gtoMath.callEv}
-                  value={
-                    <span className={getEVColor(gtoMath.callEV)}>
-                      {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
-                      {gtoMath.bestAction === 'call' && ' ✅call'}
-                      {gtoMath.bestAction === 'fold' && ' ❌fold'}
-                    </span>
-                  }
-                />
-              )}
-              {gtoMath.raiseEV !== null && (
-                <GridRow
-                  label={translations.gtoMath.raiseEV}
-                  value={
-                    <span className={getEVColor(gtoMath.raiseEV)}>
-                      {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
-                      {gtoMath.bestAction === 'raise' && ' ✅'}
-                    </span>
-                  }
-                />
-              )}
-            </div>
-
-            {/* Right column: V:B ratio + Range classification */}
-            <div className="space-y-1">
-              {gtoMath.vbRatio !== null && (
-                <GridRow
-                  label={translations.gtoMath.vbRatio}
-                  value={`${Math.round(gtoMath.vbRatio.valuePct * 100)}:${Math.round(gtoMath.vbRatio.bluffPct * 100)}`}
-                />
-              )}
-              {gtoMath.rangeCat !== null && phase !== 'preflop' && (
-                <GridRow
-                  label=""
-                  value={
-                    <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
-                      {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
-                    </span>
-                  }
-                />
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {nodelockRecommendation && nodelockRecommendation.adjustmentType !== 'neutral' && (
-        <div className="border-t border-white/10 pt-1 mt-1">
-          <div className="text-white/50 font-medium text-center tracking-wide text-[9px] mb-1">
-            {translations.nodelock.title}
-          </div>
-          <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-            {/* Left column: Leak + Confidence */}
-            <div className="space-y-1">
-              <GridRow
-                label={translations.nodelock.leak}
-                value={
-                  <span className={`text-[10px] ${getLeakTypeColor(nodelockRecommendation.adjustmentType)}`}>
-                    {getLeakTypeLabel(nodelockRecommendation.adjustmentType)}
-                  </span>
-                }
-              />
-              <GridRow
-                label={translations.nodelock.confidence}
-                value={
-                  <span className="text-[10px]">
-                    {(nodelockRecommendation.confidence * 100).toFixed(0)}%
-                  </span>
-                }
-              />
-            </div>
-
-            {/* Right column: Adjustment + Reasoning */}
-            <div className="space-y-1">
-              <GridRow
-                label={translations.nodelock.adjustment}
-                value={
-                  <span className="text-[10px] text-white/70">
-                    {nodelockRecommendation.adjustmentMagnitude > 0 ? '+' : ''}
-                    {(nodelockRecommendation.adjustmentMagnitude * 100).toFixed(0)}%
-                  </span>
-                }
-              />
-              <GridRow
-                label={translations.nodelock.reasoning}
-                value={
-                  <span className="text-[9px] text-white/50">
-                    {nodelockRecommendation.reasoning}
-                  </span>
-                }
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
