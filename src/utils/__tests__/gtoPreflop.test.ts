@@ -10,7 +10,7 @@ function card(suit: string, rank: string): Card {
 }
 
 function countActions(
-  position: 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB',
+  position: 'UTG' | 'HJ' | 'MP' | 'CO' | 'BTN' | 'SB',
 ): { raises: number; folds: number; total: number } {
   const ranks = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'];
   let raises = 0;
@@ -80,11 +80,20 @@ describe('GTO Preflop Engine', () => {
     it('later positions open wider than earlier positions', () => {
       const utg = countActions('UTG').raises;
       const mp = countActions('MP').raises;
+      const hj = countActions('HJ').raises;
       const co = countActions('CO').raises;
       const btn = countActions('BTN').raises;
       expect(mp).toBeGreaterThan(utg);
-      expect(co).toBeGreaterThan(mp);
+      expect(hj).toBeGreaterThan(mp);
+      expect(co).toBeGreaterThan(hj);
       expect(btn).toBeGreaterThan(co);
+    });
+
+    it('HJ opens ~22-30% of hands', () => {
+      const { raises, total } = countActions('HJ');
+      const pct = raises / total;
+      expect(pct).toBeGreaterThan(0.20);
+      expect(pct).toBeLessThan(0.32);
     });
   });
 
@@ -589,7 +598,7 @@ describe('GTO Preflop Engine', () => {
         { pos: 1, expected: 'SB' as const, flags: { isButton: false, isCutoff: false, isHijack: false, isBlind: true } },
         { pos: 2, expected: 'BB' as const, flags: { isButton: false, isCutoff: false, isHijack: false, isBlind: true } },
         { pos: 3, expected: 'UTG' as const, flags: { isButton: false, isCutoff: false, isHijack: false, isBlind: false } },
-        { pos: 4, expected: 'MP' as const, flags: { isButton: false, isCutoff: false, isHijack: true, isBlind: false } },
+        { pos: 4, expected: 'HJ' as const, flags: { isButton: false, isCutoff: false, isHijack: true, isBlind: false } },
         { pos: 5, expected: 'CO' as const, flags: { isButton: false, isCutoff: true, isHijack: false, isBlind: false } },
       ];
       for (const { pos, expected, flags } of positions) {
@@ -718,6 +727,28 @@ describe('GTO Preflop Engine', () => {
         aks, 'BB', 'rfi', undefined, 5,
       );
       expect(rec.action).toBe('R');
+    });
+  });
+
+  describe('HJ Position', () => {
+    it('HJ opens 33 (wider than MP)', () => {
+      const lowPair = [card('♠', '3'), card('♥', '3')];
+      expect(getGtoPreflopRecommendation(lowPair, 'HJ', 'rfi').action).toBe('R');
+    });
+
+    it('HJ opens A2s (wider than MP)', () => {
+      const a2s = [card('♠', 'A'), card('♠', '2')];
+      expect(getGtoPreflopRecommendation(a2s, 'HJ', 'rfi').action).toBe('R');
+    });
+
+    it('HJ opens K9s (wider than MP)', () => {
+      const k9s = [card('♠', 'K'), card('♠', '9')];
+      expect(getGtoPreflopRecommendation(k9s, 'HJ', 'rfi').action).toBe('R');
+    });
+
+    it('HJ folds 72o', () => {
+      const garbage = [card('♣', '7'), card('♦', '2')];
+      expect(getGtoPreflopRecommendation(garbage, 'HJ', 'rfi').action).toBe('F');
     });
   });
 });

@@ -38,7 +38,7 @@ export interface OpponentAdjustments {
 }
 
 type GtoAction = 'R' | 'C' | 'F';
-type Position = 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
+type Position = 'UTG' | 'HJ' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
 type DefenderType = 'BB' | 'SB' | 'IP';
 
 export interface GtoFreq {
@@ -110,7 +110,7 @@ function getRfiPosition(ctx: ContextInfo): Position {
   if (ctx.position === 1) return 'SB';
   if (ctx.position === 2) return 'BB';
   if (ctx.isCutoff) return 'CO';
-  if (ctx.isHijack) return 'MP';
+  if (ctx.isHijack) return 'HJ';
   return 'UTG';
 }
 
@@ -128,7 +128,7 @@ function posToLabel(pos: number, total: number): Position {
   if (pos === 1) return 'SB';
   if (pos === 2) return 'BB';
   if (pos === total - 1) return 'CO';
-  if (pos === total - 2) return 'MP';
+  if (pos === total - 2) return 'HJ';
   return 'UTG';
 }
 
@@ -195,6 +195,21 @@ const RFI_MP = buildRangeFromList([
   'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'KQo', 'KJo',
 ]);
 
+// HJ ~25%: 22+, A2s+, K9s+, QTs+, JTs, T9s, 98s, 87s, 76s, 65s,
+//          A9o+, KTo+, QJo, JTo, T9o
+const RFI_HJ = buildRangeFromList([
+  'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
+  'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+  'KQs', 'KJs', 'KTs', 'K9s',
+  'QJs', 'QTs',
+  'JTs',
+  'T9s', '98s', '87s', '76s', '65s',
+  'AKo', 'AQo', 'AJo', 'ATo', 'A9o',
+  'KQo', 'KJo', 'KTo',
+  'QJo',
+  'JTo', 'T9o',
+]);
+
 // CO ~28%: 22+, A2s+, K7s+, Q8s+, J8s+, T7s+, 97s+, 87s+, 76s+, 65s, 54s,
 //          A9o+, K9o+, Q9o+, J9o+, JTo, T9o
 const RFI_CO = buildRangeFromList([
@@ -234,8 +249,25 @@ const RFI_SB = buildRangeFromList([
   'QJo', 'QTo', 'Q9o', 'JTo', 'J9o', 'T9o', '98o',
 ]);
 
+// BB vs Limpers ~40%: 22+, A2s+, K2s+, Q3s+, J5s+, T7s+, 97s+, 87s+, 75s+, 64s+, 54s,
+//                     A7o+, K9o+, Q9o+, J9o
+const RFI_BB_LIMP = buildRangeFromList([
+  'AA', 'KK', 'QQ', 'JJ', 'TT', '99', '88', '77', '66', '55', '44', '33', '22',
+  'AKs', 'AQs', 'AJs', 'ATs', 'A9s', 'A8s', 'A7s', 'A6s', 'A5s', 'A4s', 'A3s', 'A2s',
+  'KQs', 'KJs', 'KTs', 'K9s', 'K8s', 'K7s', 'K6s', 'K5s', 'K4s', 'K3s', 'K2s',
+  'QJs', 'QTs', 'Q9s', 'Q8s', 'Q7s', 'Q6s', 'Q5s', 'Q4s', 'Q3s',
+  'JTs', 'J9s', 'J8s', 'J7s', 'J6s', 'J5s',
+  'T9s', 'T8s', 'T7s', '98s', '97s', '87s', '76s', '65s', '54s',
+  '75s', '64s',
+  'AKo', 'AQo', 'AJo', 'ATo', 'A9o', 'A8o', 'A7o',
+  'KQo', 'KJo', 'KTo', 'K9o',
+  'QJo', 'QTo', 'Q9o',
+  'J9o',
+]);
+
 const RFI_TABLES: Record<Position, GtoAction[][]> = {
   UTG: RFI_UTG,
+  HJ: RFI_HJ,
   MP: RFI_MP,
   CO: RFI_CO,
   BTN: RFI_BTN,
@@ -846,7 +878,8 @@ export function decidePreflopGTO(
   const pos = getRfiPosition(ctx);
 
   if (pos === 'BB') {
-    const bbCode = lookup(RFI_TABLES['UTG'], hand);
+    const bbRange = ctx.hasLimpers ? RFI_BB_LIMP : RFI_TABLES['UTG'];
+    const bbCode = lookup(bbRange, hand);
     if (bbCode === 'R' && flags.canRaiseResult) {
       const target = getGtoOpenSize('UTG', state.smallBlind);
       return {
