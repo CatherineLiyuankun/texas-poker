@@ -329,7 +329,7 @@ function getCardsToCome(phase: GamePhase): number {
 
 function StrengthBar({ value, color }: { value: number; color: string }) {
   return (
-    <div className="w-12 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
+    <div className="w-10 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
       <div
         className={`h-full rounded-full ${color}`}
         style={{ width: `${Math.round(value * 100)}%` }}
