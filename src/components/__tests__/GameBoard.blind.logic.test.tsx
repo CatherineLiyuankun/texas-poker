@@ -104,7 +104,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       />,
     );
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it('初始局——dealer为2时，位置标签与下注金额正确', () => {
@@ -126,7 +126,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       />,
     );
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it.skip('下一局后立即分配盲注和刷新标签/金额', () => {
@@ -156,7 +156,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
     );
     // 当前局标签
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
     // 模拟点击"下一局"
     act(() => {
       const nextBtn = screen.getByRole('button', { name: /下一局/ });
@@ -175,7 +175,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
 
     // "下一局"立刻刷新——新dealer、位置标签/下注金额切换
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it('非preflop阶段位置标签始终显示', () => {
@@ -193,7 +193,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
         onBackToMenu={() => {}}
       />,
     );
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
     expect(screen.getByText('BB')).toBeInTheDocument();
   });
 
@@ -214,7 +214,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       />,
     );
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it.skip('玩家顺序和庄家交错也能正确分配盲注和标签', () => {
@@ -257,7 +257,7 @@ describe('GameBoard盲注与下注金额——全场景', () => {
       />,
     );
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it('chips与pot变动严格等于盲注金额', () => {

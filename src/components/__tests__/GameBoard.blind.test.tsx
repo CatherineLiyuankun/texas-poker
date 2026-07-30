@@ -82,7 +82,7 @@ describe('GameBoard blinds UI logic', () => {
     });
     render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it('玩家2为小盲，玩家1为大盲时UI标识正确', () => {
@@ -108,7 +108,7 @@ describe('GameBoard blinds UI logic', () => {
     });
     render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 
   it('新的每局庄家切换后，UI标记实时切换', () => {
@@ -129,7 +129,7 @@ describe('GameBoard blinds UI logic', () => {
     });
     const { rerender } = render(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
     // 模拟dealer切回1（下一局）
     jest.spyOn(useGameStateModule, 'useGameState').mockReturnValue({
       state: buildState({ dealer: 1 }),
@@ -147,6 +147,6 @@ describe('GameBoard blinds UI logic', () => {
     });
     rerender(<GameBoard playerConfig={{ realPlayers: 2, botPlayers: 0, smallBlind: 5 }} onBackToMenu={() => {}} />);
     expect(screen.getByText('BB')).toBeInTheDocument();
-    expect(screen.getByText('BTN/SB')).toBeInTheDocument();
+    expect(screen.getByText('D/SB')).toBeInTheDocument();
   });
 });
