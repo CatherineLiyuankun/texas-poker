@@ -86,9 +86,9 @@ export const translations = {
     potOdds: '赔率 Pot Odds',
     gto: 'GTO preflop', // GTO建议
     spr: 'SPR',
-    sprShallow: '浅 Shallow',
-    sprMedium: '中等 Medium',
-    sprDeep: '深 Deep',
+    sprShallow: '浅', // Shallow
+    sprMedium: '中等', // Medium
+    sprDeep: '深', // Deep
     drawEq: '听牌补偿 Draw Eq',
     suggest: '胜率/赔率建议',
     currentHand: 'Current Hand',
