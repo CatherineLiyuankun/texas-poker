@@ -14,6 +14,7 @@ function App() {
   });
   const [savedChips, setSavedChips] = useState<number[] | undefined>(undefined);
   const [savedBuyInCounts, setSavedBuyInCounts] = useState<number[] | undefined>(undefined);
+  const [savedGtoEnabled, setSavedGtoEnabled] = useState<boolean | undefined>(undefined);
 
   const handleStartGame = (
     realPlayerCount: number,
@@ -23,6 +24,7 @@ function App() {
     clearGameProgress();
     setSavedChips(undefined);
     setSavedBuyInCounts(undefined);
+    setSavedGtoEnabled(undefined);
     setPlayerConfig({
       realPlayers: realPlayerCount,
       botPlayers: botPlayerCount,
@@ -39,6 +41,7 @@ function App() {
     });
     setSavedChips(progress.chips);
     setSavedBuyInCounts(progress.buyInCounts);
+    setSavedGtoEnabled(progress.gtoEnabled);
     setGameStarted(true);
   };
 
@@ -46,6 +49,7 @@ function App() {
     setGameStarted(false);
     setSavedChips(undefined);
     setSavedBuyInCounts(undefined);
+    setSavedGtoEnabled(undefined);
   };
 
   if (!gameStarted) {
@@ -59,7 +63,7 @@ function App() {
 
   return (
     <>
-      <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} onBackToMenu={handleBackToMenu} />
+      <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} savedGtoEnabled={savedGtoEnabled} onBackToMenu={handleBackToMenu} />
       <Analytics />
     </>
   );

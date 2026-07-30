@@ -38,6 +38,7 @@ interface GameBoardProps {
   playerConfig: PlayerConfig;
   savedChips?: number[];
   savedBuyInCounts?: number[];
+  savedGtoEnabled?: boolean;
   onBackToMenu: () => void;
 }
 
@@ -45,6 +46,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   playerConfig,
   savedChips,
   savedBuyInCounts,
+  savedGtoEnabled,
   onBackToMenu,
 }) => {
   const {
@@ -63,11 +65,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const wasBettingCompleteRef = useRef(false);
   const handCounterRef = useRef(0);
   const handKeyRef = useRef<string>('');
-  const [gtoEnabled, setGtoEnabled] = useState(false);
+  const [gtoEnabled, setGtoEnabled] = useState(savedGtoEnabled ?? false);
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
   const [gameScale, setGameScale] = useState(1);
   const [chipSummaryOpen, setChipSummaryOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (savedGtoEnabled) {
+      setGtoStrategy(true);
+    }
+  }, [savedGtoEnabled]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -163,9 +171,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         smallBlind: state.smallBlind,
         dealer: state.dealer,
         savedAt: Date.now(),
+        gtoEnabled,
       });
     }
-  }, [roundSettled, state.players, state.smallBlind, state.dealer]);
+  }, [roundSettled, state.players, state.smallBlind, state.dealer, gtoEnabled]);
 
   const handleBackToMenu = () => {
     if (state.players.length > 0 && state.players[0].hand.length > 0) {
@@ -178,6 +187,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         smallBlind: state.smallBlind,
         dealer: state.dealer,
         savedAt: Date.now(),
+        gtoEnabled,
       });
     }
     onBackToMenu();

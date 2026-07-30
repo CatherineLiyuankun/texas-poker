@@ -7,6 +7,7 @@ export interface SavedProgress {
   smallBlind: number;
   dealer: number;
   savedAt: number;
+  gtoEnabled?: boolean;
 }
 
 const STORAGE_KEY = 'texas-poker-progress';
