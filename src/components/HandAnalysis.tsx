@@ -18,6 +18,7 @@ import {
   classifyRange,
   type RangeCategory,
 } from '../utils/gtoMath';
+import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -41,6 +42,7 @@ interface HandAnalysisProps {
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
   realPlayerSessionStats?: BotStatsWithAF[];
+  positionLabel?: string;
 }
 
 // 建议逻辑：仅基于胜率 + 赔率
@@ -387,6 +389,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   longStats,
   viewingPlayerId,
   realPlayerSessionStats,
+  positionLabel,
 }) => {
   const [equity, setEquity] = useState<number | null>(null);
 
@@ -401,6 +404,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   const preflopTier = useMemo(
     () => (phase === 'preflop' ? getPreflopTier(holeCards) : null),
     [holeCards, phase],
+  );
+
+  const canOpen = useMemo(
+    () =>
+      phase === 'preflop' && positionLabel
+        ? canOpenFromPosition(holeCards, positionLabel)
+        : null,
+    [holeCards, phase, positionLabel],
   );
 
   // 听牌检测：仅用于展示，不叠加到胜率
@@ -558,7 +569,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                 : preflopTier === 5 ? 'text-blue-400'
                 : 'text-purple-400'
             }`}>
-              {translations.handAnalysis.tier} {preflopTier} — {translations.handAnalysis.tierNames[preflopTier]}
+              {translations.handAnalysis.tier} {preflopTier} — {translations.handAnalysis.tierNames[preflopTier]} {canOpen !== null ? (canOpen ? '✅' : '❌') : ''}
             </div>
           )}
         </>
@@ -889,13 +900,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             </div>
             <table className="w-full text-[10px]">
               <thead>
-                <tr className="text-white/30 text-[8px]">
+                <tr className="text-white/30 text-[10px]">
                   <th className="text-left" />
                   <th colSpan={4} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
                   <th colSpan={6} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
                   <th colSpan={2} className="text-center border-b border-white/10">{translations.playerStats.showdown}</th>
                 </tr>
-                <tr className="text-white/50">
+                <tr className="text-white/50 text-[8px]">
                   <th className="text-left">{translations.playerStats.name}</th>
                   <th className="text-right">{translations.playerStats.vpip}</th>
                   <th className="text-right">{translations.playerStats.pfr}</th>

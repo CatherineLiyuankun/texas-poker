@@ -247,6 +247,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           longStats={longStats}
           viewingPlayerId={viewingPlayerId}
           realPlayerSessionStats={realPlayerSessionStats}
+          positionLabel={positionLabel}
         />
       )}
     </div>
