@@ -1,4 +1,8 @@
-import { analyzeBoard } from '../boardTexture';
+import {
+  analyzeBoard,
+  analyzeBoardWithEquity,
+  calibrateWetnessWithEquity,
+} from '../boardTexture';
 import type { Card } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -199,6 +203,167 @@ describe('Board Texture Analysis', () => {
       expect(analyzeBoard(highBoard).highCards).toBeGreaterThan(
         analyzeBoard(lowBoard).highCards,
       );
+    });
+  });
+
+  describe('Ace-low wheel handling', () => {
+    it('A-2-3 counts wheel connectivity', () => {
+      const wheel = [card('♠', 'A'), card('♠', '2'), card('♦', '3')];
+      const texture = analyzeBoard(wheel);
+      expect(texture.isConnected).toBe(true);
+      expect(texture.wetness).toBeGreaterThanOrEqual(6);
+    });
+
+    it('A-2-x without a 3 does not inflate connectivity', () => {
+      const noWheel = [card('♠', 'A'), card('♦', '2'), card('♣', '7')];
+      const wheel = [card('♠', 'A'), card('♠', '2'), card('♦', '3')];
+      expect(analyzeBoard(noWheel).isConnected).toBe(false);
+      expect(analyzeBoard(noWheel).wetness).toBeLessThan(
+        analyzeBoard(wheel).wetness,
+      );
+      expect(analyzeBoard(noWheel).classification).toBe('very_dry');
+    });
+
+    it('A-2-3-4 turn keeps wheel connectivity', () => {
+      const wheelTurn = [
+        card('♠', 'A'),
+        card('♠', '2'),
+        card('♦', '3'),
+        card('♣', '4'),
+      ];
+      expect(analyzeBoard(wheelTurn).isConnected).toBe(true);
+    });
+  });
+
+  describe('Low-card bonus requires connectivity', () => {
+    it('connected low board gets low bonus, disconnected does not', () => {
+      const connectedLow = [card('♠', '7'), card('♠', '6'), card('♦', '2')];
+      const disconnectedLow = [card('♠', 'J'), card('♠', '7'), card('♦', '2')];
+      const connectedTexture = analyzeBoard(connectedLow);
+      const disconnectedTexture = analyzeBoard(disconnectedLow);
+      expect(connectedTexture.wetness).toBeGreaterThan(
+        disconnectedTexture.wetness,
+      );
+      expect(disconnectedTexture.classification).toBe('very_dry');
+    });
+
+    it('disconnected low board is not marked wet', () => {
+      const disconnectedLow = [card('♠', 'J'), card('♠', '7'), card('♦', '2')];
+      expect(analyzeBoard(disconnectedLow).wetness).toBeLessThanOrEqual(2);
+    });
+  });
+
+  describe('Street-aware river evaluation', () => {
+    it('classifies street by card count', () => {
+      const flop = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+      const turn = [...flop, card('♥', '9')];
+      const river = [...turn, card('♠', '4')];
+      expect(analyzeBoard(flop).street).toBe('flop');
+      expect(analyzeBoard(turn).street).toBe('turn');
+      expect(analyzeBoard(river).street).toBe('river');
+    });
+
+    it('four-flush river is wet', () => {
+      const fourFlush = [
+        card('♠', 'K'),
+        card('♠', '9'),
+        card('♠', '5'),
+        card('♠', '2'),
+        card('♦', '7'),
+      ];
+      const texture = analyzeBoard(fourFlush);
+      expect(texture.street).toBe('river');
+      expect(texture.classification).toBe('wet');
+      expect(texture.wetness).toBeGreaterThanOrEqual(7);
+    });
+
+    it('paired rainbow river with no straight is very dry', () => {
+      const pairedRainbow = [
+        card('♠', 'K'),
+        card('♦', 'K'),
+        card('♣', '7'),
+        card('♠', '2'),
+        card('♥', '9'),
+      ];
+      const texture = analyzeBoard(pairedRainbow);
+      expect(texture.street).toBe('river');
+      expect(texture.classification).toBe('very_dry');
+    });
+
+    it('river with one-card straight possibility is wetter than a dead board', () => {
+      const straightPossible = [
+        card('♥', '9'),
+        card('♦', '8'),
+        card('♣', '7'),
+        card('♠', '6'),
+        card('♣', '2'),
+      ];
+      const deadBoard = [
+        card('♠', 'K'),
+        card('♦', '9'),
+        card('♣', '5'),
+        card('♠', '3'),
+        card('♥', '7'),
+      ];
+      expect(analyzeBoard(straightPossible).isStraightPossible).toBe(true);
+      expect(analyzeBoard(straightPossible).wetness).toBeGreaterThan(
+        analyzeBoard(deadBoard).wetness,
+      );
+    });
+
+    it('monotone straight river is very wet with straight on board', () => {
+      const royal = [
+        card('♠', 'A'),
+        card('♠', 'K'),
+        card('♠', 'Q'),
+        card('♠', 'J'),
+        card('♠', '10'),
+      ];
+      const texture = analyzeBoard(royal);
+      expect(texture.classification).toBe('very_wet');
+      expect(texture.isStraightOnBoard).toBe(true);
+    });
+  });
+
+  describe('Equity-based wetness calibration', () => {
+    it('wet board calibrates wetter than dry board', () => {
+      const dry = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+      const wet = [card('♠', 'J'), card('♠', '10'), card('♠', '9')];
+      const dryCal = calibrateWetnessWithEquity(dry, 300);
+      const wetCal = calibrateWetnessWithEquity(wet, 300);
+      expect(wetCal.equityWetness).toBeGreaterThan(dryCal.equityWetness);
+      expect(wetCal.topSetEquity).toBeLessThan(dryCal.topSetEquity);
+    });
+
+    it('returns empty calibration for river and preflop boards', () => {
+      const river = [
+        card('♠', 'A'),
+        card('♠', 'K'),
+        card('♠', 'Q'),
+        card('♠', 'J'),
+        card('♠', '10'),
+      ];
+      const preflop = [card('♠', 'A'), card('♦', 'K')];
+      expect(calibrateWetnessWithEquity(river, 100).iterations).toBe(0);
+      expect(calibrateWetnessWithEquity(preflop, 100).iterations).toBe(0);
+    });
+
+    it('analyzeBoardWithEquity caches results per board', () => {
+      const board = [card('♠', 'J'), card('♠', '10'), card('♠', '9')];
+      const first = analyzeBoardWithEquity(board);
+      const second = analyzeBoardWithEquity(board);
+      expect(second).toBe(first);
+    });
+
+    it('analyzeBoardWithEquity falls back to heuristic on river', () => {
+      const river = [
+        card('♠', 'A'),
+        card('♠', 'K'),
+        card('♠', 'Q'),
+        card('♠', 'J'),
+        card('♠', '10'),
+      ];
+      expect(analyzeBoardWithEquity(river)).toEqual(analyzeBoard(river));
     });
   });
 });

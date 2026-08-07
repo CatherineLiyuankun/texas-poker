@@ -111,6 +111,27 @@ Total: $230 = sum of all bets ✓
 - When calculating pots after all-in, pass `currentPot=0` to avoid duplication
 - Clear existing side pots before recalculating (fix cumulative bug)
 
+### Board Texture Analysis (`src/utils/boardTexture.ts`)
+
+Wet/dry texture drives postflop strategy (c-bet frequency, sizing). Two layers:
+
+- `analyzeBoard(cards)`: fast deterministic heuristic, street-aware. Flop/turn score
+  draw potential (flush/straight/connectivity); river scores made-hand structure
+  (four-flush, straight on board, one-card straight completions) since no draws exist.
+  Ace counts low only for genuine wheel structures (A-2-3), and the low-card bonus
+  requires connectivity.
+- `analyzeBoardWithEquity(cards)`: heuristic blended 70/30 with an equity calibration
+  (`calibrateWetnessWithEquity`) that measures top-set equity vs a random hand via
+  `calculateEquity`. Vulnerable top set = wet. Results are cached per board; river
+  boards fall back to the heuristic. Use this for AI analysis/decision entry points.
+
+**Rules:**
+- Keep `analyzeBoard` pure and fast; do not add Monte Carlo work to it.
+- Equity calibration is flop/turn only and must stay cached (one `calculateEquity`
+  call per distinct board).
+- Extend `BoardTexture` fields rather than changing existing ones; consumers rely on
+  `wetness` and `classification`.
+
 ---
 
 ## 4. Code Style and Formatting Rules

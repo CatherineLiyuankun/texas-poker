@@ -2,7 +2,7 @@ import type { Card, GameState, Player, HandRank, Action } from '../types/poker';
 import { HAND_RANK_ORDER, RANK_ORDER } from '../types/poker';
 import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
-import { analyzeBoard } from './boardTexture';
+import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateEquity } from './equityCalculator';
@@ -513,7 +513,7 @@ export function getDeepStackRecommendation(
   adj: OpponentAdjustments,
 ): DeepStackRecommendation {
   const community = getCommunityByPhase(state);
-  const texture = analyzeBoard(community);
+  const texture = analyzeBoardWithEquity(community);
   const equity = calculateEquity(player.hand, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
 

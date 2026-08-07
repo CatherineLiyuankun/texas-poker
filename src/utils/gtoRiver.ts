@@ -2,7 +2,7 @@ import type { Card, GameState, Player, HandRank, Suit } from '../types/poker';
 import { HAND_RANK_ORDER, RANK_ORDER } from '../types/poker';
 import type { BotDecision, ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
-import { analyzeBoard } from './boardTexture';
+import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateEquity } from './equityCalculator';
@@ -476,7 +476,7 @@ export function decideRiverGTO(
   adj: OpponentAdjustments,
 ): BotDecision {
   const community = getCommunityByPhase(state);
-  const texture = analyzeBoard(community);
+  const texture = analyzeBoardWithEquity(community);
   const equity = calculateEquity(player.hand, community, ctx.numOpponents, 500);
   const evaluated = evaluateHand(player.hand, community);
   const strength = classifyRiverStrength(equity, evaluated.rank);

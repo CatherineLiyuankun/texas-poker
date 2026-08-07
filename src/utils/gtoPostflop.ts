@@ -8,7 +8,11 @@ import type {
 import { calculateEquity } from './equityCalculator';
 import { evaluateHand } from './handEvaluator';
 import { detectDraws, type DrawInfo } from './drawDetector';
-import { analyzeBoard, type BoardTexture, type BoardClassification } from './boardTexture';
+import {
+  analyzeBoardWithEquity,
+  type BoardTexture,
+  type BoardClassification,
+} from './boardTexture';
 
 export interface GtoPostflopRecommendation {
   action: Action;
@@ -126,7 +130,7 @@ export function decidePostflopGTO(
     return flags.canCheckResult ? { action: 'check' } : { action: 'fold' };
   }
 
-  const texture = analyzeBoard(community);
+  const texture = analyzeBoardWithEquity(community);
   const equity = calculateEquity(
     player.hand, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
@@ -461,5 +465,5 @@ export function getGtoPostflopRecommendation(params: {
   };
 }
 
-export { analyzeBoard } from './boardTexture';
+export { analyzeBoard, analyzeBoardWithEquity } from './boardTexture';
 export type { BoardTexture, BoardClassification } from './boardTexture';
