@@ -16,7 +16,7 @@ import {
 } from '../utils/gtoPreflop';
 import { getGtoPostflopRecommendation, analyzeBoardWithEquity } from '../utils/gtoPostflop';
 import { detectDraws } from '../utils/drawDetector';
-import { calculateEquity } from '../utils/equityCalculator';
+import { calculateRangeAwareEquity } from '../utils/rangeEquity';
 import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
 import {
@@ -797,8 +797,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             return undefined;
                           const community = state.communityCards;
                           const boardTexture = analyzeBoardWithEquity(community);
-                          const equity = calculateEquity(
-                            player.hand, community, state.players.filter(p => !p.folded && p.id !== player.id).length,
+                          const equity = calculateRangeAwareEquity(
+                            player, state, community,
+                            state.players.filter(p => !p.folded && p.id !== player.id).length,
                             state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
                           );
                           const draws = detectDraws(player.hand, community,

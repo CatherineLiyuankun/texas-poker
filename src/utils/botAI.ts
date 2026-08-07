@@ -8,6 +8,7 @@ import {
 } from '../hooks/useGameState';
 import { getPreflopTier } from './preflopHandStrength';
 import { calculateEquity } from './equityCalculator';
+import { calculateRangeAwareEquity } from './rangeEquity';
 import {
   calculateOpponentProfile,
   getOpponentAdjustments,
@@ -761,8 +762,8 @@ function decidePostflop(
   const community = getCommunityCardsByPhase(state);
 
   const iterations = state.phase === 'flop' ? 200 : 300;
-  const equity = calculateEquity(
-    player.hand, community, ctx.numOpponents, iterations,
+  const equity = calculateRangeAwareEquity(
+    player, state, community, ctx.numOpponents, iterations,
   );
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
@@ -884,8 +885,8 @@ function decideRiver(
   }
 
   const community = getCommunityCardsByPhase(state);
-  const equity = calculateEquity(
-    player.hand, community, ctx.numOpponents, 500,
+  const equity = calculateRangeAwareEquity(
+    player, state, community, ctx.numOpponents, 500,
   );
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;

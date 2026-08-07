@@ -132,6 +132,31 @@ Wet/dry texture drives postflop strategy (c-bet frequency, sizing). Two layers:
 - Extend `BoardTexture` fields rather than changing existing ones; consumers rely on
   `wetness` and `classification`.
 
+### Equity Calculation (`src/utils/equityCalculator.ts`, `src/utils/rangeEquity.ts`)
+
+Decision quality hinges on equity estimates. Two layers:
+
+- `calculateEquity(hand, board, numOpponents, iterations, options?)`: Monte Carlo
+  with partial shuffles and a reused deck. Ties split correctly as `1/(1+tied)`.
+  Heads-up river is computed by exact enumeration (hero evaluated once, all
+  C(45,2) opponent hands) — zero variance at Monte Carlo cost.
+  `options.opponentCombos` samples the primary opponent from an estimated range;
+  extra opponents stay random.
+- `calculateRangeAwareEquity(hero, state, community, numOpponents, iterations)`:
+  the decision entry point. Estimates the primary opponent's continuing range
+  (`estimateOpponentCombos`) from preflop role (most-invested player = opener,
+  otherwise defender vs the aggressor), position tables in `gtoPreflop.ts`,
+  card removal, and optional VPIP width tuning from `opponentModel`. Falls back
+  to random-hand equity when no range can be inferred.
+
+**Rules:**
+- Decision code should call `calculateRangeAwareEquity`, not raw `calculateEquity`,
+  except where ranges are meaningless (e.g., board-texture calibration uses random
+  opponents on purpose).
+- Range expansion (`expandRange`) must always apply card removal against hero +
+  board before use.
+- Keep exact enumeration for heads-up river; do not replace it with Monte Carlo.
+
 ---
 
 ## 4. Code Style and Formatting Rules

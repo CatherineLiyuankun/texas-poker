@@ -5,7 +5,7 @@ import type { OpponentAdjustments } from './opponentModel';
 import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
-import { calculateEquity } from './equityCalculator';
+import { calculateRangeAwareEquity } from './rangeEquity';
 import { detectDraws } from './drawDetector';
 import type { DrawInfo } from './drawDetector';
 
@@ -514,7 +514,7 @@ export function getDeepStackRecommendation(
 ): DeepStackRecommendation {
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
-  const equity = calculateEquity(player.hand, community, ctx.numOpponents,
+  const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
 
   const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)

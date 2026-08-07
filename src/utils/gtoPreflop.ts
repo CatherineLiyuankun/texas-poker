@@ -38,8 +38,8 @@ export interface OpponentAdjustments {
 }
 
 type GtoAction = 'R' | 'C' | 'F';
-type Position = 'UTG' | 'HJ' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
-type DefenderType = 'BB' | 'SB' | 'IP';
+export type Position = 'UTG' | 'HJ' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
+export type DefenderType = 'BB' | 'SB' | 'IP';
 
 export interface GtoFreq {
   r: number;
@@ -497,6 +497,57 @@ const FACING_OPEN_TABLES: Record<string, Record<string, GtoAction[][]>> = {
   BTN: { BB: BB_VS_BTN, SB: SB_VS_BTN, IP: IP_VS_BTN },
   SB:  { BB: BB_VS_SB,  SB: SB_VS_SB_TABLE, IP: IP_VS_SB_TABLE },
 };
+
+// ─── Range extraction (for range-equity estimation) ──────────
+// The 13x13 matrix stores: diagonal = pairs, upper triangle (i<j) = suited,
+// lower triangle (i>j) = offsuit. Smaller index = higher rank.
+function getRangeHandClasses(
+  table: GtoAction[][],
+  include: GtoAction[],
+): string[] {
+  const classes: string[] = [];
+  for (let i = 0; i < 13; i++) {
+    for (let j = 0; j < 13; j++) {
+      if (!include.includes(table[i][j])) continue;
+      if (i === j) {
+        classes.push(`${RN[i]}${RN[j]}`);
+      } else if (i < j) {
+        classes.push(`${RN[i]}${RN[j]}s`);
+      } else {
+        classes.push(`${RN[j]}${RN[i]}o`);
+      }
+    }
+  }
+  return classes;
+}
+
+export type PreflopRangeRole = 'opener' | 'caller' | 'threebettor';
+
+export interface PreflopRangeQuery {
+  role: PreflopRangeRole;
+  // Opener's seat when role='opener'; defender's seat otherwise.
+  position: Position;
+  // For defenders: which seat type and who opened.
+  defenderType?: DefenderType;
+  openerPosition?: Position;
+}
+
+export function getPreflopRangeClasses(query: PreflopRangeQuery): string[] {
+  if (query.role === 'opener') {
+    const table = RFI_TABLES[query.position] ?? RFI_TABLES.UTG;
+    return getRangeHandClasses(table, ['R']);
+  }
+  const opener = query.openerPosition ?? 'UTG';
+  const defender = query.defenderType ?? 'IP';
+  const byDefender = FACING_OPEN_TABLES[opener] ?? FACING_OPEN_TABLES.UTG;
+  const table = byDefender[defender] ?? byDefender.IP;
+  const include: GtoAction[] = query.role === 'threebettor' ? ['R'] : ['R', 'C'];
+  return getRangeHandClasses(table, include);
+}
+
+export function positionLabelFor(pos: number, total: number): Position {
+  return posToLabel(pos, total);
+}
 
 // ─── 4-bet vs 3-bet (position-dependent) ─────────────────────
 

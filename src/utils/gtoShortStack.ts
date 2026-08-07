@@ -3,7 +3,7 @@ import { HAND_RANK_ORDER } from '../types/poker';
 import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
 import { evaluateHand } from './handEvaluator';
-import { calculateEquity } from './equityCalculator';
+import { calculateRangeAwareEquity } from './rangeEquity';
 
 interface ShortStackConfig {
   effectiveStack: number;        // 有效筹码 (bb)
@@ -280,7 +280,7 @@ export function getShortStackRecommendation(
   }
 
   const community = getCommunityByPhase(state);
-  const equity = calculateEquity(player.hand, community, ctx.numOpponents,
+  const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
   const evaluated = evaluateHand(player.hand, community);
   const strength = classifyHandStrength(equity, evaluated.rank);

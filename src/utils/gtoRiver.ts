@@ -5,7 +5,7 @@ import type { OpponentAdjustments } from './opponentModel';
 import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
-import { calculateEquity } from './equityCalculator';
+import { calculateRangeAwareEquity } from './rangeEquity';
 
 interface RiverConfig {
   equity: number;
@@ -477,7 +477,7 @@ export function decideRiverGTO(
 ): BotDecision {
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
-  const equity = calculateEquity(player.hand, community, ctx.numOpponents, 500);
+  const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents, 500);
   const evaluated = evaluateHand(player.hand, community);
   const strength = classifyRiverStrength(equity, evaluated.rank);
   const ip = isIP(ctx);

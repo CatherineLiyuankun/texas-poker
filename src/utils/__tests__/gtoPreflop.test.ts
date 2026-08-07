@@ -2,6 +2,8 @@ import {
   getGtoPreflopRecommendation,
   getRfiPositionForDisplay,
   getOpenerPosition,
+  getPreflopRangeClasses,
+  positionLabelFor,
 } from '../gtoPreflop';
 import type { Card, Player, GameState, PlayerId } from '../../types/poker';
 
@@ -749,6 +751,55 @@ describe('GTO Preflop Engine', () => {
     it('HJ folds 72o', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
       expect(getGtoPreflopRecommendation(garbage, 'HJ', 'rfi').action).toBe('F');
+    });
+  });
+
+  describe('Preflop range extraction', () => {
+    it('opener range contains premium hands and excludes junk', () => {
+      const classes = getPreflopRangeClasses({ role: 'opener', position: 'UTG' });
+      expect(classes).toContain('AA');
+      expect(classes).toContain('AKs');
+      expect(classes).not.toContain('72o');
+    });
+
+    it('later position opens a wider range', () => {
+      const utg = getPreflopRangeClasses({ role: 'opener', position: 'UTG' });
+      const btn = getPreflopRangeClasses({ role: 'opener', position: 'BTN' });
+      expect(btn.length).toBeGreaterThan(utg.length);
+    });
+
+    it('BB caller range vs UTG includes calls and 3-bets', () => {
+      const classes = getPreflopRangeClasses({
+        role: 'caller',
+        position: 'BB',
+        defenderType: 'BB',
+        openerPosition: 'UTG',
+      });
+      expect(classes).toContain('AA'); // 3-bet hands are part of continuing range
+      expect(classes.length).toBeGreaterThan(10);
+    });
+
+    it('threebettor range is a subset of caller range', () => {
+      const caller = getPreflopRangeClasses({
+        role: 'caller',
+        position: 'BB',
+        defenderType: 'BB',
+        openerPosition: 'UTG',
+      });
+      const threebettor = getPreflopRangeClasses({
+        role: 'threebettor',
+        position: 'BB',
+        defenderType: 'BB',
+        openerPosition: 'UTG',
+      });
+      expect(threebettor.length).toBeLessThan(caller.length);
+      for (const cls of threebettor) expect(caller).toContain(cls);
+    });
+
+    it('positionLabelFor maps seats relative to the dealer', () => {
+      expect(positionLabelFor(0, 6)).toBe('BTN');
+      expect(positionLabelFor(1, 6)).toBe('SB');
+      expect(positionLabelFor(2, 6)).toBe('BB');
     });
   });
 });

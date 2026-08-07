@@ -72,4 +72,129 @@ describe('Equity Calculator', () => {
     );
     expect(equity1v1).toBeGreaterThan(equity1v3);
   });
+
+  describe('Deterministic scenarios', () => {
+    // A♠K♥Q♦J♣T♠: broadway on board, no flush possible — every hand ties
+    const broadwayBoard = [
+      card('♠', 'A'),
+      card('♥', 'K'),
+      card('♦', 'Q'),
+      card('♣', 'J'),
+      card('♠', '10'),
+    ];
+
+    it('heads-up river tie is exactly 0.5 (exact enumeration)', () => {
+      const equity = calculateEquity(
+        [card('♣', '2'), card('♦', '3')],
+        broadwayBoard,
+        1,
+      );
+      expect(equity).toBe(0.5);
+    });
+
+    it('three-way tie splits the pot 1/3 each', () => {
+      const equity = calculateEquity(
+        [card('♣', '2'), card('♦', '3')],
+        broadwayBoard,
+        2,
+        400,
+      );
+      expect(equity).toBeGreaterThan(0.28);
+      expect(equity).toBeLessThan(0.39);
+    });
+
+    it('exact river enumeration vs a range of sets loses with an overpair', () => {
+      const board = [
+        card('♠', 'K'),
+        card('♦', '7'),
+        card('♣', '2'),
+        card('♥', '9'),
+        card('♠', '4'),
+      ];
+      const kingSets = [
+        [card('♥', 'K'), card('♦', 'K')],
+        [card('♥', 'K'), card('♣', 'K')],
+        [card('♦', 'K'), card('♣', 'K')],
+      ];
+      const equity = calculateEquity(
+        [card('♠', 'A'), card('♥', 'A')],
+        board,
+        1,
+        200,
+        { opponentCombos: kingSets },
+      );
+      expect(equity).toBe(0);
+    });
+
+    it('exact river enumeration vs a range of lower pairs wins with an overpair', () => {
+      const board = [
+        card('♠', 'K'),
+        card('♦', '7'),
+        card('♣', '2'),
+        card('♥', '9'),
+        card('♠', '4'),
+      ];
+      const queenPairs = [
+        [card('♥', 'Q'), card('♦', 'Q')],
+        [card('♥', 'Q'), card('♣', 'Q')],
+        [card('♦', 'Q'), card('♣', 'Q')],
+      ];
+      const equity = calculateEquity(
+        [card('♠', 'A'), card('♥', 'A')],
+        board,
+        1,
+        200,
+        { opponentCombos: queenPairs },
+      );
+      expect(equity).toBe(1);
+    });
+
+    it('Monte Carlo path honors opponentCombos on the flop', () => {
+      const flop = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+      const kingSets = [
+        [card('♥', 'K'), card('♦', 'K')],
+        [card('♥', 'K'), card('♣', 'K')],
+        [card('♦', 'K'), card('♣', 'K')],
+      ];
+      const vsSets = calculateEquity(
+        [card('♠', 'A'), card('♥', 'A')],
+        flop,
+        1,
+        300,
+        { opponentCombos: kingSets },
+      );
+      const vsRandom = calculateEquity(
+        [card('♠', 'A'), card('♥', 'A')],
+        flop,
+        1,
+        300,
+      );
+      expect(vsSets).toBeLessThan(vsRandom);
+      expect(vsSets).toBeGreaterThanOrEqual(0);
+      expect(vsSets).toBeLessThanOrEqual(1);
+    });
+
+    it('combos conflicting with dead cards are filtered out', () => {
+      const board = [
+        card('♠', 'K'),
+        card('♦', '7'),
+        card('♣', '2'),
+        card('♥', '9'),
+        card('♠', '4'),
+      ];
+      const invalidCombos = [
+        [card('♠', 'K'), card('♦', 'K')], // K♠ is on the board
+        [card('♠', 'A'), card('♦', 'Q')], // A♠ is hero's card
+      ];
+      const equity = calculateEquity(
+        [card('♠', 'A'), card('♥', 'A')],
+        board,
+        1,
+        100,
+        { opponentCombos: invalidCombos },
+      );
+      expect(equity).toBeGreaterThanOrEqual(0);
+      expect(equity).toBeLessThanOrEqual(1);
+    });
+  });
 });

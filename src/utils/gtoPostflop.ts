@@ -5,7 +5,7 @@ import type {
   ContextInfo,
   OpponentAdjustments,
 } from './gtoPreflop';
-import { calculateEquity } from './equityCalculator';
+import { calculateRangeAwareEquity } from './rangeEquity';
 import { evaluateHand } from './handEvaluator';
 import { detectDraws, type DrawInfo } from './drawDetector';
 import {
@@ -131,8 +131,8 @@ export function decidePostflopGTO(
   }
 
   const texture = analyzeBoardWithEquity(community);
-  const equity = calculateEquity(
-    player.hand, community, ctx.numOpponents,
+  const equity = calculateRangeAwareEquity(
+    player, state, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
   );
   const draws = detectDraws(player.hand, community,
