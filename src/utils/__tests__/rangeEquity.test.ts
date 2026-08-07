@@ -10,8 +10,10 @@ import {
   getContinuingRangeClasses,
   estimateOpponentCombos,
   calculateRangeAwareEquity,
+  reconstructPreflopRoleFromEvents,
 } from '../rangeEquity';
 import type { Card, Player, GameState, PlayerId } from '../../types/poker';
+import type { ActionEvent } from '../../types/stats';
 
 function card(suit: string, rank: string): Card {
   return { suit: suit as Card['suit'], rank: rank as Card['rank'] };
@@ -283,6 +285,83 @@ describe('Range Equity', () => {
       );
       expect(equity).toBeGreaterThanOrEqual(0);
       expect(equity).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe('reconstructPreflopRoleFromEvents', () => {
+    // 6-max, dealer = player 1. Seat 4 is UTG, seat 2 is SB, seat 3 is BB.
+    const dealer = 1 as PlayerId;
+    const total = 6;
+
+    function ev(
+      playerId: number,
+      action: string,
+      timestamp: number,
+      phase: 'preflop' | 'flop' = 'preflop',
+    ): ActionEvent {
+      return {
+        handId: 'h1',
+        playerId: playerId as PlayerId,
+        phase,
+        action: action as ActionEvent['action'],
+        toCall: 0,
+        currentBet: 0,
+        potSize: 0,
+        position: 0,
+        isFacingRaise: false,
+        timestamp,
+      };
+    }
+
+    it('identifies the first raiser as the opener', () => {
+      const events = [
+        ev(4, 'raise', 1),
+        ev(2, 'call', 2),
+      ];
+      const recon = reconstructPreflopRoleFromEvents(events, 4, dealer, total);
+      expect(recon).toEqual({ role: 'opener' });
+    });
+
+    it('identifies a later raiser as a threebettor with opener position', () => {
+      const events = [
+        ev(4, 'raise', 1),
+        ev(2, 'raise', 2),
+      ];
+      const recon = reconstructPreflopRoleFromEvents(events, 2, dealer, total);
+      expect(recon?.role).toBe('threebettor');
+      expect(recon?.openerPosition).toBe('UTG');
+    });
+
+    it('identifies a caller facing a raise, with opener position', () => {
+      const events = [
+        ev(4, 'raise', 1),
+        ev(2, 'call', 2),
+      ];
+      const recon = reconstructPreflopRoleFromEvents(events, 2, dealer, total);
+      expect(recon?.role).toBe('caller');
+      expect(recon?.openerPosition).toBe('UTG');
+    });
+
+    it('treats a call in a limped pot as a caller without opener', () => {
+      const events = [ev(4, 'call', 1), ev(2, 'call', 2)];
+      const recon = reconstructPreflopRoleFromEvents(events, 2, dealer, total);
+      expect(recon).toEqual({ role: 'caller' });
+    });
+
+    it('returns null when the opponent has no preflop events', () => {
+      const events = [ev(4, 'raise', 1)];
+      expect(reconstructPreflopRoleFromEvents(events, 2, dealer, total)).toBeNull();
+    });
+
+    it('returns null for empty events', () => {
+      expect(reconstructPreflopRoleFromEvents([], 2, dealer, total)).toBeNull();
+    });
+
+    it('orders events by timestamp even if provided out of order', () => {
+      const events = [ev(2, 'call', 5), ev(4, 'raise', 1)];
+      const recon = reconstructPreflopRoleFromEvents(events, 2, dealer, total);
+      expect(recon?.role).toBe('caller');
+      expect(recon?.openerPosition).toBe('UTG');
     });
   });
 });

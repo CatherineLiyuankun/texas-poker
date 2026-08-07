@@ -1,4 +1,5 @@
 import type { Card, Suit, Rank, GameState, Player } from '../types/poker';
+import type { ActionEvent } from '../types/stats';
 import {
   getPreflopRangeClasses,
   positionLabelFor,
@@ -6,7 +7,7 @@ import {
   type PreflopRangeRole,
   type DefenderType,
 } from './gtoPreflop';
-import { getOpponentVpipPfr } from './opponentModel';
+import { getOpponentVpipPfr, getCurrentHand } from './opponentModel';
 import { calculateEquity } from './equityCalculator';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
@@ -266,6 +267,67 @@ function seatPosition(playerId: number, dealer: number, total: number): Position
   return positionLabelFor(pos, total);
 }
 
+export interface PreflopReconstruction {
+  role: PreflopRangeRole;
+  openerPosition?: Position;
+}
+
+function isRaiseAction(action: string): boolean {
+  return action === 'raise' || action === 'allin';
+}
+
+// Reconstruct an opponent's preflop role from the recorded action history.
+// Pure with respect to the provided events so it is unit-testable.
+export function reconstructPreflopRoleFromEvents(
+  preflopEvents: ActionEvent[],
+  opponentId: number,
+  dealer: number,
+  totalPlayers: number,
+): PreflopReconstruction | null {
+  if (preflopEvents.length === 0) return null;
+
+  const ordered = [...preflopEvents].sort((a, b) => a.timestamp - b.timestamp);
+  const raiseEvents = ordered.filter((e) => isRaiseAction(e.action));
+  const firstRaise = raiseEvents.length > 0 ? raiseEvents[0] : null;
+
+  const oppEvents = ordered.filter((e) => e.playerId === opponentId);
+  if (oppEvents.length === 0) return null;
+
+  const oppRaised = oppEvents.some((e) => isRaiseAction(e.action));
+  const oppCalled = oppEvents.some((e) => e.action === 'call');
+
+  if (oppRaised && firstRaise && firstRaise.playerId === opponentId) {
+    return { role: 'opener' };
+  }
+  if (oppRaised && firstRaise) {
+    return {
+      role: 'threebettor',
+      openerPosition: seatPosition(firstRaise.playerId, dealer, totalPlayers),
+    };
+  }
+  if (oppCalled && firstRaise) {
+    return {
+      role: 'caller',
+      openerPosition: seatPosition(firstRaise.playerId, dealer, totalPlayers),
+    };
+  }
+  if (oppCalled) {
+    // Limped pot: no raise to define an opener.
+    return { role: 'caller' };
+  }
+  return null;
+}
+
+function currentHandPreflopEvents(): ActionEvent[] {
+  try {
+    const hand = getCurrentHand();
+    if (!hand || !hand.events) return [];
+    return hand.events.filter((e) => e.phase === 'preflop');
+  } catch {
+    return [];
+  }
+}
+
 // Best-effort reconstruction of the primary opponent's continuing range.
 // Returns null when no reliable range can be inferred (caller falls back to
 // random-hand equity).
@@ -285,24 +347,34 @@ export function estimateOpponentCombos(
   const total = state.players.length;
   const bigBlind = state.smallBlind * 2;
 
+  const primaryPos = seatPosition(primary.id, state.dealer, total);
+
+  // Primary signal: the recorded preflop action history. Fallback: the
+  // totalBet heuristic (calls match raises, so this is only approximate).
+  const reconstruction = reconstructPreflopRoleFromEvents(
+    currentHandPreflopEvents(),
+    primary.id,
+    state.dealer,
+    total,
+  );
+
   let role: PreflopRangeRole;
   let openerPosition: Position | undefined;
 
-  const others = opponents.filter((p) => p.id !== primary.id);
-  const aggressor = [primary, ...others].reduce(
-    (a, b) => (b.totalBet > a.totalBet ? b : a),
-  );
-
-  const primaryPos = seatPosition(primary.id, state.dealer, total);
-
-  if (aggressor.id === primary.id && primary.totalBet >= bigBlind * 2) {
+  if (reconstruction) {
+    role = reconstruction.role;
+    openerPosition = reconstruction.openerPosition;
+  } else if (primary.totalBet >= bigBlind * 2) {
     role = 'opener';
   } else {
     role = 'caller';
-    openerPosition =
-      aggressor.id !== primary.id
-        ? seatPosition(aggressor.id, state.dealer, total)
-        : 'CO';
+    const others = opponents.filter((p) => p.id !== primary.id);
+    if (others.length > 0) {
+      const aggressor = others.reduce((a, b) => (b.totalBet > a.totalBet ? b : a));
+      openerPosition = seatPosition(aggressor.id, state.dealer, total);
+    } else {
+      openerPosition = 'CO';
+    }
   }
 
   let vpip: number | undefined;
