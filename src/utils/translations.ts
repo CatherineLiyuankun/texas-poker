@@ -80,9 +80,9 @@ export const translations = {
     mpN: (n: number) => `MP${n}`,
   },
   handAnalysis: {
-    title: 'AI Analysis',
-    preflop: '手牌强度Chen Formula', // 翻牌前preflopStrength Chen Formula 
-    winRate: '胜率 Win Rate', //  Win Rate
+    aiTitle: 'AI Analysis',
+    preflop: '手牌强度', // 翻牌前preflopStrength Chen Formula 
+    equity: '权益 Equity', //  Equity（底池权益）
     potOdds: '赔率 Pot Odds',
     gto: 'GTO preflop', // GTO建议
     spr: 'SPR',
@@ -90,10 +90,10 @@ export const translations = {
     sprMedium: '中等', // Medium
     sprDeep: '深', // Deep
     drawEq: '听牌补偿 Draw Eq',
-    suggest: '胜率/赔率建议',
     currentHand: 'Current Hand',
     tier: 'Tier',
     tierNames: {
+      0: 'Unknown 未知',
       1: 'Premium 顶级',
       2: 'Strong 强牌',
       3: 'Playable 可玩',
