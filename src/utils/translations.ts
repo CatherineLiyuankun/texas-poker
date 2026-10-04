@@ -84,7 +84,7 @@ export const translations = {
     preflop: '手牌强度', // 翻牌前preflopStrength Chen Formula 
     equity: '随机权益 Equity', //  Equity vs random hands（对随机牌）
     rangeEquity: '范围权益 Equity', //  Equity vs estimated continuing range（对推断范围）
-    rangeNarrowed: '范围已按翻后行动收窄', //  narrowed by the opponent's postflop action line
+    rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
     gto: 'GTO preflop', // GTO建议

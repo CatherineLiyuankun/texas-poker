@@ -739,6 +739,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                     value={rangeEquity}
                     color={getEquityBarColor(rangeEquity)}
                   />
+
+                  {/* 范围权益的口径说明：收窄 / 剥削性调整时显式标注，避免误读为纯 GTO 范围 */}
+                  {(rangeFlags.narrowed || rangeFlags.exploited) && (
+                    <div className="col-span-2 text-[10px] leading-tight text-gray-400">
+                      {rangeFlags.narrowed && (
+                        <span>{translations.handAnalysis.rangeNarrowed}</span>
+                      )}
+                      {rangeFlags.narrowed && rangeFlags.exploited && <span> · </span>}
+                      {rangeFlags.exploited && (
+                        <span>{translations.handAnalysis.rangeExploitative}</span>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <span className="text-yellow-400 animate-pulse">...</span>
@@ -746,19 +759,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
             color={getEquityTextColor(rangeEquity)}
           />
-
-          {/* 范围权益的口径说明：收窄 / 剥削性调整时显式标注，避免误读为纯 GTO 范围 */}
-          {(rangeFlags.narrowed || rangeFlags.exploited) && (
-            <div className="col-span-2 text-[10px] leading-tight text-gray-400">
-              {rangeFlags.narrowed && (
-                <span>{translations.handAnalysis.rangeNarrowed}</span>
-              )}
-              {rangeFlags.narrowed && rangeFlags.exploited && <span> · </span>}
-              {rangeFlags.exploited && (
-                <span>{translations.handAnalysis.rangeExploitative}</span>
-              )}
-            </div>
-          )}
 
           {/* 底池赔率 */}
           <GridRow
