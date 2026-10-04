@@ -40,9 +40,13 @@ function createPlayer(
   };
 }
 
-function createState(players: Player[], community: Card[]): GameState {
+function createState(
+  players: Player[],
+  community: Card[],
+  phase: GameState['phase'] = 'flop',
+): GameState {
   return {
-    phase: 'flop',
+    phase,
     mainPot: 30,
     sidePots: [],
     communityCards: community,
@@ -260,6 +264,47 @@ describe('Range Equity', () => {
         community,
       );
       expect(combos).not.toBeNull();
+    });
+  });
+
+  // 翻前（community 为空）是 HandAnalysis 面板新启用的路径，
+  // 上面几条用例都传了 3 张公共牌，无法覆盖它。
+  describe('翻前无公共牌（community = []）', () => {
+    const heroHand = [card('♠', 'A'), card('♥', 'K')];
+
+    it('estimateOpponentCombos 在翻前仍能推断出对手范围', () => {
+      const hero = createPlayer(1 as PlayerId, heroHand, 20);
+      const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
+      const combos = estimateOpponentCombos(
+        hero,
+        createState([hero, opponent], [], 'preflop'),
+        [],
+      );
+
+      expect(combos).not.toBeNull();
+      expect(combos!.length).toBeGreaterThan(10);
+
+      // 范围里不能出现英雄自己的手牌
+      const heroKeys = new Set(heroHand.map((c) => `${c.suit}${c.rank}`));
+      for (const combo of combos!) {
+        expect(combo).toHaveLength(2);
+        for (const c of combo) {
+          expect(heroKeys.has(`${c.suit}${c.rank}`)).toBe(false);
+        }
+      }
+    });
+
+    it('calculateRangeAwareEquity 在翻前返回合法概率，且 AA 显著领先', () => {
+      const hero = createPlayer(1 as PlayerId, [card('♠', 'A'), card('♥', 'A')], 20);
+      const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
+      const state = createState([hero, opponent], [], 'preflop');
+
+      const equity = calculateRangeAwareEquity(hero, state, [], 1, 300);
+
+      expect(equity).toBeGreaterThanOrEqual(0);
+      expect(equity).toBeLessThanOrEqual(1);
+      // AA 翻前对任何继续范围都应明显领先
+      expect(equity).toBeGreaterThan(0.6);
     });
   });
 

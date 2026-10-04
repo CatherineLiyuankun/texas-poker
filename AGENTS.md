@@ -156,6 +156,13 @@ Decision quality hinges on equity estimates. Two layers:
 - Range expansion (`expandRange`) must always apply card removal against hero +
   board before use.
 - Keep exact enumeration for heads-up river; do not replace it with Monte Carlo.
+- Never feed `getPreflopStrength` / `getPreflopTier` output into EV math — those
+  return a 2–20 Chen score, not a probability. Preflop equity is Monte Carlo, the
+  same engine as postflop; the panel only keeps the score for display.
+- The `HandAnalysis` panel must show random equity and range equity as two separate
+  values. Range equity falls back to random equity when `estimateOpponentCombos`
+  returns `null`, and both must stay 0–1 probabilities so `gtoMath.ts` consumes them
+  directly.
 
 ---
 

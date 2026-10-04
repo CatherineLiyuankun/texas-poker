@@ -82,7 +82,8 @@ export const translations = {
   handAnalysis: {
     aiTitle: 'AI Analysis',
     preflop: '手牌强度', // 翻牌前preflopStrength Chen Formula 
-    equity: '权益 Equity', //  Equity（底池权益）
+    equity: '随机权益 Equity', //  Equity vs random hands（对随机牌）
+    rangeEquity: '范围权益 Equity', //  Equity vs estimated continuing range（对推断范围）
     potOdds: '赔率 Pot Odds',
     gto: 'GTO preflop', // GTO建议
     spr: 'SPR',

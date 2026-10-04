@@ -1,9 +1,10 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import type { Card, GamePhase, PlayerId } from '../types/poker';
+import type { Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
 import { calculateEquity } from '../utils/equityCalculator';
+import { estimateOpponentCombos } from '../utils/rangeEquity';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
@@ -43,9 +44,13 @@ interface HandAnalysisProps {
   viewingPlayerId?: PlayerId;
   realPlayerSessionStats?: BotStatsWithAF[];
   positionLabel?: string;
+  /** 完整对局状态，用于推断对手继续范围（范围权益） */
+  gameState?: GameState;
+  /** 当前面板所属的真人玩家对象 */
+  heroPlayer?: Player;
 }
 
-// 建议逻辑：仅基于胜率 + 赔率
+// 建议逻辑：仅基于胜率（0–1 概率）+ 赔率
 // Monte Carlo 胜率已包含听牌概率，不再单独叠加
 function getRecommendation(
   equity: number,
@@ -53,19 +58,23 @@ function getRecommendation(
   phase: GamePhase,
 ): string {
   const { rec } = translations.handAnalysis;
+  if (potOdds <= 0) {
+    // 无注可跟：明显领先就下注，否则过牌
+    return equity >= 0.6 ? rec.raise : rec.check;
+  }
   if (phase === 'preflop') {
-    if (potOdds >= 0.33 && equity <= 10) return rec.fold;
-    if (potOdds === 0) return rec.check;
-    if (equity >= 10) return rec.raise;
-    if (equity >= 7) return rec.callRaise;
-    if (equity >= 4 && potOdds < 0.25) return rec.call;
+    // 翻前多路底池的权益会被稀释（AA 对 8 人随机牌也只有约 33%），
+    // 因此用相对赔率的阈值，而非绝对胜率阈值。
+    if (equity >= potOdds + 0.35) return rec.raise;
+    if (equity >= potOdds + 0.15) return rec.callRaise;
+    if (equity >= potOdds) return rec.call;
+    if (potOdds < 0.1) return rec.callCheap;
     return rec.fold;
   }
-  if (equity >= 0.70) return rec.raise;
+  if (equity >= 0.7) return rec.raise;
   if (equity >= 0.55) return rec.callRaise;
   if (equity >= potOdds + 0.05) return rec.call;
-  if (potOdds === 0) return rec.check;
-  if (potOdds < 0.10) return rec.callCheap;
+  if (potOdds < 0.1) return rec.callCheap;
   return rec.fold;
 }
 
@@ -283,6 +292,15 @@ function getEquityBarColor(equity: number | null): string {
       : 'bg-red-400';
 }
 
+function getEquityTextColor(equity: number | null): string {
+  if (equity === null) return 'text-white';
+  return equity >= 0.6
+    ? 'text-green-400'
+    : equity >= 0.4
+      ? 'text-yellow-400'
+      : 'text-red-400';
+}
+
 function getCurrentHandRankColor(rank: string): string {
   if (rank === 'high_card') return 'text-white/50';
   if (rank === 'pair') return 'text-blue-400';
@@ -368,6 +386,21 @@ function getCardsToCome(phase: GamePhase): number {
   }
 }
 
+// 蒙特卡洛迭代次数：翻前要模拟 5 张公共牌，成本最高；单次模拟成本随对手数
+// 近似线性增长，因此多人底池自动下调迭代数，保证面板不卡顿。
+const EQUITY_ITERATIONS: Record<string, number> = {
+  preflop: 400,
+  flop: 350,
+  turn: 300,
+  river: 300,
+};
+
+function equityIterations(phase: GamePhase, numOpponents: number): number {
+  const base = EQUITY_ITERATIONS[phase] ?? 300;
+  const trimmed = Math.round(base * (2 / Math.max(2, numOpponents)));
+  return Math.min(base, Math.max(120, trimmed));
+}
+
 function StrengthBar({ value, color }: { value: number; color: string }) {
   return (
     <div className="w-10 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
@@ -431,10 +464,18 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   viewingPlayerId,
   realPlayerSessionStats,
   positionLabel,
+  gameState,
+  heroPlayer,
 }) => {
-  const [equity, setEquity] = useState<number | null>(null);
+  const [randomEquity, setRandomEquity] = useState<number | null>(null);
+  const [rangeEquity, setRangeEquity] = useState<number | null>(null);
 
-  const community = getCommunityByPhase(communityCards, phase);
+  // getCommunityByPhase 会 slice 出新数组，这里按引用缓存，
+  // 避免每次渲染都重新触发蒙特卡洛模拟。
+  const community = useMemo(
+    () => getCommunityByPhase(communityCards, phase),
+    [communityCards, phase],
+  );
   const cardsToCome = getCardsToCome(phase);
 
   const preflopStrength = useMemo(
@@ -470,40 +511,77 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return evaluateHand(holeCards, community).rank;
   }, [holeCards, community, phase]);
 
+  // 翻牌前同样走真实蒙特卡洛（模拟补齐 5 张公共牌），不再用 Chen 分数代替
   const shouldCalculate = useMemo(
     () =>
-      phase !== 'preflop' &&
       phase !== 'showdown' &&
       phase !== 'ended' &&
-      holeCards.length >= 2 &&
-      community.length >= 3,
-    [phase, holeCards, community],
+      holeCards.length >= 2,
+    [phase, holeCards],
   );
 
-  useEffect(() => {
-    if (!shouldCalculate) return;
+  // 对手的下注/弃牌会改变可推断的继续范围，用它作为额外依赖触发重算
+  const rangeSignature = useMemo(() => {
+    if (!gameState) return 'none';
+    return [
+      gameState.dealer,
+      gameState.phase,
+      gameState.lastBet,
+      ...gameState.players.map(
+        (p) => `${p.id}:${p.folded ? 'F' : 'A'}:${p.totalBet}:${p.chips}`,
+      ),
+    ].join('|');
+  }, [gameState]);
 
+  useEffect(() => {
+    if (!shouldCalculate) {
+      setRandomEquity(null);
+      setRangeEquity(null);
+      return;
+    }
+
+    const iterations = equityIterations(phase, numOpponents);
     const timer = setTimeout(() => {
-      const result = calculateEquity(holeCards, community, numOpponents, 200);
-      setEquity(result);
+      // 随机权益：所有对手都按随机牌建模
+      const random = calculateEquity(
+        holeCards, community, numOpponents, iterations,
+      );
+      setRandomEquity(random);
+
+      // 范围权益：主要对手按推断出的继续范围建模；
+      // 无法推断范围时退化为随机权益（与上一行同一个数）。
+      const combos =
+        heroPlayer && gameState
+          ? estimateOpponentCombos(heroPlayer, gameState, community)
+          : null;
+      setRangeEquity(
+        combos
+          ? calculateEquity(holeCards, community, numOpponents, iterations, {
+            opponentCombos: combos,
+          })
+          : random,
+      );
     }, 50);
     return () => clearTimeout(timer);
-  }, [holeCards, community, numOpponents, shouldCalculate]);
+    // gameState 中影响范围推断的字段已折叠进 rangeSignature；
+    // heroPlayer 在同一手牌内保持稳定，故不单独作为依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holeCards, community, numOpponents, shouldCalculate, phase, rangeSignature]);
 
-  // Monte Carlo 胜率已包含听牌概率，直接使用
-  const displayEquity =
-    phase === 'preflop' ? preflopStrength : equity;
+  // 蒙特卡洛胜率已包含听牌概率，直接使用。
+  // 决策以范围权益为准（更接近真实对手），无法推断范围时等同随机权益。
+  const decisionEquity = rangeEquity ?? randomEquity;
 
   const recommendation = useMemo(() => {
-    if (displayEquity === null) return '';
-    return getRecommendation(displayEquity, potOdds, phase);
-  }, [displayEquity, potOdds, phase]);
+    if (decisionEquity === null) return '';
+    return getRecommendation(decisionEquity, potOdds, phase);
+  }, [decisionEquity, potOdds, phase]);
 
   // GTO Math calculations
   const gtoMath = useMemo(() => {
     const pot = currentPot ?? 0;
     const bet = betToCall ?? 0;
-    const eq = displayEquity ?? 0;
+    const eq = decisionEquity ?? 0;
     const raiseSize = playerRaiseAmount ?? 0;
 
     // MDF: only when facing a bet
@@ -561,7 +639,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       : null;
 
     return { mdf, vbRatio, bluffFreq, callEV, raiseEV, bestAction, bestEV, rangeCat };
-  }, [displayEquity, currentPot, betToCall, playerRaiseAmount, phase]);
+  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase]);
 
   // Calculate pot odds to display (facing bet OR making bet)
   const displayPotOdds = useMemo(() => {
@@ -641,17 +719,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
       {/* Win rate + Pod odds + Action */}
       {<div className="border-t border-white/10 pt-1 mt-1">
-        <div className="grid grid-cols-[5fr_4fr_1fr] gap-x-2 gap-y-1">
-          {/* First column: Win rate */}
+        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+          {/* 随机权益：所有对手都按随机牌建模 */}
           <GridRow
             label={translations.handAnalysis.equity}
             value={
-              equity !== null ? (
+              randomEquity !== null ? (
                 <>
-                  {(equity * 100).toFixed(0)}%
+                  {(randomEquity * 100).toFixed(0)}%
                   <StrengthBar
-                    value={equity}
-                    color={getEquityBarColor(equity)}
+                    value={randomEquity}
+                    color={getEquityBarColor(randomEquity)}
                   />
                 </>
               ) : (
@@ -660,14 +738,33 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
           />
 
-          {/* Second column: Pot odds */}
+          {/* 范围权益：主要对手按推断的继续范围建模（决策依据） */}
+          <GridRow
+            label={translations.handAnalysis.rangeEquity}
+            value={
+              rangeEquity !== null ? (
+                <>
+                  {(rangeEquity * 100).toFixed(0)}%
+                  <StrengthBar
+                    value={rangeEquity}
+                    color={getEquityBarColor(rangeEquity)}
+                  />
+                </>
+              ) : (
+                <span className="text-yellow-400 animate-pulse">...</span>
+              )
+            }
+            color={getEquityTextColor(rangeEquity)}
+          />
+
+          {/* 底池赔率 */}
           <GridRow
             label={translations.handAnalysis.potOdds}
-            value={ displayPotOdds !== null ? `${(displayPotOdds * 100).toFixed(0)}%` : '...' }
+            value={displayPotOdds !== null ? `${(displayPotOdds * 100).toFixed(0)}%` : '...'}
             color={getPotOddsColor(displayPotOdds)}
           />
 
-          {/* Last column: Compare Equity（权益） and potOdds, provide action */}
+          {/* 胜率 vs 赔率 → 建议 */}
           <div className="justify-self-end">
             <GridRow
               label={' '}

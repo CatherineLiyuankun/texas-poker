@@ -59,6 +59,8 @@ The GTO modules in `src/utils/` are consulted by both the bots and the player-fa
 
 Decision code must call `calculateRangeAwareEquity`, not raw `calculateEquity` — the deliberate exception is board-texture calibration, which uses random opponents on purpose. `expandRange` must always apply card removal against hero + board.
 
+The `HandAnalysis` panel surfaces both layers side by side (random equity vs. range equity) and runs from preflop onward. Preflop is real Monte Carlo, **not** the Chen score from `preflopHandStrength.ts` — that file returns a 2–20 strength score, never a probability, and feeding it into EV math silently inflates the numbers. Any 0–1 probability passed to `gtoMath.ts` must come from an equity calculation.
+
 ### Board texture (`boardTexture.ts`)
 
 - `analyzeBoard(cards)` — fast, pure, deterministic heuristic; street-aware (flop/turn score draw potential, river scores made-hand structure). Must stay free of Monte Carlo work.
@@ -88,5 +90,5 @@ Decision code must call `calculateRangeAwareEquity`, not raw `calculateEquity` �
 
 - `src/utils/__tests__/` — algorithm correctness (pots, equity, draws, board texture, each GTO module, preflop strength, range equity).
 - `src/hooks/__tests__/` — reducer/side-pot behavior; `src/e2eTests/useGameState.integration.test.ts` — full-hand flows asserting chip conservation and pot splitting.
-- `src/components/__tests__/` — GameBoard blind logic and showdown settlement.
+- `src/components/__tests__/` — GameBoard blind logic, showdown settlement, and the equity panel (rendered equity values + the `GameBoard → PlayerArea → HandAnalysis` prop chain).
 - Any change to betting/pot logic must keep the chip-conservation tests green; add scenarios with mixed all-in amounts when touching that area.
