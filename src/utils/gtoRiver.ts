@@ -6,7 +6,7 @@ import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
-import { callPotOddsFrom } from './potOdds';
+import { callPotOddsFrom, mdfFrom } from './potOdds';
 
 interface RiverConfig {
   equity: number;
@@ -61,15 +61,6 @@ function isIP(ctx: ContextInfo): boolean {
 function calculateSPR(ctx: ContextInfo): number {
   if (ctx.totalPot === 0) return 10;
   return ctx.toCall / ctx.totalPot;
-}
-
-// 注意：这里与 gtoMath.calculateMDF 公式相同但**退化输入的行为不同**
-// （这里返回 0.5，gtoMath 返回 0），所以暂不合并，避免悄悄改变河牌分档。
-// 合并前需先确认 equity >= mdf 这个判据本身是否成立（权益 vs 防御频率量纲不同）。
-// 口径：potSize 必须是**下注前**底池，调用点见 getPolarizedCategory。
-function calculateMDF(betSize: number, potSize: number): number {
-  if (potSize + betSize === 0) return 0.5;
-  return potSize / (potSize + betSize);
 }
 
 function calculateGTOBluffFrequency(betSize: number, potSize: number): number {
@@ -170,6 +161,20 @@ function unblocksBluffCatchers(hand: Card[], community: Card[]): number {
   return Math.min(unblockScore, 0.3);
 }
 
+/**
+ * 把 hero 的手牌归到极化三分（value / bluff catcher / bluff）。
+ *
+ * 口径：MDF 需要**下注前**底池，而 `totalPot` 已含对手本轮的注，
+ * 所以走 `mdfFrom`（业务口径适配器）而不是自己减 `toCall`。
+ *
+ * ⚠️ 已知问题（见 .opencode/plans/pot-odds-consistency.md §10）：
+ * 下面的 `equity >= mdf` 是**量纲混用** —— MDF = P/(P+B) 是「整条范围该防守
+ * 多少」的**范围级**概念，equity 是**单手持牌**的权益；而且 MDF 随注码递减、
+ * 跟注所需权益随注码递增，方向相反。只要注码小于 φ≈1.618 倍底池，MDF 就严格
+ * 高于 potOdds，这道门会完全支配调用点的 `equity >= potOdds`，导致「小注反而
+ * 要求更高权益」（MEDIUM 牌面对 1/4 池下注会被 100% 弃掉）。
+ * 修正方式是删掉调用点的这道门、直接按价格判断；本次重构未改行为，留待单独提交。
+ */
 function getPolarizedCategory(
   equity: number,
   handRank: HandRank | null,
@@ -189,10 +194,7 @@ function getPolarizedCategory(
     return PolarizedCategory.VALUE;
   }
 
-  // MDF 的约定是「下注前底池」，而 totalPot 已含对手本轮的注，必须先减掉 toCall。
-  // 直接传 totalPot 会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
-  const potBeforeBet = Math.max(0, totalPot - toCall);
-  const mdf = calculateMDF(toCall, potBeforeBet);
+  const mdf = mdfFrom(totalPot, toCall);
   if (equity >= mdf) {
     return PolarizedCategory.BLUFF_CATCHER;
   }
@@ -337,7 +339,13 @@ function handleRiverFacingBet(
     return handleRiverBigRaise(player, state, flags, config);
   }
 
-  const category = getPolarizedCategory(equity, evaluateHand(player.hand, community).rank, texture, ctx.toCall, ctx.totalPot);
+  const category = getPolarizedCategory(
+    equity,
+    evaluateHand(player.hand, community).rank,
+    texture,
+    ctx.toCall,
+    ctx.totalPot,
+  );
 
   switch (strength) {
     case HandStrength.NUTS:

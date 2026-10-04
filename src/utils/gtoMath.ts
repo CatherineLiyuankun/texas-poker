@@ -43,6 +43,13 @@ export interface GTOMathResult {
   rangeCategory: RangeCategory | null;
 }
 
+/**
+ * 最小防守频率 —— **MDF 公式的唯一实现**。
+ *
+ * 教科书签名：`potSize` 是**下注前**底池，返回 `potSize / (potSize + betSize)`。
+ * 业务侧只持有含注底池时，请用 `potOdds.mdfFrom`（它负责换算后调用这里），
+ * 不要自己写 `totalPot - toCall` —— 那正是阶段 2 里两处调用同时写错的原因。
+ */
 export function calculateMDF(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return potSize / (potSize + betSize);
