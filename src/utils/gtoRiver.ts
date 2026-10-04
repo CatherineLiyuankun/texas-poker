@@ -7,7 +7,6 @@ import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import { callPotOddsFrom } from './potOdds';
-import { mdfFrom } from './gtoMath';
 
 interface RiverConfig {
   equity: number;
@@ -165,23 +164,23 @@ function unblocksBluffCatchers(hand: Card[], community: Card[]): number {
 /**
  * 把 hero 的手牌归到极化三分（value / bluff catcher / bluff）。
  *
- * 口径：MDF 需要**下注前**底池，而 `totalPot` 已含对手本轮的注，
- * 所以走 `mdfFrom`（业务口径适配器）而不是自己减 `toCall`。
+ * 判据只看**手牌本身**：成手牌等级 + 牌面纹理。
  *
- * ⚠️ 已知问题（见 .opencode/plans/pot-odds-consistency.md §10）：
- * 下面的 `equity >= mdf` 是**量纲混用** —— MDF = P/(P+B) 是「整条范围该防守
- * 多少」的**范围级**概念，equity 是**单手持牌**的权益；而且 MDF 随注码递减、
- * 跟注所需权益随注码递增，方向相反。只要注码小于 φ≈1.618 倍底池，MDF 就严格
- * 高于 potOdds，这道门会完全支配调用点的 `equity >= potOdds`，导致「小注反而
- * 要求更高权益」（MEDIUM 牌面对 1/4 池下注会被 100% 弃掉）。
- * 修正方式是删掉调用点的这道门、直接按价格判断；本次重构未改行为，留待单独提交。
+ * 这里早先还有一条 `equity >= mdf` 的分支，已删除 —— 它属于**量纲混用**：
+ * MDF = P/(P+B) 是「整条范围该防守多少」的**范围级**概念，equity 是
+ * **单手持牌**的权益；而且 MDF 随注码递减、跟注所需权益随注码递增，方向相反。
+ * 只要注码小于 φ≈1.618 倍底池，MDF 就严格高于 potOdds，这条分支会完全支配
+ * 调用点的 `equity >= potOdds`，导致「小注反而要求更高权益」
+ * （MEDIUM 牌面对 1/4 池下注会被 100% 弃掉）。
+ * 删掉后由调用点按价格判断，见 .opencode/plans/pot-odds-consistency.md §10。
+ *
+ * 注意：`PolarizedCategory.VALUE` 目前没有消费方（两个调用点只比较
+ * BLUFF_CATCHER），保留是为了让「极化三分」的语义完整。
  */
 function getPolarizedCategory(
   equity: number,
   handRank: HandRank | null,
   texture: BoardTexture,
-  toCall: number,
-  totalPot: number,
 ): PolarizedCategory {
   if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
     return PolarizedCategory.VALUE;
@@ -193,11 +192,6 @@ function getPolarizedCategory(
 
   if (handRank === 'pair' && equity >= 0.7) {
     return PolarizedCategory.VALUE;
-  }
-
-  const mdf = mdfFrom(totalPot, toCall);
-  if (equity >= mdf) {
-    return PolarizedCategory.BLUFF_CATCHER;
   }
 
   if (texture.wetness > 7 && equity >= 0.25) {
@@ -344,8 +338,6 @@ function handleRiverFacingBet(
     equity,
     evaluateHand(player.hand, community).rank,
     texture,
-    ctx.toCall,
-    ctx.totalPot,
   );
 
   switch (strength) {
