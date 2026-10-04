@@ -6,7 +6,8 @@ import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
-import { callPotOddsFrom, mdfFrom } from './potOdds';
+import { callPotOddsFrom } from './potOdds';
+import { mdfFrom } from './gtoMath';
 
 interface RiverConfig {
   equity: number;

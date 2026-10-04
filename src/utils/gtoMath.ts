@@ -47,12 +47,31 @@ export interface GTOMathResult {
  * 最小防守频率 —— **MDF 公式的唯一实现**。
  *
  * 教科书签名：`potSize` 是**下注前**底池，返回 `potSize / (potSize + betSize)`。
- * 业务侧只持有含注底池时，请用 `potOdds.mdfFrom`（它负责换算后调用这里），
+ * 业务侧只持有含注底池时，请用下面的 `mdfFrom`（它负责换算后调用这里），
  * 不要自己写 `totalPot - toCall` —— 那正是阶段 2 里两处调用同时写错的原因。
  */
 export function calculateMDF(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return potSize / (potSize + betSize);
+}
+
+/**
+ * 最小防守频率，**业务口径适配器**：入参是「含注底池」与跟注额，
+ * 换算成下注前底池后交给 `calculateMDF`（公式的唯一实现）。
+ *
+ * 存在的意义：本代码库里 `ctx.totalPot` / `state.mainPot` 都是含注底池，
+ * 调用方不该自己写 `totalPot - toCall` —— 阶段 2 里面板与河牌两处调用
+ * 正是这么写错的（把含注底池当成下注前底池，半池 MDF 由 0.667 变成 0.75）。
+ *
+ * 无需跟注（toCall = 0）时返回 1（「无需防守」）；注意这与
+ * `calculateMDF` 在 betSize <= 0 时返回 0 的哨兵语义不同。
+ */
+export function mdfFrom(totalPot: number, toCall: number): number {
+  const pot = Math.max(0, totalPot);
+  if (pot <= 0) return 0;
+  const bet = Math.max(0, toCall);
+  if (bet <= 0) return 1;
+  return calculateMDF(bet, pot - bet);
 }
 
 export function calculateValueBluffRatio(

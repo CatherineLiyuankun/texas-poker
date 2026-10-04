@@ -1,5 +1,6 @@
 import {
   calculateMDF,
+  mdfFrom,
   calculateValueBluffRatio,
   calculateCallEV,
   calculateFoldEV,
@@ -51,6 +52,50 @@ describe('GTO Math Functions', () => {
 
     it('should return 0 for zero bet', () => {
       expect(calculateMDF(0, 1)).toBe(0);
+    });
+  });
+
+  describe('mdfFrom — 只持有「含注底池 + 跟注额」时的 MDF', () => {
+    it('标准注码得到教科书 MDF（含注底池口径会偏高）', () => {
+      // 下注前底池 100：对手下 50 → 含注 150
+      expect(mdfFrom(150, 50)).toBeCloseTo(2 / 3, 10); // 半池 → 0.667
+      expect(mdfFrom(200, 100)).toBeCloseTo(1 / 2, 10); // 一池 → 0.5
+      expect(mdfFrom(125, 25)).toBeCloseTo(0.8, 10); // 1/4 池 → 0.8
+
+      // 对照：把含注底池当成「下注前底池」喂给 calculateMDF 会偏高
+      expect(calculateMDF(50, 150)).toBeCloseTo(0.75, 10);
+      expect(calculateMDF(50, 150)).toBeGreaterThan(mdfFrom(150, 50));
+    });
+
+    it('mdfFrom 是 calculateMDF 的业务口径适配器（公式只有一份）', () => {
+      // mdfFrom(含注底池, 跟注额) 必须等于 calculateMDF(跟注额, 下注前底池)
+      for (const [bet, potBeforeBet] of [
+        [25, 100],
+        [50, 100],
+        [100, 100],
+        [200, 100],
+        [50, 250],
+      ] as const) {
+        expect(mdfFrom(potBeforeBet + bet, bet)).toBeCloseTo(
+          calculateMDF(bet, potBeforeBet),
+          10,
+        );
+      }
+
+      // 两者的退化语义**故意不同**：calculateMDF 用 0 表示「不适用」，
+      // mdfFrom 用 1 表示「无需防守」。改这条要同步 gtoMath 的文档与调用方。
+      expect(calculateMDF(0, 100)).toBe(0);
+      expect(calculateMDF(50, 0)).toBe(0);
+      expect(mdfFrom(100, 0)).toBe(1);
+    });
+
+    it('边界：无需跟注 / 底池为 0 / 畸形输入都不产生 NaN', () => {
+      expect(mdfFrom(100, 0)).toBe(1); // 无下注可防守
+      expect(mdfFrom(0, 0)).toBe(0);
+      expect(mdfFrom(0, 50)).toBe(0);
+      expect(mdfFrom(100, 200)).toBe(0); // toCall 超过底池 → 夹到 0
+      expect(mdfFrom(-100, 50)).toBe(0);
+      expect(Number.isFinite(mdfFrom(100, -50))).toBe(true);
     });
   });
 

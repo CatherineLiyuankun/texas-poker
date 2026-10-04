@@ -17,9 +17,9 @@ import {
   calculateBluffFrequency,
   calculateRequiredEquity,
   classifyRange,
+  mdfFrom,
   type RangeCategory,
 } from '../utils/gtoMath';
-import { mdfFrom } from '../utils/potOdds';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
 
