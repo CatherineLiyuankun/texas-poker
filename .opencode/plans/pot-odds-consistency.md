@@ -523,12 +523,15 @@ WEAK / AIR（equity < 0.5）：
 
 ### 10.4 结论与建议（按代价从低到高）
 
-> **落地状态（2026-10-04）：本节只采纳了「公式收敛」部分，A 未被采纳。**
-> 决策者选择**保留** `getPolarizedCategory` 与那道外层门（理由：河牌分档是
-> 有意的策略粗糙度，先不动行为），因此**没有**做 A / B 的行为变更。
-> 本次只删掉了 `gtoRiver` 里重复的 `calculateMDF` 并收敛了公式。详见 §10.5。
+> **落地状态（2026-10-04，最终）：A / B / C 都没做，改成了「D：删掉这条分支」。**
+> 最终选择既不动消费点的门、也不换成 `equity >= potOdds`，而是**把
+> `getPolarizedCategory` 里那条 `equity >= mdf` 分支直接删掉** ——
+> 即承认「MDF 不该参与手牌分档」，让 BLUFF_CATCHER 只由「极湿牌面」产生。
+> 这是**行为变更**，方向与 A 相反（河牌更紧，不是更松），详见 §10.6。
+>
+> 演进过程：§10.5 只做了公式收敛（保留分支）→ §10.6 删掉了这条分支。
 
-**A. 直接删掉外层门（推荐，但本次未采纳）**
+**A. 直接删掉外层门（推荐，但最终未采纳）**
 `equity >= potOdds`（WEAK/AIR 为 `+0.05`）本来就是完整的 EV 判据，
 删掉 `category` 之后：
 
@@ -683,6 +686,7 @@ export function mdfFrom(totalPot: number, toCall: number): number {
 - 全量 jest：见本节下方「验证结果」。
 - 已知遗留（未修，待单独提交）：§10.4 A 描述的量纲混用（`equity >= mdf`），
   以及 `gtoMath.MDFReference.requiredEquity` 字段名误导（实为 `1 − MDF`）。
+  → **两项均在 §10.6 处理完毕**（前者删除分支，后者改名 + 复用函数）。
 
 ### 验证结果
 
@@ -693,3 +697,70 @@ export function mdfFrom(totalPot: number, toCall: number): number {
   单独跑 `npx jest GameBoard.showdown.settlement` → **PASS（1.4s）**，
   与本次改动无关（未触碰 `useGameState` / `GameBoard`）。
 - 抽查：`potOdds.test.ts` 的适配器用例对 5 组 `(bet, potBeforeBet)` 断言两者相等到 10 位小数。
+
+---
+
+## 10.6 落地记录：删掉 `equity >= mdf` 分支 + 命名收敛（2026-10-04）
+
+### 与 §10.4 的关系
+
+§10.4 的 A 是「删掉**消费点**那道门（`if (category === BLUFF_CATCHER)`），
+改为纯按价格判断」—— 方向是**更松**（小注也能跟）。
+最终决策不是 A，而是 **D：删掉 `getPolarizedCategory` 里产生 BLUFF_CATCHER 的
+`equity >= mdf` 分支**，消费点的门保留。
+
+两者效果**相反**：
+
+| | A（未采纳） | D（已落地） |
+|---|---|---|
+| 改动位置 | 调用点的 `if (category === ...)` | 分类函数里的 `if (equity >= mdf)` |
+| BLUFF_CATCHER 含义 | 不再参与决策 | 只剩「极湿牌面」一个来源 |
+| MEDIUM 面对 1/4 池 | 跟（价格便宜） | 弃（干燥牌面判 BLUFF） |
+| 净方向 | 河牌**更松** | 河牌**更紧** |
+
+D 的语义：承认 MDF（范围级量）不该参与**手牌级**分档。删掉后
+`getPolarizedCategory` 只看成手牌等级 + 牌面纹理，不再依赖底池/注码。
+
+### 行为变更（已实测）
+
+权益 0.65 的 MEDIUM 一对（J♠5♥ 配 2♠7♦9♣J♥4♠），面对 75/150 的下注：
+
+- 旧：`mdf = (150−75)/150 = 0.5 ≤ 0.65` → BLUFF_CATCHER → `0.65 ≥ 0.333` → **call**
+- 新：干燥牌面 → BLUFF → **fold**
+
+验证方式：新增 `src/utils/__tests__/gtoRiver.polarized.test.ts`（mock
+`calculateRangeAwareEquity` = 0.65、`analyzeBoardWithEquity` 可调 wetness），
+再用 `git show HEAD:src/utils/gtoRiver.ts` 把旧实现换回来跑一遍 ——
+干燥那条用例在旧代码下得到 `call`，确认用例真的钉住了这次变更
+（此前这条分支**无任何用例覆盖**）。
+
+### 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `src/utils/gtoRiver.ts` | 删分支；`getPolarizedCategory` 去掉 `toCall`/`totalPot` 参数；不再 import `mdfFrom` |
+| `src/utils/__tests__/gtoRiver.polarized.test.ts` | 新增（2 条）：干燥 → fold，极湿 → call |
+| `src/utils/gtoMath.ts` | `mdfFrom` 从 `potOdds` 搬入；`requiredEquity` → `requiredFoldEquity`；参考表改调用 `calculateRequiredFoldEquity` |
+| `src/utils/potOdds.ts` | 删 `mdfFrom`，改为 import 转发（本模块只留「赔率」） |
+| `src/components/HandAnalysis.tsx` | `mdfFrom` 改从 `utils/gtoMath` 引入；`calculateRequiredEquity` → `calculateRequiredFoldEquity` |
+| 测试 | `mdfFrom` 用例迁到 `gtoMath.test.ts`；`potOdds.test.ts` 留一条面板/河牌一致性用例 |
+
+### 命名：为什么 `requiredEquity` 要改名
+
+`requiredEquity = betSize / (potSize + betSize) = 1 − MDF`，含义是
+**「我方下注所需的对手弃牌率」**，但字段名读起来像「跟注方的所需权益」。
+后者是 `betSize / (potSize + 2·betSize)`，数值差很多（半池 **0.333 vs 0.25**）。
+同理函数 `calculateRequiredEquity` 改名为 `calculateRequiredFoldEquity`
+（`HandAnalysis` 的 UI 文案本来就是「所需弃牌率 Req. Fold」，改名后代码与文案一致）。
+
+另外：`getMDFReferenceTable` 原本**内联**了 `betSize / (potSize + betSize)`，
+没有调用该函数（两者恒等，守卫分支在 `potSize=1` 下不触发）。现已改为调用，
+公式不再有第二份。
+
+### 遗留
+
+- 消费点的门（§10.4 A）仍在：MEDIUM/WEAK/AIR 只有在 BLUFF_CATCHER 时才做价格判断。
+  若要改成纯价格决策，属另一次行为变更。
+- `PolarizedCategory.VALUE` 仍无消费方（保留以维持三分语义）。
+- 河牌行为变更只做了 2 条确定性用例的覆盖；建议后续用批量采样抽查 bot 的整体
+  弃牌率是否可接受（本次未做统计层面的抽查）。
