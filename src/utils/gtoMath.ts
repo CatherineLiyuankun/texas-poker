@@ -25,6 +25,12 @@ export type RangeCategory = 'value' | 'bluff' | 'bluff_catcher' | 'fold';
 export interface MDFReference {
   betSize: string;
   mdf: number;
+  /**
+   * 注意：这是「我方下注所需的对手弃牌率」= bet / (下注前底池 + bet) = 1 − MDF，
+   * 与 `calculateRequiredEquity` 同口径。
+   * **不是**跟注方的所需权益 —— 那是 bet / (下注前底池 + 2·bet)。
+   * 字段名沿用历史叫法，重命名需同步 MDFReference 的消费方。
+   */
   requiredEquity: number;
   bluffPct: number;
 }

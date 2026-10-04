@@ -16,6 +16,8 @@ import type { GameState, Player } from '../types/poker';
  *   potBeforeBet 会被夹到 0（不产生负数）。
  * - `callPotOdds` 与 `gtoMath.calculateCallEV` 的盈亏平衡点一致：
  *   `calculateCallEV(callPotOdds, totalPot, toCall) === 0`。
+ * - `mdf` 用的是**下注前**底池（`gtoMath.calculateMDF` 的约定），
+ *   与 `callPotOdds` 用的含注底池不同口径 —— 同一个 memo 里两个量必须分开传参。
  */
 export interface PotOddsInput {
   /** `state.mainPot`（含本轮已下注） */
@@ -38,11 +40,12 @@ export interface PotOddsResult {
   /** 跟注所需权益 = toCall / (totalPot + toCall) */
   callPotOdds: number;
   /**
-   * 最小防守频率 = potBeforeBet / totalPot。
+   * 最小防守频率 = potBeforeBet / totalPot，等价于
+   * `gtoMath.calculateMDF(toCall, potBeforeBet)`。
    *
-   * 注意：`gtoMath.calculateMDF(bet, pot)` 要求 `pot` 是**下注前**底池，
-   * 而面板此前传的是含注底池，导致显示值偏高。这里给出正确口径，
-   * 面板侧的修正待后续单独提交（本字段暂未被消费，先由单测锁定）。
+   * 注意：`calculateMDF(bet, pot)` 要求 `pot` 是**下注前**底池，而面板 / 河牌
+   * 手里只有含注底池，早先直接把它喂进去导致显示值偏高（半池 0.667→0.75）。
+   * 只持有 (totalPot, toCall) 的调用方请用 `mdfFrom`。
    */
   mdf: number;
 }
@@ -55,12 +58,25 @@ export function callPotOddsFrom(toCall: number, totalPot: number): number {
   return toCall > 0 ? toCall / (totalPot + toCall) : 0;
 }
 
+/**
+ * 最小防守频率 = 下注前底池 / 含注底池。
+ *
+ * 只持有「含注底池 + 跟注额」的调用方用这个，避免自己写 `totalPot - toCall`
+ * 再手滑把含注底池喂给 `calculateMDF`。无需跟注（toCall = 0）时返回 1。
+ */
+export function mdfFrom(totalPot: number, toCall: number): number {
+  const pot = Math.max(0, totalPot);
+  if (pot <= 0) return 0;
+  const potBeforeBet = Math.max(0, pot - Math.max(0, toCall));
+  return potBeforeBet / pot;
+}
+
 export function computePotOdds(input: PotOddsInput): PotOddsResult {
   const totalPot = Math.max(0, input.mainPot + input.sidePotTotal);
   const toCall = Math.max(0, input.lastBet - input.playerBet);
   const potBeforeBet = Math.max(0, totalPot - toCall);
   const callPotOdds = callPotOddsFrom(toCall, totalPot);
-  const mdf = totalPot > 0 ? potBeforeBet / totalPot : 0;
+  const mdf = mdfFrom(totalPot, toCall);
 
   return { toCall, totalPot, potBeforeBet, callPotOdds, mdf };
 }

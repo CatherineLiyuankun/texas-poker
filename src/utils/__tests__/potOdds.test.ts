@@ -2,6 +2,7 @@ import {
   computePotOdds,
   computePotOddsFor,
   callPotOddsFrom,
+  mdfFrom,
 } from '../potOdds';
 import { calculateCallEV, calculateMDF, calculateRequiredEquity } from '../gtoMath';
 import type { GameState, Player } from '../../types/poker';
@@ -210,5 +211,40 @@ describe('computePotOddsFor / callPotOddsFrom', () => {
   it('callPotOddsFrom 对 toCall <= 0 返回 0', () => {
     expect(callPotOddsFrom(0, 100)).toBe(0);
     expect(callPotOddsFrom(-5, 100)).toBe(0);
+  });
+});
+
+describe('mdfFrom — 只持有「含注底池 + 跟注额」时的 MDF', () => {
+  it('与 computePotOdds().mdf 完全一致', () => {
+    for (const [mainPot, toCall] of [
+      [100, 0],
+      [100, 50],
+      [150, 50],
+      [100, 100],
+      [250, 100],
+    ] as const) {
+      const r = computePotOdds({ mainPot, sidePotTotal: 0, lastBet: toCall, playerBet: 0 });
+      expect(mdfFrom(r.totalPot, r.toCall)).toBeCloseTo(r.mdf, 10);
+    }
+  });
+
+  it('标准注码得到教科书 MDF（含注底池口径会偏高）', () => {
+    // 下注前底池 100：对手下 50 → 含注 150
+    expect(mdfFrom(150, 50)).toBeCloseTo(2 / 3, 10); // 半池 → 0.667
+    expect(mdfFrom(200, 100)).toBeCloseTo(1 / 2, 10); // 一池 → 0.5
+    expect(mdfFrom(125, 25)).toBeCloseTo(0.8, 10); // 1/4 池 → 0.8
+
+    // 对照：把含注底池当成「下注前底池」喂给 calculateMDF 会偏高
+    expect(calculateMDF(50, 150)).toBeCloseTo(0.75, 10);
+    expect(calculateMDF(50, 150)).toBeGreaterThan(mdfFrom(150, 50));
+  });
+
+  it('边界：无需跟注 / 底池为 0 / 畸形输入都不产生 NaN', () => {
+    expect(mdfFrom(100, 0)).toBe(1); // 无下注可防守
+    expect(mdfFrom(0, 0)).toBe(0);
+    expect(mdfFrom(0, 50)).toBe(0);
+    expect(mdfFrom(100, 200)).toBe(0); // toCall 超过底池 → 夹到 0
+    expect(mdfFrom(-100, 50)).toBe(0);
+    expect(Number.isFinite(mdfFrom(100, -50))).toBe(true);
   });
 });

@@ -205,14 +205,67 @@ export function computePotOdds(input: PotOddsInput): PotOddsResult;
   或直接改用「我方下注的盈亏平衡权益 = bet/(pot+bet)」并改名。
 - 移除 `displayPotOdds` 这个混合语义的 useMemo。
 
-### 阶段 2 — 修正 MDF 口径
+### 阶段 2 —— 修正 MDF 口径（已落地）
 
-- `HandAnalysis.tsx:578` 改为 `calculateMDF(bet, potBeforeBet)`，其中
-  `potBeforeBet = currentPot - betToCall`（来自 `computePotOdds`）。
-- `gtoRiver.ts:187` 同样改为 `calculateMDF(toCall, totalPot - toCall)`；
-  并复核 `equity >= mdf` 这个比较是否应改成别的判据（权益 vs 防御频率量纲不同），
-  建议在阶段 2 只做口径修正，分档逻辑单独立项。
-- 复核 `HandAnalysis` 的 MDF 颜色阈值（0.67/0.50）在修正后是否仍合适。
+**根因**：同一个 memo 里混用了两种底池口径。`calculateMDF` / `calculateValueBluffRatio`
+/ `calculateBluffFrequency` 要的是**下注前底池**，而 `calculateCallEV` / `calculateRaiseEV`
+要的是**含注底池**；面板与河牌一律传了含注底池，于是 MDF 偏高。
+
+| 调用 | 需要的底池 | 是否受影响 |
+|---|---|---|
+| `calculateMDF(bet, pot)` | 下注前 | ✗ 偏高 |
+| `calculateValueBluffRatio(bet, pot)` | 下注前 | 仅在 hero 本轮已有投入时偏 |
+| `calculateBluffFrequency(bet, pot)` | 下注前 | 同上 |
+| `calculateCallEV(eq, pot, bet)` | 含注 | ✓ 本来就对 |
+| `calculateRaiseEV(eq, pot, raise, foldPct)` | 含注 | ✓ 本来就对 |
+| `classifyRange(eq, bet, pot, phase)` | 下注前 | 仅在 hero 本轮已有投入时偏 |
+
+为什么只有 MDF 必须改：MDF 描述的是**对手那一注**，而 `currentPot` 已经包含对手
+本轮的注；其余几个量描述的是**我方下注**，`currentPot` 恰好等于「我方下注前底池」
+（hero 本轮未投入时）。
+
+**改动**：
+
+- `potOdds.ts` 新增 `mdfFrom(totalPot, toCall)`，与 `callPotOddsFrom` 对称，
+  让只持有「含注底池 + 跟注额」的调用方不必自己写 `totalPot - toCall`；
+  `computePotOdds` 改为复用它，保证两处 mdf 是同一个函数。
+- `HandAnalysis.tsx`：`calculateMDF(bet, pot)` → `mdfFrom(pot, bet)`，
+  并以 `potBeforeBet > 0` 作为渲染条件。
+- `gtoRiver.ts`：`calculateMDF(toCall, totalPot)` → `calculateMDF(toCall, totalPot - toCall)`。
+
+**颜色阈值**：`getMDFColor` 用 0.75/0.50，而 MDF 数字旁的 `StrengthBar` 内联用
+0.67/0.50 —— 修正口径后这个不一致会从「几乎不可见」变成「1/3~1/2 池之间整段打架」。
+统一为**精确分数 2/3 与 1/2**，并抽出 `getMDFBarColor` 与 `getMDFColor` 共用同一组常量：
+
+| 对手注码 | MDF | 档位 |
+|---|---|---|
+| 25% pot | 0.800 | 绿 |
+| 33% pot | 0.750 | 绿 |
+| 50% pot | 0.667 | 绿（恰为 2/3，用 0.67 会掉到黄） |
+| 75% pot | 0.571 | 黄 |
+| 100% pot | 0.500 | 黄 |
+| 200% pot | 0.333 | 红 |
+
+选 2/3 而非 0.75 的好处：修正口径前后**颜色分档完全不变**（半池原来显示 0.75 是绿，
+现在显示 0.667 仍是绿），阶段 2 于是成为一次纯粹的数字纠正，不会顺手改掉用户看到的
+红黄绿分布。
+
+**河牌行为变化**：`getPolarizedCategory` 的 `equity >= mdf` 门槛随之下降
+（半池 0.75→0.667、一池 0.667→0.5），于是 equity 落在 `[mdf_new, mdf_old)` 的
+MEDIUM / WEAK 手牌从 BLUFF 变为 BLUFF_CATCHER，进而在 `equity >= potOdds`
+检查下改为跟注。方向是「小注更愿意跟」，比原来合理（原阈值 0.75 高于 MEDIUM
+的上界 0.75，导致 MEDIUM 手牌在小注面前几乎永远进不了该分支）。
+`gtoRiver.test.ts` 全绿，没有用例翻转。
+
+**仍未处理（单独立项）**：
+
+- `gtoRiver.ts:188` 用 `equity >= mdf` 把「权益」与「防御频率」直接比大小，量纲不同。
+  手牌级的正确判据应是 `equity >= potOdds`（= `toCall/(totalPot+toCall)`）；
+  MDF 是**范围级**的分位概念，不该当手牌强度阈值用。本次只修口径、未动判据。
+- `gtoRiver.ts` 仍自带一份 `calculateMDF`，与 `gtoMath.calculateMDF` 公式相同但
+  退化输入行为不同（0.5 vs 0），已加注释说明，合并需先解决上一条。
+- `gtoMath.MDFReference.requiredEquity` 字段名有误导（实为 1 − MDF，即所需弃牌率，
+  不是跟注方所需权益）。已加注释，重命名需同步消费方。
 
 ### 阶段 3 — 披露口径（消除剧本 B / C 的观感矛盾）
 
@@ -244,7 +297,7 @@ export function computePotOdds(input: PotOddsInput): PotOddsResult;
 
 | 风险 | 说明 | 缓解 |
 |---|---|---|
-| 改 MDF 会动到河牌分档 | `gtoRiver.ts:187` 的 `equity >= mdf` 参与 `PolarizedCategory` 判定，修正后结果会变 | 阶段 2 单独提交，跑 `gtoRiver.test.ts`；若变化大，先只修面板、河牌另立专项 |
+| 改 MDF 会动到河牌分档 | `gtoRiver.ts:188` 的 `equity >= mdf` 参与 `PolarizedCategory` 判定，修正后门槛下降、更多 MEDIUM/WEAK 手牌变 BLUFF_CATCHER | **已执行**：`gtoRiver.test.ts` 全绿、无用例翻转；判据本身的量纲问题另立专项（见 §9） |
 | `playerRaiseAmount` 量纲 | 它是 raise-to 总额，`offeredOdds` 若要严谨需减去 `playerBet` | 阶段 1 一并修正，或在 UI 上明确写「按 raise-to 总额近似」 |
 | 六处替换引入回归 | 纯重构也可能手滑 | 阶段 0 不改公式、只换调用点，靠现有测试与 `git diff` 逐处核对 |
 | 面板建议与 GTO 合并 | 改动面最大，可能改变用户习惯 | 阶段 3 先只做「披露」，是否合并留待单独决策 |
@@ -257,15 +310,16 @@ export function computePotOdds(input: PotOddsInput): PotOddsResult;
    `botAI.ctx.potOdds` 逐位相等。
 2. 不再出现「显示赔率 ≥ 建议所需阈值，却给 fold」的自相矛盾（剧本 A 消除）。
 3. MDF 显示值与 `getMDFReferenceTable()` 对同一注码一致（剧本 D 消除）。
+   → 已由 `HandAnalysis.equity.test.tsx` 的 `it.each` 对 25/50/100/200% pot 逐个锁定。
 4. 随机/范围权益与判定依据的关系在 UI 上可读：判定依据所在权益行带绿色边框（剧本 B 缓解）。
 5. `computePotOdds` 单测覆盖恒等式与边界；全量 jest 绿。
 
 ---
 
-## 9. 实现记录（阶段 0 / 1 / 3 / 4 已落地）
+## 9. 实现记录（阶段 0 / 1 / 2 / 3 / 4 已落地）
 
 用户决策：**阶段 1 采用「主行固定跟注赔率 + 新增下注行」**；
-实施范围 **阶段 0 + 1 + 3 + 4，阶段 2 暂缓**。
+首轮实施范围 **阶段 0 + 1 + 3 + 4**，阶段 2 后续补做（已落地，见下文「阶段 2」）。
 
 ### 阶段 0 —— 抽出唯一口径来源
 
@@ -352,10 +406,10 @@ export function computePotOdds(input: PotOddsInput): PotOddsResult;
 - 遗留风险：`botAI.test.ts` 仍有多条对随机函数做单次采样的断言，
   建议后续统一改为统计断言或固定随机种子。
 
-### 仍未处理（阶段 2）
+### 仍未处理（阶段 2 的遗留，单独立项）
 
-- `HandAnalysis.tsx:585` 的 `calculateMDF(bet, pot)` 与 `gtoRiver.ts:187`
-  仍传含注底池，显示 MDF 偏高（半个池 0.667→0.75，一个池 0.50→0.667）。
-  正确写法：`calculateMDF(toCall, potOddsInfo.potBeforeBet)`。
-- `gtoRiver.ts:187` 用 `equity >= mdf` 把权益与防御频率直接比大小，属量纲混用，
-  需要单独立项评估。
+- `HandAnalysis` 与 `gtoRiver` 的 MDF **口径**已在阶段 2 修正；但
+  `gtoRiver.ts:188` 的 `equity >= mdf` 判据仍是量纲混用（权益 vs 防御频率），
+  手牌级正确判据应为 `equity >= potOdds`。
+- `gtoRiver.ts` 自带一份 `calculateMDF`，与 `gtoMath.calculateMDF` 退化输入行为不同。
+- `gtoMath.MDFReference.requiredEquity` 字段名误导（实为 1 − MDF）。

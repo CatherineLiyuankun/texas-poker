@@ -238,11 +238,13 @@ describe('GTO Math Functions', () => {
   });
 
   describe('calculateRequiredEquity', () => {
-    it('should return 25% for 50% pot bet', () => {
+    // 返回的是「我方下注所需对手弃牌率」= bet / (下注前底池 + bet) = 1 − MDF，
+    // 不是跟注方的所需权益（后者是 bet / (下注前底池 + 2·bet)）。
+    it('should return 33% for 50% pot bet', () => {
       expect(calculateRequiredEquity(0.5, 1)).toBeCloseTo(0.333, 2);
     });
 
-    it('should return 33% for 100% pot bet', () => {
+    it('should return 50% for 100% pot bet', () => {
       expect(calculateRequiredEquity(1.0, 1)).toBeCloseTo(0.50, 2);
     });
 

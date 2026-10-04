@@ -63,6 +63,10 @@ function calculateSPR(ctx: ContextInfo): number {
   return ctx.toCall / ctx.totalPot;
 }
 
+// 注意：这里与 gtoMath.calculateMDF 公式相同但**退化输入的行为不同**
+// （这里返回 0.5，gtoMath 返回 0），所以暂不合并，避免悄悄改变河牌分档。
+// 合并前需先确认 equity >= mdf 这个判据本身是否成立（权益 vs 防御频率量纲不同）。
+// 口径：potSize 必须是**下注前**底池，调用点见 getPolarizedCategory。
 function calculateMDF(betSize: number, potSize: number): number {
   if (potSize + betSize === 0) return 0.5;
   return potSize / (potSize + betSize);
@@ -185,7 +189,10 @@ function getPolarizedCategory(
     return PolarizedCategory.VALUE;
   }
 
-  const mdf = calculateMDF(toCall, totalPot);
+  // MDF 的约定是「下注前底池」，而 totalPot 已含对手本轮的注，必须先减掉 toCall。
+  // 直接传 totalPot 会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
+  const potBeforeBet = Math.max(0, totalPot - toCall);
+  const mdf = calculateMDF(toCall, potBeforeBet);
   if (equity >= mdf) {
     return PolarizedCategory.BLUFF_CATCHER;
   }
