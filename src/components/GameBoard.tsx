@@ -17,6 +17,7 @@ import {
 import { getGtoPostflopRecommendation, analyzeBoardWithEquity } from '../utils/gtoPostflop';
 import { detectDraws } from '../utils/drawDetector';
 import { calculateRangeAwareEquity } from '../utils/rangeEquity';
+import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
 import {
@@ -594,6 +595,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   const showActionButtons =
                     isCurrentRealPlayer && !player.folded && !player.allIn;
 
+                  // 底池 / 跟注额 / 跟注赔率统一口径（见 utils/potOdds.ts）
+                  const potOddsInfo = computePotOddsFor(state, player);
+
                   return (
                     <div
                       key={player.id}
@@ -649,35 +653,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         smallBlind={state.smallBlind}
                         adminRevealAll={adminRevealAll}
                         gameState={state}
-                        currentPot={(() => {
-                          return state.mainPot +
-                            state.sidePots.reduce(
-                              (sum, sp) => sum + sp.amount,
-                              0,
-                            );
-                        })()}
-                        betToCall={(() => {
-                          const toCall = state.lastBet - player.bet;
-                          return toCall > 0 ? toCall : 0;
-                        })()}
-                        potOdds={(() => {
-                          const toCall = state.lastBet - player.bet;
-                          if (toCall <= 0) return 0;
-                          const totalPot =
-                            state.mainPot +
-                            state.sidePots.reduce(
-                              (sum, sp) => sum + sp.amount,
-                              0,
-                            );
-                          return toCall / (totalPot + toCall);
-                        })()}
+                        currentPot={potOddsInfo.totalPot}
+                        betToCall={potOddsInfo.toCall}
+                        potOdds={potOddsInfo.callPotOdds}
                         spr={(() => {
-                          const totalPot =
-                            state.mainPot +
-                            state.sidePots.reduce(
-                              (sum, sp) => sum + sp.amount,
-                              0,
-                            );
+                          const totalPot = potOddsInfo.totalPot;
                           if (totalPot <= 0) return undefined;
                           const activeOpponents = state.players.filter(
                             (p) => !p.folded && p.id !== player.id,
@@ -780,11 +760,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             state.lastBet,
                             {
                               chips: player.chips,
-                              toCall: state.lastBet - player.bet,
-                              totalPot: state.mainPot +
-                                state.sidePots.reduce(
-                                  (sum, sp) => sum + sp.amount, 0,
-                                ),
+                              toCall: potOddsInfo.toCall,
+                              totalPot: potOddsInfo.totalPot,
                               bet: player.bet,
                             },
                           );
@@ -809,9 +786,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           const draws = detectDraws(player.hand, community,
                             state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
                           const evaluated = evaluateHand(player.hand, community);
-                          const toCall = state.lastBet - player.bet;
-                          const totalPot = state.mainPot +
-                            state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
+                          const { toCall, totalPot, callPotOdds } = potOddsInfo;
                           const pos =
                             (player.id - state.dealer + state.players.length) %
                             state.players.length;
@@ -821,7 +796,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             communityCards: community,
                             phase: state.phase as 'flop' | 'turn' | 'river',
                             equity,
-                            potOdds: toCall > 0 ? toCall / (totalPot + toCall) : 0,
+                            potOdds: callPotOdds,
                             spr,
                             position: pos,
                             totalPlayers: state.players.length,
