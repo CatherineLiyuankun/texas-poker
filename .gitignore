@@ -23,3 +23,6 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# AI assistant workspace (local notes / memory, never committed)
+.workbuddy-ai/

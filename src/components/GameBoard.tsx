@@ -645,6 +645,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         }
                         smallBlind={state.smallBlind}
                         adminRevealAll={adminRevealAll}
+                        gameState={state}
                         currentPot={(() => {
                           return state.mainPot +
                             state.sidePots.reduce(

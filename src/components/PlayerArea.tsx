@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Player, GamePhase, Action, Card as CardType, PlayerId } from '../types/poker';
+import type { Player, GamePhase, GameState, Action, Card as CardType, PlayerId } from '../types/poker';
 import { Card } from './Card';
 import { HandAnalysis } from './HandAnalysis';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
@@ -40,6 +40,8 @@ interface PlayerAreaProps {
   realPlayerSessionStats?: BotStatsWithAF[];
   smallBlind?: number;
   adminRevealAll?: boolean;
+  /** 完整对局状态，透传给 HandAnalysis 用于推断对手范围 */
+  gameState?: GameState;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({
@@ -68,6 +70,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   realPlayerSessionStats,
   smallBlind = SMALL_BLIND,
   adminRevealAll = false,
+  gameState,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -248,6 +251,8 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           viewingPlayerId={viewingPlayerId}
           realPlayerSessionStats={realPlayerSessionStats}
           positionLabel={positionLabel}
+          gameState={gameState}
+          heroPlayer={player}
         />
       )}
     </div>
