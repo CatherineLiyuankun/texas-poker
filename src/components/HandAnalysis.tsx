@@ -15,7 +15,7 @@ import {
   calculateValueBluffRatio,
   calculateCallEV,
   calculateBluffFrequency,
-  calculateRequiredEquity,
+  calculateRequiredFoldEquity,
   classifyRange,
   mdfFrom,
   type RangeCategory,
@@ -689,7 +689,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const betSize = playerRaiseAmount - heroBet; // 加注框填的是 raise-to 总额
     const potBeforeHeroBet = (currentPot ?? 0) - heroBet;
     if (betSize <= 0 || potBeforeHeroBet <= 0) return null;
-    return calculateRequiredEquity(betSize, potBeforeHeroBet);
+    return calculateRequiredFoldEquity(betSize, potBeforeHeroBet);
   }, [playerRaiseAmount, heroPlayer, currentPot]);
 
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出

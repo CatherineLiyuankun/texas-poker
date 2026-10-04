@@ -26,12 +26,13 @@ export interface MDFReference {
   betSize: string;
   mdf: number;
   /**
-   * 注意：这是「我方下注所需的对手弃牌率」= bet / (下注前底池 + bet) = 1 − MDF，
-   * 与 `calculateRequiredEquity` 同口径。
-   * **不是**跟注方的所需权益 —— 那是 bet / (下注前底池 + 2·bet)。
-   * 字段名沿用历史叫法，重命名需同步 MDFReference 的消费方。
+   * 「我方下注所需的对手弃牌率」= bet / (下注前底池 + bet) = 1 − MDF，
+   * 由 `calculateRequiredFoldEquity` 算出。
+   *
+   * 旧名 `requiredEquity` 会误导：**不是**跟注方的所需权益 ——
+   * 那是 bet / (下注前底池 + 2·bet)，比它小得多（半池 0.25 vs 0.333）。
    */
-  requiredEquity: number;
+  requiredFoldEquity: number;
   bluffPct: number;
 }
 
@@ -153,19 +154,28 @@ export function getMDFReferenceTable(): MDFReference[] {
     const potSize = 1;
     const betSize = size;
     const mdf = calculateMDF(betSize, potSize);
-    const requiredEquity = betSize / (potSize + betSize);
+    const requiredFoldEquity = calculateRequiredFoldEquity(betSize, potSize);
     const bluffPct = calculateValueBluffRatio(betSize, potSize).bluffPct;
     const pct = Math.round(size * 100);
     return {
       betSize: `${pct}% pot`,
       mdf,
-      requiredEquity,
+      requiredFoldEquity,
       bluffPct,
     };
   });
 }
 
-export function calculateRequiredEquity(betSize: number, potSize: number): number {
+/**
+ * 我方下注所需的**对手弃牌率** = betSize / (potSize + betSize) = 1 − MDF。
+ *
+ * ⚠️ 这**不是**跟注方的所需权益 —— 那是 betSize / (potSize + 2·betSize)。
+ * 两者数值差很多（半池：0.333 vs 0.25），旧名 `calculateRequiredEquity`
+ * 把「弃牌率」和「权益」混为一谈，故改名为 `calculateRequiredFoldEquity`。
+ *
+ * 前提：下注后无人加注、直接收下底池（纯诈唬的盈亏平衡点）。
+ */
+export function calculateRequiredFoldEquity(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return betSize / (potSize + betSize);
 }

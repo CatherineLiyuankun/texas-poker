@@ -8,7 +8,7 @@ import {
   calculateBluffFrequency,
   classifyRange,
   getMDFReferenceTable,
-  calculateRequiredEquity,
+  calculateRequiredFoldEquity,
   getGTOMathSummary,
 } from '../gtoMath';
 
@@ -270,7 +270,7 @@ describe('GTO Math Functions', () => {
       const entry = table.find((e) => e.betSize === '50% pot');
       expect(entry).toBeDefined();
       expect(entry!.mdf).toBeCloseTo(0.667, 2);
-      expect(entry!.requiredEquity).toBeCloseTo(0.333, 2);
+      expect(entry!.requiredFoldEquity).toBeCloseTo(0.333, 2);
     });
 
     it('should have correct values for 100% pot', () => {
@@ -278,24 +278,43 @@ describe('GTO Math Functions', () => {
       const entry = table.find((e) => e.betSize === '100% pot');
       expect(entry).toBeDefined();
       expect(entry!.mdf).toBeCloseTo(0.50, 2);
-      expect(entry!.requiredEquity).toBeCloseTo(0.50, 2);
+      expect(entry!.requiredFoldEquity).toBeCloseTo(0.50, 2);
+    });
+
+    it('requiredFoldEquity 就是 calculateRequiredFoldEquity（不再内联重复公式）', () => {
+      for (const entry of getMDFReferenceTable()) {
+        const pct = Number(entry.betSize.replace('% pot', '')) / 100;
+        expect(entry.requiredFoldEquity).toBeCloseTo(
+          calculateRequiredFoldEquity(pct, 1),
+          10,
+        );
+      }
     });
   });
 
-  describe('calculateRequiredEquity', () => {
+  describe('calculateRequiredFoldEquity', () => {
     // 返回的是「我方下注所需对手弃牌率」= bet / (下注前底池 + bet) = 1 − MDF，
     // 不是跟注方的所需权益（后者是 bet / (下注前底池 + 2·bet)）。
     it('should return 33% for 50% pot bet', () => {
-      expect(calculateRequiredEquity(0.5, 1)).toBeCloseTo(0.333, 2);
+      expect(calculateRequiredFoldEquity(0.5, 1)).toBeCloseTo(0.333, 2);
     });
 
     it('should return 50% for 100% pot bet', () => {
-      expect(calculateRequiredEquity(1.0, 1)).toBeCloseTo(0.50, 2);
+      expect(calculateRequiredFoldEquity(1.0, 1)).toBeCloseTo(0.50, 2);
     });
 
     it('should return 0 for zero values', () => {
-      expect(calculateRequiredEquity(0, 1)).toBe(0);
-      expect(calculateRequiredEquity(0.5, 0)).toBe(0);
+      expect(calculateRequiredFoldEquity(0, 1)).toBe(0);
+      expect(calculateRequiredFoldEquity(0.5, 0)).toBe(0);
+    });
+
+    it('与「跟注方所需权益」不是一回事（半池 0.333 vs 0.25）', () => {
+      const potSize = 1;
+      const betSize = 0.5;
+      const callerEquity = betSize / (potSize + 2 * betSize);
+      expect(calculateRequiredFoldEquity(betSize, potSize)).toBeCloseTo(1 / 3, 10);
+      expect(callerEquity).toBeCloseTo(0.25, 10);
+      expect(calculateRequiredFoldEquity(betSize, potSize)).toBeGreaterThan(callerEquity);
     });
   });
 

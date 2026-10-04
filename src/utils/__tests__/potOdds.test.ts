@@ -6,7 +6,7 @@ import {
 import {
   calculateCallEV,
   calculateMDF,
-  calculateRequiredEquity,
+  calculateRequiredFoldEquity,
   mdfFrom,
 } from '../gtoMath';
 import type { GameState, Player } from '../../types/poker';
@@ -133,9 +133,9 @@ describe('computePotOdds — 与 gtoMath 的一致性', () => {
     expect(calculateMDF(50, r.totalPot)).toBeGreaterThan(r.mdf);
   });
 
-  it('betRequiredFold 口径 = calculateRequiredEquity(增量, 下注前底池)', () => {
+  it('betRequiredFold 口径 = calculateRequiredFoldEquity(增量, 下注前底池)', () => {
     // 下注前底池 100，我方下注 50（增量 50）→ 所需弃牌率 = 50/150 = 1/3
-    expect(calculateRequiredEquity(50, 100)).toBeCloseTo(1 / 3, 10);
+    expect(calculateRequiredFoldEquity(50, 100)).toBeCloseTo(1 / 3, 10);
   });
 });
 
