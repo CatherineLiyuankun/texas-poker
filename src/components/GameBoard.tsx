@@ -118,7 +118,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       currentBet: state.lastBet,
       potSize: state.mainPot + (state.sidePots?.reduce((sum, pot) => sum + pot.amount, 0) || 0),
       position,
-      isFacingRaise: state.lastBet > 0 && phase === 'preflop',
+      // "面对下注/加注" 的语义就是「有需要跟注的金额」，全街道通用。
+      // 原来写成 `state.lastBet > 0 && phase === 'preflop'`，翻后恒为 false，
+      // 且翻前连大盲免费过牌也被判成 facing（lastBet 初始就是大盲）。
+      isFacingRaise: toCall > 0,
       timestamp: timestamp,
     };
   };

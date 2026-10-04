@@ -1,4 +1,4 @@
-import type { Card, Suit, Rank, GameState, Player } from '../types/poker';
+import type { Card, Suit, Rank, GameState, Player, PlayerId } from '../types/poker';
 import type { ActionEvent } from '../types/stats';
 import {
   getPreflopRangeClasses,
@@ -7,8 +7,13 @@ import {
   type PreflopRangeRole,
   type DefenderType,
 } from './gtoPreflop';
-import { getOpponentVpipPfr, getCurrentHand } from './opponentModel';
-import { calculateEquity } from './equityCalculator';
+import { getOpponentVpipPfr, getCurrentHand, getOpponentAF, getOpponentTendency } from './opponentModel';
+import { calculateEquity, type WeightedCombo } from './equityCalculator';
+import {
+  extractPostflopLine,
+  narrowRangeByPostflopAction,
+  aggressionScaleFromAF,
+} from './postflopRange';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 
@@ -318,24 +323,73 @@ export function reconstructPreflopRoleFromEvents(
   return null;
 }
 
-function currentHandPreflopEvents(): ActionEvent[] {
+function currentHandEvents(): ActionEvent[] {
   try {
     const hand = getCurrentHand();
     if (!hand || !hand.events) return [];
-    return hand.events.filter((e) => e.phase === 'preflop');
+    return hand.events;
   } catch {
     return [];
   }
 }
 
-// Best-effort reconstruction of the primary opponent's continuing range.
+/**
+ * Cheap signature of the current hand's action log, for use as a React
+ * dependency. `getCurrentHand()` re-parses localStorage, so callers should memo
+ * this rather than calling it on every render.
+ *
+ * The event count is included deliberately: two consecutive checks change no
+ * `GameState` field at all, so a state-only signature would miss them.
+ */
+export function currentHandEventSignature(): string {
+  try {
+    const hand = getCurrentHand();
+    if (!hand || !hand.events || hand.events.length === 0) return 'none';
+    const last = hand.events[hand.events.length - 1];
+    return `${hand.handId}:${hand.events.length}:${last?.timestamp ?? 0}`;
+  } catch {
+    return 'none';
+  }
+}
+
+function safeVpip(playerId: PlayerId): number | undefined {
+  try {
+    const stats = getOpponentVpipPfr(playerId);
+    if (stats.handsDealt >= 8 && stats.vpip > 0) return stats.vpip;
+  } catch {
+    // localStorage unavailable — fall through to no VPIP tuning.
+  }
+  return undefined;
+}
+
+function safeAggressionScale(playerId: PlayerId): number {
+  try {
+    return aggressionScaleFromAF(getOpponentAF(playerId), getOpponentTendency(playerId));
+  } catch {
+    return 1;
+  }
+}
+
+export interface EstimatedRange {
+  /** Opponent combos with sampling weights (never zero, never empty). */
+  combos: WeightedCombo[];
+  /** Stable signature of everything that shaped this range. */
+  signature: string;
+  /** True when the range was narrowed by observed postflop action. */
+  narrowedByPostflop: boolean;
+  /** True when opponent aggression stats shifted the bluff weights. */
+  exploitationApplied: boolean;
+}
+
+// Best-effort reconstruction of the primary opponent's continuing range,
+// narrowed by their postflop action line.
 // Returns null when no reliable range can be inferred (caller falls back to
 // random-hand equity).
 export function estimateOpponentCombos(
   hero: Player,
   state: GameState,
   community: Card[],
-): Card[][] | null {
+): EstimatedRange | null {
   const opponents = state.players.filter(
     (p) => !p.folded && p.id !== hero.id && p.hand.length === 2,
   );
@@ -349,10 +403,16 @@ export function estimateOpponentCombos(
 
   const primaryPos = seatPosition(primary.id, state.dealer, total);
 
+  // Read the hand's action log once; preflop events drive the role
+  // reconstruction, postflop events drive the range narrowing.
+  const events = currentHandEvents();
+  const preflopEvents = events.filter((e) => e.phase === 'preflop');
+  const postflopEvents = events.filter((e) => e.phase !== 'preflop');
+
   // Primary signal: the recorded preflop action history. Fallback: the
   // totalBet heuristic (calls match raises, so this is only approximate).
   const reconstruction = reconstructPreflopRoleFromEvents(
-    currentHandPreflopEvents(),
+    preflopEvents,
     primary.id,
     state.dealer,
     total,
@@ -377,13 +437,7 @@ export function estimateOpponentCombos(
     }
   }
 
-  let vpip: number | undefined;
-  try {
-    const stats = getOpponentVpipPfr(primary.id);
-    if (stats.handsDealt >= 8 && stats.vpip > 0) vpip = stats.vpip;
-  } catch {
-    vpip = undefined;
-  }
+  const vpip = safeVpip(primary.id);
 
   const classes = getContinuingRangeClasses({
     position: primaryPos,
@@ -394,8 +448,35 @@ export function estimateOpponentCombos(
   });
 
   const deadCards = [...hero.hand, ...community];
-  const combos = expandRange(classes, deadCards);
-  return combos.length >= 3 ? combos : null;
+  const baseCombos = expandRange(classes, deadCards);
+  if (baseCombos.length < 3) return null;
+
+  // Postflop narrowing. An empty line returns the combos at weight 1, so
+  // preflop and unobserved spots behave exactly as before.
+  const line = extractPostflopLine(postflopEvents, primary.id, community);
+  const aggressionScale = safeAggressionScale(primary.id);
+  const combos = narrowRangeByPostflopAction(baseCombos, line, { aggressionScale });
+
+  const aggressionLine = line.some((a) => a.kind === 'bet' || a.kind === 'raise');
+  const lineKey = line
+    .map((a) => `${a.street}:${a.kind}:${a.betToPot.toFixed(2)}`)
+    .join(',');
+
+  return {
+    combos,
+    signature: [
+      primary.id,
+      primaryPos,
+      role,
+      openerPosition ?? '-',
+      vpip !== undefined ? vpip.toFixed(3) : '-',
+      lineKey,
+      aggressionScale.toFixed(2),
+      events.length,
+    ].join('|'),
+    narrowedByPostflop: line.length > 0,
+    exploitationApplied: aggressionLine && aggressionScale !== 1,
+  };
 }
 
 // Equity vs the opponent's estimated continuing range, falling back to
@@ -407,11 +488,11 @@ export function calculateRangeAwareEquity(
   numOpponents: number,
   iterations: number,
 ): number {
-  const combos = estimateOpponentCombos(hero, state, community);
-  if (!combos) {
+  const range = estimateOpponentCombos(hero, state, community);
+  if (!range) {
     return calculateEquity(hero.hand, community, numOpponents, iterations);
   }
   return calculateEquity(hero.hand, community, numOpponents, iterations, {
-    opponentCombos: combos,
+    weightedCombos: range.combos,
   });
 }

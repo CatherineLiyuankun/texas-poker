@@ -1,7 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { HandAnalysis } from '../HandAnalysis';
 import { translations } from '../../utils/translations';
-import type { Card, GamePhase, GameState, Player } from '../../types/poker';
+import { startNewHand, recordAction, resetOpponentStats } from '../../utils/opponentModel';
+import type { Card, GamePhase, GameState, Player, PlayerId } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
   return { suit, rank } as Card;
@@ -94,6 +95,16 @@ async function renderPanel(
 }
 
 describe('HandAnalysis 权益面板（随机权益 + 范围权益）', () => {
+  // 范围推断会读 opponentModel 的 session store，必须逐例清干净，
+  // 否则某条用例种下的翻后行动会污染后面的用例。
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
   it('翻前渲染两行权益，AA 单挑胜率合理', async () => {
     const hero = mkPlayer({
       id: 1,
@@ -155,5 +166,43 @@ describe('HandAnalysis 权益面板（随机权益 + 范围权益）', () => {
 
     expect(randomPct).toBeGreaterThan(70);
     expect(rangePct).toBeGreaterThan(60);
+  });
+
+  it('翻牌面对对手加注时范围权益下降，并显示收窄标注', async () => {
+    const board = [card('♦', 'K'), card('♦', '8'), card('♣', '3')];
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 60,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♠', '2'), card('♦', '3')], totalBet: 120 });
+
+    // 种下「对手在翻牌面对我方过牌加注」这条行动线
+    startNewHand('hand-narrowed', [1, 2]);
+    recordAction({
+      handId: 'hand-narrowed',
+      playerId: 2 as PlayerId,
+      phase: 'flop',
+      action: 'raise',
+      amount: 120,
+      toCall: 40,
+      currentBet: 40,
+      potSize: 120,
+      position: 0,
+      isFacingRaise: true,
+      timestamp: 1,
+    });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    const randomPct = readEquityPct(translations.handAnalysis.equity);
+    const rangePct = readEquityPct(translations.handAnalysis.rangeEquity);
+    console.log('[翻牌 AA 面对加注] 随机权益 =', randomPct, '%  范围权益 =', rangePct, '%');
+
+    // 对手加注意味着范围更强，AA 的权益必须低于对随机牌
+    expect(rangePct).toBeLessThan(randomPct!);
+    // 面板必须显式标注范围已被翻后行动收窄
+    expect(screen.getByText(translations.handAnalysis.rangeNarrowed)).toBeTruthy();
   });
 });

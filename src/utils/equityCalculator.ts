@@ -20,10 +20,103 @@ function cardKey(c: Card): string {
   return `${c.suit}${c.rank}`;
 }
 
+/**
+ * A combo with a sampling weight. Weights are relative, not required to sum to 1.
+ * Used by postflop range narrowing: hands that are unlikely to have taken the
+ * observed action get a small weight instead of being removed outright, so the
+ * range never collapses to an empty set.
+ */
+export interface WeightedCombo {
+  cards: Card[];
+  weight: number;
+}
+
 export interface EquityOptions {
   // When provided, the primary opponent is sampled from these combos
   // (an estimated continuing range) instead of a uniformly random hand.
   opponentCombos?: Card[][];
+  // Same, but with per-combo weights. Takes precedence over opponentCombos.
+  weightedCombos?: WeightedCombo[];
+}
+
+interface SamplerEntry {
+  cards: Card[];
+  weight: number;
+}
+
+interface ComboSampler {
+  entries: SamplerEntry[];
+  // Prefix sums; null means "uniform", which keeps the original
+  // Math.floor(Math.random() * n) behaviour bit-for-bit.
+  cumulative: number[] | null;
+  totalWeight: number;
+}
+
+function buildSampler(entries: SamplerEntry[]): ComboSampler {
+  let uniform = true;
+  for (const e of entries) {
+    if (e.weight !== 1) {
+      uniform = false;
+      break;
+    }
+  }
+  if (uniform) return { entries, cumulative: null, totalWeight: entries.length };
+
+  const cumulative: number[] = new Array(entries.length);
+  let running = 0;
+  let total = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const w = entries[i].weight;
+    running += w > 0 && Number.isFinite(w) ? w : 0;
+    cumulative[i] = running;
+    total = running;
+  }
+  if (total <= 0) return { entries, cumulative: null, totalWeight: entries.length };
+  return { entries, cumulative, totalWeight: total };
+}
+
+function pickFromSampler(sampler: ComboSampler): Card[] {
+  const { entries, cumulative, totalWeight } = sampler;
+  if (cumulative === null) {
+    return entries[Math.floor(Math.random() * entries.length)].cards;
+  }
+  const target = Math.random() * totalWeight;
+  // Binary search for the first prefix sum strictly greater than target.
+  let lo = 0;
+  let hi = cumulative.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cumulative[mid] <= target) lo = mid + 1;
+    else hi = mid;
+  }
+  return entries[lo].cards;
+}
+
+function isLive(combo: Card[], knownKeys: Set<string>): boolean {
+  return combo.length === 2 && combo.every((c) => !knownKeys.has(cardKey(c)));
+}
+
+// Collects the primary opponent's combos, preferring the weighted form.
+// Returns null when neither option yields at least one live combo.
+function collectEntries(
+  options: EquityOptions | undefined,
+  knownKeys: Set<string>,
+): SamplerEntry[] | null {
+  const weighted = options?.weightedCombos;
+  if (weighted && weighted.length > 0) {
+    const entries = weighted.filter(
+      (w) => w.weight > 0 && Number.isFinite(w.weight) && isLive(w.cards, knownKeys),
+    );
+    if (entries.length > 0) return entries.map((w) => ({ cards: w.cards, weight: w.weight }));
+  }
+
+  const flat = options?.opponentCombos;
+  if (flat && flat.length > 0) {
+    const entries = flat.filter((c) => isLive(c, knownKeys));
+    if (entries.length > 0) return entries.map((cards) => ({ cards, weight: 1 }));
+  }
+
+  return null;
 }
 
 function shufflePrefix(deck: Card[], count: number, limit: number): void {
@@ -60,24 +153,23 @@ function excludeCombo(deck: Card[], combo: Card[], limit: number): number {
 function exactHeadsUpRiverEquity(
   holeCards: Card[],
   community: Card[],
-  combos?: Card[][],
+  entries?: SamplerEntry[],
 ): number {
   const knownKeys = new Set([...holeCards, ...community].map(cardKey));
   const heroEval = evaluateHand(holeCards, community);
 
-  if (combos) {
-    const valid = combos.filter(
-      (combo) =>
-        combo.length === 2 && combo.every((c) => !knownKeys.has(cardKey(c))),
-    );
+  if (entries && entries.length > 0) {
+    const valid = entries.filter((e) => isLive(e.cards, knownKeys));
     if (valid.length > 0) {
-      let equity = 0;
-      for (const combo of valid) {
-        const cmp = compareHands(heroEval, evaluateHand(combo, community));
-        if (cmp > 0) equity += 1;
-        else if (cmp === 0) equity += 0.5;
+      let weighted = 0;
+      let totalWeight = 0;
+      for (const entry of valid) {
+        const cmp = compareHands(heroEval, evaluateHand(entry.cards, community));
+        const score = cmp > 0 ? 1 : cmp === 0 ? 0.5 : 0;
+        weighted += score * entry.weight;
+        totalWeight += entry.weight;
       }
-      return equity / valid.length;
+      if (totalWeight > 0) return weighted / totalWeight;
     }
   }
 
@@ -116,7 +208,12 @@ export function calculateEquity(
     communityCards.length > 5 ? communityCards.slice(0, 5) : communityCards;
 
   if (community.length >= 5 && numOpponents === 1) {
-    return exactHeadsUpRiverEquity(holeCards, community, options?.opponentCombos);
+    const known = new Set([...holeCards, ...community].map(cardKey));
+    return exactHeadsUpRiverEquity(
+      holeCards,
+      community,
+      collectEntries(options, known) ?? undefined,
+    );
   }
 
   const knownKeys = new Set([...holeCards, ...community].map(cardKey));
@@ -125,13 +222,9 @@ export function calculateEquity(
     if (!knownKeys.has(cardKey(c))) deck.push(c);
   }
 
-  const combos = options?.opponentCombos
-    ? options.opponentCombos.filter(
-        (combo) =>
-          combo.length === 2 && combo.every((c) => !knownKeys.has(cardKey(c))),
-      )
-    : null;
-  const useRange = combos !== null && combos.length > 0;
+  const entries = collectEntries(options, knownKeys);
+  const sampler = entries ? buildSampler(entries) : null;
+  const useRange = sampler !== null;
 
   const communityNeeded = Math.max(0, 5 - community.length);
   const randomHands = useRange ? numOpponents - 1 : numOpponents;
@@ -143,8 +236,8 @@ export function calculateEquity(
     const oppHands: Card[][] = [];
     let drawLimit = deck.length;
 
-    if (useRange && combos) {
-      const combo = combos[Math.floor(Math.random() * combos.length)];
+    if (useRange) {
+      const combo = pickFromSampler(sampler);
       oppHands.push(combo);
       drawLimit = excludeCombo(deck, combo, drawLimit);
     }

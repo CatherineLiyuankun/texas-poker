@@ -11,8 +11,13 @@ import { detectDraws, type DrawInfo } from './drawDetector';
 import {
   analyzeBoardWithEquity,
   type BoardTexture,
-  type BoardClassification,
 } from './boardTexture';
+import { getCommunityByPhase } from './communityByPhase';
+import {
+  getBetSizing,
+  getCbetFreq,
+  type HandStrengthCategory,
+} from './postflopFrequencies';
 
 export interface GtoPostflopRecommendation {
   action: Action;
@@ -25,49 +30,8 @@ export interface GtoPostflopRecommendation {
   reasoning: string;
 }
 
-const CBET_FREQ: Record<string, number> = {
-  flop_ip_very_dry: 0.80, flop_ip_dry: 0.70, flop_ip_medium: 0.55,
-  flop_ip_wet: 0.45, flop_ip_very_wet: 0.35,
-  flop_oop_very_dry: 0.50, flop_oop_dry: 0.40, flop_oop_medium: 0.35,
-  flop_oop_wet: 0.25, flop_oop_very_wet: 0.20,
-  turn_ip_very_dry: 0.55, turn_ip_dry: 0.50, turn_ip_medium: 0.45,
-  turn_ip_wet: 0.40, turn_ip_very_wet: 0.30,
-  turn_oop_very_dry: 0.35, turn_oop_dry: 0.30, turn_oop_medium: 0.25,
-  turn_oop_wet: 0.20, turn_oop_very_wet: 0.15,
-};
-
-const BET_SIZING: Record<string, number> = {
-  very_dry: 0.33, dry: 0.33, medium: 0.50, wet: 0.66, very_wet: 0.75,
-};
-
-function getTextureKey(texture: BoardClassification): string {
-  return texture;
-}
-
-function getCbetFreq(
-  street: 'flop' | 'turn',
-  isIP: boolean,
-  texture: BoardClassification,
-): number {
-  const key = `${street}_${isIP ? 'ip' : 'oop'}_${getTextureKey(texture)}`;
-  return CBET_FREQ[key] ?? 0.50;
-}
-
-function getBetSizing(texture: BoardClassification): number {
-  return BET_SIZING[getTextureKey(texture)] ?? 0.50;
-}
-
 function isIP(ctx: ContextInfo): boolean {
   return ctx.isButton || ctx.isCutoff || ctx.isHijack;
-}
-
-function getCommunityByPhase(state: GameState): Card[] {
-  switch (state.phase) {
-    case 'flop': return state.communityCards.slice(0, 3);
-    case 'turn': return state.communityCards.slice(0, 4);
-    case 'river': return state.communityCards.slice(0, 5);
-    default: return state.communityCards;
-  }
 }
 
 function calculateRaiseAmount(
@@ -99,7 +63,7 @@ function classifyHandStrength(
   equity: number,
   _handRank: HandRank | null,
   draws: DrawInfo | null,
-): 'strong' | 'medium' | 'draw' | 'weak' | 'air' {
+): HandStrengthCategory {
   if (equity >= 0.70) return 'strong';
   if (equity >= 0.50) return 'medium';
   if (draws && draws.totalOuts >= 8) return 'draw';
@@ -125,7 +89,7 @@ export function decidePostflopGTO(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  const community = getCommunityByPhase(state);
+  const community = getCommunityByPhase(state.communityCards, state.phase);
   if (community.length < 3) {
     return flags.canCheckResult ? { action: 'check' } : { action: 'fold' };
   }
