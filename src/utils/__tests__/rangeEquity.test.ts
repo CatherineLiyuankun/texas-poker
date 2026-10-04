@@ -11,9 +11,11 @@ import {
   estimateOpponentCombos,
   calculateRangeAwareEquity,
   reconstructPreflopRoleFromEvents,
+  currentHandEventSignature,
 } from '../rangeEquity';
 import type { Card, Player, GameState, PlayerId } from '../../types/poker';
 import type { ActionEvent } from '../../types/stats';
+import { startNewHand, recordAction, resetOpponentStats } from '../opponentModel';
 
 function card(suit: string, rank: string): Card {
   return { suit: suit as Card['suit'], rank: rank as Card['rank'] };
@@ -233,16 +235,17 @@ describe('Range Equity', () => {
     it('returns concrete combos excluding hero and board cards', () => {
       const hero = createPlayer(1 as PlayerId, heroHand, 10);
       const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
-      const combos = estimateOpponentCombos(hero, createState([hero, opponent], community), community);
-      expect(combos).not.toBeNull();
-      expect(combos!.length).toBeGreaterThan(10);
+      const range = estimateOpponentCombos(hero, createState([hero, opponent], community), community);
+      expect(range).not.toBeNull();
+      expect(range!.combos.length).toBeGreaterThan(10);
 
       const deadKeys = new Set(
         [...heroHand, ...community].map((c) => `${c.suit}${c.rank}`),
       );
-      for (const combo of combos!) {
-        expect(combo).toHaveLength(2);
-        for (const c of combo) {
+      for (const entry of range!.combos) {
+        expect(entry.cards).toHaveLength(2);
+        expect(entry.weight).toBeGreaterThan(0);
+        for (const c of entry.cards) {
           expect(deadKeys.has(`${c.suit}${c.rank}`)).toBe(false);
         }
       }
@@ -275,20 +278,25 @@ describe('Range Equity', () => {
     it('estimateOpponentCombos 在翻前仍能推断出对手范围', () => {
       const hero = createPlayer(1 as PlayerId, heroHand, 20);
       const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
-      const combos = estimateOpponentCombos(
+      const range = estimateOpponentCombos(
         hero,
         createState([hero, opponent], [], 'preflop'),
         [],
       );
 
-      expect(combos).not.toBeNull();
-      expect(combos!.length).toBeGreaterThan(10);
+      expect(range).not.toBeNull();
+      expect(range!.combos.length).toBeGreaterThan(10);
+      // 翻前没有翻后行动线，所有 combo 权重应为 1
+      expect(range!.narrowedByPostflop).toBe(false);
+      for (const entry of range!.combos) {
+        expect(entry.weight).toBe(1);
+      }
 
       // 范围里不能出现英雄自己的手牌
       const heroKeys = new Set(heroHand.map((c) => `${c.suit}${c.rank}`));
-      for (const combo of combos!) {
-        expect(combo).toHaveLength(2);
-        for (const c of combo) {
+      for (const entry of range!.combos) {
+        expect(entry.cards).toHaveLength(2);
+        for (const c of entry.cards) {
           expect(heroKeys.has(`${c.suit}${c.rank}`)).toBe(false);
         }
       }
@@ -407,6 +415,122 @@ describe('Range Equity', () => {
       const recon = reconstructPreflopRoleFromEvents(events, 2, dealer, total);
       expect(recon?.role).toBe('caller');
       expect(recon?.openerPosition).toBe('UTG');
+    });
+  });
+
+  // 本次新增：范围必须随翻后行动收窄，否则会系统性高估我方权益。
+  describe('翻后行动收窄范围', () => {
+    const board = [card('♦', 'K'), card('♦', '8'), card('♣', '3')];
+
+    function postflopEvent(
+      action: ActionEvent['action'],
+      opts: { amount?: number; toCall?: number; timestamp?: number } = {},
+    ): ActionEvent {
+      return {
+        handId: 'h-flop',
+        playerId: 2 as PlayerId,
+        phase: 'flop',
+        action,
+        amount: opts.amount,
+        toCall: opts.toCall ?? 0,
+        currentBet: opts.toCall ?? 0,
+        potSize: 100,
+        position: 0,
+        isFacingRaise: (opts.toCall ?? 0) > 0,
+        timestamp: opts.timestamp ?? 1,
+      };
+    }
+
+    // Seeds the session store that `estimateOpponentCombos` reads through.
+    function seedHand(events: ActionEvent[]): void {
+      startNewHand('h-flop', [1, 2]);
+      for (const e of events) recordAction(e);
+    }
+
+    beforeEach(() => {
+      resetOpponentStats();
+    });
+
+    afterEach(() => {
+      resetOpponentStats();
+    });
+
+    it('没有翻后行动时所有 combo 权重为 1', () => {
+      seedHand([]);
+      const hero = createPlayer(1 as PlayerId, [card('♠', 'A'), card('♥', 'A')], 20);
+      const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
+
+      const range = estimateOpponentCombos(hero, createState([hero, opponent], board), board);
+      expect(range).not.toBeNull();
+      expect(range!.narrowedByPostflop).toBe(false);
+      for (const entry of range!.combos) expect(entry.weight).toBe(1);
+    });
+
+    it('对手翻牌加注后，强牌权重保持、弱牌权重下降', () => {
+      seedHand([postflopEvent('raise', { amount: 60, toCall: 20 })]);
+      const hero = createPlayer(1 as PlayerId, [card('♠', 'A'), card('♥', 'A')], 20);
+      const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
+
+      const range = estimateOpponentCombos(hero, createState([hero, opponent], board), board);
+      expect(range).not.toBeNull();
+      expect(range!.narrowedByPostflop).toBe(true);
+
+      const weights = range!.combos.map((c) => c.weight);
+      const max = Math.max(...weights);
+      const min = Math.min(...weights);
+
+      // 收窄确实发生了，且没有把任何 combo 清零
+      expect(min).toBeLessThan(max);
+      expect(min).toBeGreaterThanOrEqual(0.05);
+      expect(range!.combos.length).toBeGreaterThan(10);
+    });
+
+    it('对手加注比我方过牌后的下注收窄得更狠', () => {
+      const hero = createPlayer(1 as PlayerId, [card('♠', 'A'), card('♥', 'A')], 20);
+      const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
+      const state = createState([hero, opponent], board);
+
+      seedHand([postflopEvent('raise', { amount: 50, toCall: 0 })]);
+      const betRange = estimateOpponentCombos(hero, state, board)!;
+
+      seedHand([postflopEvent('raise', { amount: 80, toCall: 30 })]);
+      const raiseRange = estimateOpponentCombos(hero, state, board)!;
+
+      const avg = (r: typeof betRange): number =>
+        r.combos.reduce((s, c) => s + c.weight, 0) / r.combos.length;
+
+      expect(avg(raiseRange)).toBeLessThan(avg(betRange));
+    });
+
+    it('面对对手加注时，范围权益显著低于无翻后行动时', () => {
+      const hero = createPlayer(1 as PlayerId, [card('♠', 'A'), card('♥', 'A')], 20);
+      const opponent = createPlayer(2 as PlayerId, [card('♠', '2'), card('♦', '3')], 20);
+      const state = createState([hero, opponent], board);
+
+      seedHand([]);
+      const before = calculateRangeAwareEquity(hero, state, board, 1, 600);
+
+      seedHand([postflopEvent('raise', { amount: 80, toCall: 30 })]);
+      const after = calculateRangeAwareEquity(hero, state, board, 1, 600);
+
+      // 对手加注意味着范围更强，我方 AA 的权益必须下降
+      expect(after).toBeLessThan(before);
+      expect(after).toBeGreaterThanOrEqual(0);
+      expect(after).toBeLessThanOrEqual(1);
+    });
+
+    it('事件签名会随行动变化，可用于 React 依赖', () => {
+      seedHand([]);
+      const before = currentHandEventSignature();
+
+      seedHand([postflopEvent('check')]);
+      const afterCheck = currentHandEventSignature();
+      expect(afterCheck).not.toBe(before);
+
+      // 关键场景：双方连续过牌不改变任何 GameState 字段，
+      // 但事件条数变了，签名必须跟着变。
+      recordAction(postflopEvent('check', { timestamp: 2 }));
+      expect(currentHandEventSignature()).not.toBe(afterCheck);
     });
   });
 });

@@ -132,7 +132,7 @@ Wet/dry texture drives postflop strategy (c-bet frequency, sizing). Two layers:
 - Extend `BoardTexture` fields rather than changing existing ones; consumers rely on
   `wetness` and `classification`.
 
-### Equity Calculation (`src/utils/equityCalculator.ts`, `src/utils/rangeEquity.ts`)
+### Equity Calculation (`src/utils/equityCalculator.ts`, `src/utils/rangeEquity.ts`, `src/utils/postflopRange.ts`)
 
 Decision quality hinges on equity estimates. Two layers:
 
@@ -141,13 +141,22 @@ Decision quality hinges on equity estimates. Two layers:
   Heads-up river is computed by exact enumeration (hero evaluated once, all
   C(45,2) opponent hands) — zero variance at Monte Carlo cost.
   `options.opponentCombos` samples the primary opponent from an estimated range;
-  extra opponents stay random.
+  extra opponents stay random. `options.weightedCombos` (takes precedence over
+  `opponentCombos`) samples from weighted combos, and `exactHeadsUpRiverEquity`
+  honours the same weights so the exact and Monte Carlo paths agree.
 - `calculateRangeAwareEquity(hero, state, community, numOpponents, iterations)`:
   the decision entry point. Estimates the primary opponent's continuing range
   (`estimateOpponentCombos`) from preflop role (most-invested player = opener,
   otherwise defender vs the aggressor), position tables in `gtoPreflop.ts`,
-  card removal, and optional VPIP width tuning from `opponentModel`. Falls back
-  to random-hand equity when no range can be inferred.
+  card removal, and optional VPIP width tuning from `opponentModel`, **then
+  narrows it by the observed postflop action line**. Falls back to random-hand
+  equity when no range can be inferred.
+- `postflopRange.narrowRangeByPostflopAction(combos, line, options?)`: per street,
+  buckets each combo into `strong / medium / draw / weak / air` against that
+  street's board and multiplies its weight by the category's propensity to take
+  the observed action. Frequencies come from `postflopFrequencies.ts` (shared with
+  `gtoPostflop.ts`), bluff weight from the `gtoMath.ts` value:bluff closed form,
+  and facing-bet responses are anchored on MDF.
 
 **Rules:**
 - Decision code should call `calculateRangeAwareEquity`, not raw `calculateEquity`,
@@ -156,13 +165,22 @@ Decision quality hinges on equity estimates. Two layers:
 - Range expansion (`expandRange`) must always apply card removal against hero +
   board before use.
 - Keep exact enumeration for heads-up river; do not replace it with Monte Carlo.
+- Postflop narrowing must use **soft / weighted** filtering: weights multiply
+  across streets and are floored per street (`MIN_WEIGHT`), never zeroed. Hard
+  filtering drops below the `combos.length >= 3` floor and silently falls back to
+  random equity, which looks like a bug but is not. An empty action line must leave
+  every weight at 1 so the result is identical to the preflop-only range.
+- `gtoPostflop.ts` and `postflopRange.ts` must share frequencies through
+  `postflopFrequencies.ts`, never by importing each other (import cycle).
 - Never feed `getPreflopStrength` / `getPreflopTier` output into EV math — those
   return a 2–20 Chen score, not a probability. Preflop equity is Monte Carlo, the
   same engine as postflop; the panel only keeps the score for display.
 - The `HandAnalysis` panel must show random equity and range equity as two separate
   values. Range equity falls back to random equity when `estimateOpponentCombos`
   returns `null`, and both must stay 0–1 probabilities so `gtoMath.ts` consumes them
-  directly.
+  directly. When narrowing or AF-based exploitation changes the result, surface the
+  `rangeNarrowed` / `rangeExploitative` labels so the user knows the figure is
+  exploitative, not a pure GTO range.
 
 ---
 

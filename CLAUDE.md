@@ -50,16 +50,19 @@ The GTO modules in `src/utils/` are consulted by both the bots and the player-fa
 - `gtoDeepStack.ts`, `gtoShortStack.ts` (push/call ranges), `gtoICM.ts` (bubble factors, risk premium).
 - `gtoNodelock.ts` — exploitative adjustments from detected opponent leaks (needs sufficient sample size via `isSampleSufficient`).
 - `gtoMath.ts` — MDF, value/bluff ratios, call/raise EV, required equity.
+- `postflopFrequencies.ts` — leaf module holding the shared c-bet / river-barrel frequencies, hand-category bet multipliers and bet sizings. `gtoPostflop.ts` and `postflopRange.ts` both read from here (it exists so range-narrowing never has to import `gtoPostflop.ts`, avoiding an import cycle).
+- `postflopRange.ts` — narrows an inferred range by the observed postflop action line (see below).
 - `docs/GTO_REFERENCE.md` — the 6-max 100BB charts these tables approximate.
 
 ### Equity calculation — two layers
 
-- `equityCalculator.calculateEquity(hand, board, numOpponents, iterations, options?)`: Monte Carlo with reused deck; ties split as `1/(1+tied)`. **Heads-up river is exact enumeration** (all C(45,2) villain hands) — do not replace it with Monte Carlo. `options.opponentCombos` samples the primary opponent from a range.
-- `rangeEquity.calculateRangeAwareEquity(...)`: the **decision entry point**. Infers the primary opponent's continuing range from preflop role reconstruction (`reconstructPreflopRoleFromEvents`), `gtoPreflop.ts` position tables, card removal, and optional VPIP width tuning; falls back to random hands when no range is inferable.
+- `equityCalculator.calculateEquity(hand, board, numOpponents, iterations, options?)`: Monte Carlo with reused deck; ties split as `1/(1+tied)`. **Heads-up river is exact enumeration** (all C(45,2) villain hands) — do not replace it with Monte Carlo. `options.opponentCombos` samples the primary opponent from a range; `options.weightedCombos` (takes precedence) samples from weighted combos. `exactHeadsUpRiverEquity` also honours weights, so the exact river path and the Monte Carlo path agree on the same distribution.
+- `rangeEquity.calculateRangeAwareEquity(...)`: the **decision entry point**. Infers the primary opponent's continuing range from preflop role reconstruction (`reconstructPreflopRoleFromEvents`), `gtoPreflop.ts` position tables, card removal, and optional VPIP width tuning, **then narrows it by the postflop action line** (`postflopRange.ts`); falls back to random hands when no range is inferable.
+- `postflopRange.narrowRangeByPostflopAction(combos, line, options?)`: per street, bucket each combo into `strong / medium / draw / weak / air` against that street's board, then multiply its weight by the category's propensity to take the observed action. Weights are **multiplied across streets and floored per street (`MIN_WEIGHT`), never zeroed** — hard filtering would drop below the `combos.length >= 3` floor and silently fall back to random equity. An empty line leaves every weight at 1 (identical to the preflop-only range). `aggressionScaleFromAF` scales the bluff weights from tracked AF / tendency, which makes the figure exploitative rather than purely GTO.
 
 Decision code must call `calculateRangeAwareEquity`, not raw `calculateEquity` — the deliberate exception is board-texture calibration, which uses random opponents on purpose. `expandRange` must always apply card removal against hero + board.
 
-The `HandAnalysis` panel surfaces both layers side by side (random equity vs. range equity) and runs from preflop onward. Preflop is real Monte Carlo, **not** the Chen score from `preflopHandStrength.ts` — that file returns a 2–20 strength score, never a probability, and feeding it into EV math silently inflates the numbers. Any 0–1 probability passed to `gtoMath.ts` must come from an equity calculation.
+The `HandAnalysis` panel surfaces both layers side by side (random equity vs. range equity) and runs from preflop onward. Its recompute signature folds in `currentHandEventSignature()` so a check-check (which adds an event without changing bets) still re-runs the estimate. When narrowing or exploitation actually bit, the panel renders the `rangeNarrowed` / `rangeExploitative` captions so the user knows the figure is no longer a pure preflop GTO range. Preflop is real Monte Carlo, **not** the Chen score from `preflopHandStrength.ts` — that file returns a 2–20 strength score, never a probability, and feeding it into EV math silently inflates the numbers. Any 0–1 probability passed to `gtoMath.ts` must come from an equity calculation.
 
 ### Board texture (`boardTexture.ts`)
 
@@ -88,7 +91,7 @@ The `HandAnalysis` panel surfaces both layers side by side (random equity vs. ra
 
 ## Testing notes
 
-- `src/utils/__tests__/` — algorithm correctness (pots, equity, draws, board texture, each GTO module, preflop strength, range equity).
+- `src/utils/__tests__/` — algorithm correctness (pots, equity, draws, board texture, each GTO module, preflop strength, range equity, postflop range narrowing).
 - `src/hooks/__tests__/` — reducer/side-pot behavior; `src/e2eTests/useGameState.integration.test.ts` — full-hand flows asserting chip conservation and pot splitting.
 - `src/components/__tests__/` — GameBoard blind logic, showdown settlement, and the equity panel (rendered equity values + the `GameBoard → PlayerArea → HandAnalysis` prop chain).
 - Any change to betting/pot logic must keep the chip-conservation tests green; add scenarios with mixed all-in amounts when touching that area.

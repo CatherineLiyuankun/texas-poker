@@ -4,7 +4,7 @@ import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
 import { calculateEquity } from '../utils/equityCalculator';
-import { estimateOpponentCombos } from '../utils/rangeEquity';
+import { estimateOpponentCombos, currentHandEventSignature } from '../utils/rangeEquity';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
@@ -20,6 +20,7 @@ import {
   type RangeCategory,
 } from '../utils/gtoMath';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
+import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -96,18 +97,6 @@ function getRecColor(rec: string): string {
   return 'text-white';
 }
 
-function getCommunityByPhase(
-  communityCards: Card[],
-  phase: GamePhase,
-): Card[] {
-  switch (phase) {
-    case 'preflop': return [];
-    case 'flop': return communityCards.slice(0, 3);
-    case 'turn': return communityCards.slice(0, 4);
-    case 'river': return communityCards.slice(0, 5);
-    default: return communityCards;
-  }
-}
 
 function getPlayerTypeColor(playerType: string): string {
   switch (playerType) {
@@ -377,15 +366,6 @@ function getRangeCategoryEmoji(cat: RangeCategory): string {
   }
 }
 
-function getCardsToCome(phase: GamePhase): number {
-  switch (phase) {
-    case 'preflop': return 5;
-    case 'flop': return 2;
-    case 'turn': return 1;
-    default: return 0;
-  }
-}
-
 // 蒙特卡洛迭代次数：翻前要模拟 5 张公共牌，成本最高；单次模拟成本随对手数
 // 近似线性增长，因此多人底池自动下调迭代数，保证面板不卡顿。
 const EQUITY_ITERATIONS: Record<string, number> = {
@@ -469,6 +449,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 }) => {
   const [randomEquity, setRandomEquity] = useState<number | null>(null);
   const [rangeEquity, setRangeEquity] = useState<number | null>(null);
+  // 范围权益的两个附加状态：是否按翻后行动收窄、是否叠加了对手激进度剥削调整
+  const [rangeFlags, setRangeFlags] = useState({ narrowed: false, exploited: false });
 
   // getCommunityByPhase 会 slice 出新数组，这里按引用缓存，
   // 避免每次渲染都重新触发蒙特卡洛模拟。
@@ -520,7 +502,9 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     [phase, holeCards],
   );
 
-  // 对手的下注/弃牌会改变可推断的继续范围，用它作为额外依赖触发重算
+  // 对手的下注/弃牌会改变可推断的继续范围，用它作为额外依赖触发重算。
+  // 事件签名必须一起折叠进来：同一街上双方连续过牌时 lastBet / totalBet /
+  // chips 全都不变，只看 state 会漏掉这次行动。
   const rangeSignature = useMemo(() => {
     if (!gameState) return 'none';
     return [
@@ -530,6 +514,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       ...gameState.players.map(
         (p) => `${p.id}:${p.folded ? 'F' : 'A'}:${p.totalBet}:${p.chips}`,
       ),
+      currentHandEventSignature(),
     ].join('|');
   }, [gameState]);
 
@@ -537,6 +522,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     if (!shouldCalculate) {
       setRandomEquity(null);
       setRangeEquity(null);
+      setRangeFlags({ narrowed: false, exploited: false });
       return;
     }
 
@@ -548,19 +534,23 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       );
       setRandomEquity(random);
 
-      // 范围权益：主要对手按推断出的继续范围建模；
+      // 范围权益：主要对手按推断出的继续范围建模，且该范围会随翻后行动收窄；
       // 无法推断范围时退化为随机权益（与上一行同一个数）。
-      const combos =
+      const range =
         heroPlayer && gameState
           ? estimateOpponentCombos(heroPlayer, gameState, community)
           : null;
       setRangeEquity(
-        combos
+        range
           ? calculateEquity(holeCards, community, numOpponents, iterations, {
-            opponentCombos: combos,
+            weightedCombos: range.combos,
           })
           : random,
       );
+      setRangeFlags({
+        narrowed: range?.narrowedByPostflop ?? false,
+        exploited: range?.exploitationApplied ?? false,
+      });
     }, 50);
     return () => clearTimeout(timer);
     // gameState 中影响范围推断的字段已折叠进 rangeSignature；
@@ -749,6 +739,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                     value={rangeEquity}
                     color={getEquityBarColor(rangeEquity)}
                   />
+
+                  {/* 范围权益的口径说明：收窄 / 剥削性调整时显式标注，避免误读为纯 GTO 范围 */}
+                  {(rangeFlags.narrowed || rangeFlags.exploited) && (
+                    <div className="col-span-2 text-[10px] leading-tight text-gray-400">
+                      {rangeFlags.narrowed && (
+                        <span>{translations.handAnalysis.rangeNarrowed}</span>
+                      )}
+                      {rangeFlags.narrowed && rangeFlags.exploited && <span> · </span>}
+                      {rangeFlags.exploited && (
+                        <span>{translations.handAnalysis.rangeExploitative}</span>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : (
                 <span className="text-yellow-400 animate-pulse">...</span>
