@@ -9,8 +9,13 @@ import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
-import type { GtoPostflopRecommendation } from '../utils/gtoPostflop';
+import {
+  getGtoPostflopRecommendation,
+  analyzeBoardWithEquity,
+  type GtoPostflopRecommendation,
+} from '../utils/gtoPostflop';
 import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
+import { SMALL_BLIND } from '../utils/constant';
 import {
   calculateValueBluffRatio,
   calculateCallEV,
@@ -39,7 +44,6 @@ interface HandAnalysisProps {
     freq?: { r: number; c: number; f: number };
     isAllIn?: boolean;
   } | null;
-  gtoPostflopRecommendation?: GtoPostflopRecommendation | null;
   nodelockRecommendation?: NodelockRecommendation | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
@@ -460,7 +464,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   spr,
   playerRaiseAmount,
   gtoRecommendation,
-  gtoPostflopRecommendation,
   nodelockRecommendation,
   opponentProfile,
   longStats,
@@ -522,6 +525,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     if (community.length < 3 || holeCards.length < 2) return null;
     return evaluateHand(holeCards, community).rank;
   }, [holeCards, community, phase]);
+
+  // 牌面纹理：与上面的听牌、牌型共用同一个「按街切好」的 community，
+  // 不能把还没发出的转牌/河牌算进当前街的牌面判断。
+  const boardTexture = useMemo(
+    () => (community.length >= 3 ? analyzeBoardWithEquity(community) : null),
+    [community],
+  );
 
   // 翻牌前同样走真实蒙特卡洛（模拟补齐 5 张公共牌），不再用 Chen 分数代替
   const shouldCalculate = useMemo(
@@ -607,6 +617,59 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     if (decisionEquity === null) return '';
     return getRecommendation(decisionEquity, potOdds, phase);
   }, [decisionEquity, potOdds, phase]);
+
+  // 翻后 GTO 建议（面板「Board 牌面 / Action / Reasoning」三行）。
+  //
+  // 这里必须用 decisionEquity —— 它就是「范围权益」那一行显示的值（推断失败时
+  // 是随机权益），这样 Reasoning 里的 Equity 与面板权益行是同一个数，不会再出现
+  // 「Reasoning 说 16.7%、面板却显示 29%」这种同屏矛盾。
+  //
+  // boardTexture / drawInfo / currentHandRank 也都基于按街切好的 community，
+  // 不会把尚未发出的转牌、河牌算进当前街的判断。
+  //
+  // 权益还在算（effect 有 50ms 防抖）时返回 null，整块延后渲染，
+  // 避免短暂的「建议已更新、权益还是上一手」的同屏矛盾。
+  const postflopRecommendation = useMemo<GtoPostflopRecommendation | null>(() => {
+    if (phase === 'preflop' || phase === 'showdown' || phase === 'ended')
+      return null;
+    if (community.length < 3 || holeCards.length < 2) return null;
+    if (!boardTexture || !heroPlayer) return null;
+    if (decisionEquity === null) return null;
+
+    const totalPlayers = gameState?.players.length ?? numOpponents + 1;
+    const position = gameState
+      ? (heroPlayer.id - gameState.dealer + totalPlayers) % totalPlayers
+      : 0;
+
+    return getGtoPostflopRecommendation({
+      hand: holeCards,
+      communityCards: community,
+      phase,
+      equity: decisionEquity,
+      potOdds,
+      // 与面板 SPR 行同口径：有效筹码 / 底池
+      spr: spr ?? 999,
+      position,
+      totalPlayers,
+      numOpponents,
+      isButton: position === 0,
+      isCutoff: position === totalPlayers - 1 && position > 2,
+      isHijack: position === totalPlayers - 2 && position > 2,
+      boardTexture,
+      handRank: currentHandRank,
+      draws: drawInfo,
+      toCall: betToCall ?? 0,
+      totalPot: currentPot ?? 0,
+      smallBlind: gameState?.smallBlind ?? SMALL_BLIND,
+      chips: heroPlayer.chips,
+      playerBet: heroPlayer.bet,
+      lastRaiseBet: gameState?.lastRaiseBet ?? 0,
+    });
+  }, [
+    phase, community, holeCards, boardTexture, decisionEquity, potOdds, spr,
+    numOpponents, currentHandRank, drawInfo, betToCall, currentPot, gameState,
+    heroPlayer,
+  ]);
 
   // GTO Math calculations
   const gtoMath = useMemo(() => {
@@ -883,7 +946,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       )}
 
       {/* GTO postflop 牌面纹理 + Action */}
-      {phase !== 'preflop' && gtoPostflopRecommendation && (
+      {postflopRecommendation && (
         <div className="border-t border-white/10 pt-1 mt-1">
           <div className="grid grid-cols-[3fr_2fr] gap-x-2 gap-y-1">
             {/* Left column: Board texture */}
@@ -891,9 +954,9 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               label={translations.gtoPostflop.board}
               value={
                 <span className={`text-[10px] ${
-                  gtoPostflopRecommendation.boardTexture.classification === 'very_dry' || gtoPostflopRecommendation.boardTexture.classification === 'dry'
+                  postflopRecommendation.boardTexture.classification === 'very_dry' || postflopRecommendation.boardTexture.classification === 'dry'
                     ? 'text-blue-400'
-                    : gtoPostflopRecommendation.boardTexture.classification === 'medium'
+                    : postflopRecommendation.boardTexture.classification === 'medium'
                       ? 'text-yellow-400'
                       : 'text-red-400'
                 }`}>
@@ -903,8 +966,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                     medium: translations.gtoPostflop.medium,
                     wet: translations.gtoPostflop.wet,
                     very_wet: translations.gtoPostflop.veryWet,
-                  } as Record<string, string>)[gtoPostflopRecommendation.boardTexture.classification]}
-                  {' '}({gtoPostflopRecommendation.boardTexture.wetness}/10)
+                  } as Record<string, string>)[postflopRecommendation.boardTexture.classification]}
+                  {' '}({postflopRecommendation.boardTexture.wetness}/10)
                 </span>
               }
             />
@@ -914,30 +977,30 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               label={translations.gtoPostflop.action}
               value={
                 <span className="text-[10px]">
-                  {gtoPostflopRecommendation.isAllIn
+                  {postflopRecommendation.isAllIn
                     ? translations.gtoPostflop.allIn
-                    : gtoPostflopRecommendation.sizingPercent
-                      ? `${translations.gtoPostflop.raise} ${gtoPostflopRecommendation.sizingPercent}% pot`
-                      : gtoPostflopRecommendation.action === 'check'
+                    : postflopRecommendation.sizingPercent
+                      ? `${translations.gtoPostflop.raise} ${postflopRecommendation.sizingPercent}% pot`
+                      : postflopRecommendation.action === 'check'
                         ? translations.gtoPostflop.check
-                        : gtoPostflopRecommendation.action === 'fold'
+                        : postflopRecommendation.action === 'fold'
                           ? translations.gtoPostflop.fold
-                          : gtoPostflopRecommendation.action === 'call'
+                          : postflopRecommendation.action === 'call'
                             ? translations.gtoPostflop.call
                             : translations.gtoPostflop.raise}
                 </span>
               }
-              color={getGtoActionColor(gtoPostflopRecommendation.action === 'raise' ? 'R' : gtoPostflopRecommendation.action === 'call' ? 'C' : gtoPostflopRecommendation.action === 'fold' ? 'F' : 'check')}
+              color={getGtoActionColor(postflopRecommendation.action === 'raise' ? 'R' : postflopRecommendation.action === 'call' ? 'C' : postflopRecommendation.action === 'fold' ? 'F' : 'check')}
             />
 
             {/* Full width: Reasoning */}
-            {gtoPostflopRecommendation.freq && (
+            {postflopRecommendation.freq && (
               <div className="col-span-2">
                 <GridRow
                   label={translations.gtoPostflop.reasoning}
                   value={
                     <span className="text-[9px] text-white/50">
-                      {gtoPostflopRecommendation.reasoning}
+                      {postflopRecommendation.reasoning}
                     </span>
                   }
                 />
