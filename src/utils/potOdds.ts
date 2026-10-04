@@ -1,7 +1,8 @@
 import type { GameState, Player } from '../types/poker';
+import { mdfFrom } from './gtoMath';
 
 /**
- * potOdds 口径的唯一来源。
+ * potOdds 口径的唯一来源 —— **只放「赔率」相关的量**。
  *
  * 背景：面板显示、面板建议、GTO 建议、机器人决策原本各自内联了一遍
  * `toCall / (totalPot + toCall)`，而显示侧还额外混入过一个语义不同的量。
@@ -16,6 +17,12 @@ import type { GameState, Player } from '../types/poker';
  *   potBeforeBet 会被夹到 0（不产生负数）。
  * - `callPotOdds` 与 `gtoMath.calculateCallEV` 的盈亏平衡点一致：
  *   `calculateCallEV(callPotOdds, totalPot, toCall) === 0`。
+ * - `mdf` 用的是**下注前**底池（`gtoMath.calculateMDF` 的约定），
+ *   与 `callPotOdds` 用的含注底池不同口径 —— 同一个 memo 里两个量必须分开传参。
+ *
+ * 分层：本模块只负责「业务口径」（知道什么是含注底池）；
+ * MDF 属于 GTO 数学，公式与适配器都在 `gtoMath`（`calculateMDF` / `mdfFrom`），
+ * 这里只是转发一下，方便面板继续从同一个入口取 `mdf`。
  */
 export interface PotOddsInput {
   /** `state.mainPot`（含本轮已下注） */
@@ -38,11 +45,12 @@ export interface PotOddsResult {
   /** 跟注所需权益 = toCall / (totalPot + toCall) */
   callPotOdds: number;
   /**
-   * 最小防守频率 = potBeforeBet / totalPot。
+   * 最小防守频率 = 下注前底池 / 含注底池，由 `gtoMath.mdfFrom` 算出
+   * （公式本体在 `gtoMath.calculateMDF`）。
    *
-   * 注意：`gtoMath.calculateMDF(bet, pot)` 要求 `pot` 是**下注前**底池，
-   * 而面板此前传的是含注底池，导致显示值偏高。这里给出正确口径，
-   * 面板侧的修正待后续单独提交（本字段暂未被消费，先由单测锁定）。
+   * 注意：`calculateMDF(bet, pot)` 要求 `pot` 是**下注前**底池，而面板 / 河牌
+   * 手里只有含注底池，早先直接把它喂进去导致显示值偏高（半池 0.667→0.75）。
+   * 只持有 (totalPot, toCall) 的调用方请用 `gtoMath.mdfFrom`。
    */
   mdf: number;
 }
@@ -60,7 +68,7 @@ export function computePotOdds(input: PotOddsInput): PotOddsResult {
   const toCall = Math.max(0, input.lastBet - input.playerBet);
   const potBeforeBet = Math.max(0, totalPot - toCall);
   const callPotOdds = callPotOddsFrom(toCall, totalPot);
-  const mdf = totalPot > 0 ? potBeforeBet / totalPot : 0;
+  const mdf = mdfFrom(totalPot, toCall);
 
   return { toCall, totalPot, potBeforeBet, callPotOdds, mdf };
 }

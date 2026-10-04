@@ -12,12 +12,12 @@ import type { PlayerLongStats } from '../utils/longOpponentModel';
 import type { GtoPostflopRecommendation } from '../utils/gtoPostflop';
 import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
 import {
-  calculateMDF,
   calculateValueBluffRatio,
   calculateCallEV,
   calculateBluffFrequency,
-  calculateRequiredEquity,
+  calculateRequiredFoldEquity,
   classifyRange,
+  mdfFrom,
   type RangeCategory,
 } from '../utils/gtoMath';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
@@ -327,10 +327,25 @@ function getPotOddsColor(odds: number | null): string {
   return 'text-red-400';
 }
 
+// MDF 分档阈值。MDF = 下注前底池 / 含注底池，所以阈值直接对应标准下注尺度：
+//   ≥ 2/3（对手下注 ≤ 半个底池）→ 绿：防守大部分范围
+//   ≥ 1/2（半个到一个底池）      → 黄：常规
+//   < 1/2（超过一个底池）        → 红：可以弃掉较多范围
+// 用精确分数而非 0.67，是为了让「半个底池」这个最常用的注码正好落在绿档
+// （MDF 恰为 2/3），数字与颜色条必须共用同一组阈值。
+const MDF_GREEN_THRESHOLD = 2 / 3;
+const MDF_YELLOW_THRESHOLD = 1 / 2;
+
 function getMDFColor(mdf: number): string {
-  if (mdf >= 0.75) return 'text-green-400';
-  if (mdf >= 0.50) return 'text-yellow-400';
+  if (mdf >= MDF_GREEN_THRESHOLD) return 'text-green-400';
+  if (mdf >= MDF_YELLOW_THRESHOLD) return 'text-yellow-400';
   return 'text-red-400';
+}
+
+function getMDFBarColor(mdf: number): string {
+  if (mdf >= MDF_GREEN_THRESHOLD) return 'bg-green-400';
+  if (mdf >= MDF_YELLOW_THRESHOLD) return 'bg-yellow-400';
+  return 'bg-red-400';
 }
 
 function getEVColor(ev: number): string {
@@ -600,8 +615,12 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const eq = decisionEquity ?? 0;
     const raiseSize = playerRaiseAmount ?? 0;
 
-    // MDF: only when facing a bet
-    const mdf = bet > 0 && pot > 0 ? calculateMDF(bet, pot) : null;
+    // MDF: only when facing a bet.
+    // 口径：MDF 描述的是「对手这一注」，必须用**下注前**底池；
+    // 而 currentPot 是含注底池（已包含对手本轮的注），所以要减掉 toCall。
+    // 直接传 currentPot 会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
+    const potBeforeBet = Math.max(0, pot - bet);
+    const mdf = bet > 0 && potBeforeBet > 0 ? mdfFrom(pot, bet) : null;
 
     // Value/Bluff ratio: when considering betting
     const vbRatio = (bet > 0 || raiseSize > 0) && pot > 0
@@ -670,7 +689,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const betSize = playerRaiseAmount - heroBet; // 加注框填的是 raise-to 总额
     const potBeforeHeroBet = (currentPot ?? 0) - heroBet;
     if (betSize <= 0 || potBeforeHeroBet <= 0) return null;
-    return calculateRequiredEquity(betSize, potBeforeHeroBet);
+    return calculateRequiredFoldEquity(betSize, potBeforeHeroBet);
   }, [playerRaiseAmount, heroPlayer, currentPot]);
 
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
@@ -944,7 +963,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                     {(gtoMath.mdf * 100).toFixed(0)}%
                     <StrengthBar
                       value={gtoMath.mdf}
-                      color={gtoMath.mdf >= 0.67 ? 'bg-green-400' : gtoMath.mdf >= 0.50 ? 'bg-yellow-400' : 'bg-red-400'}
+                      color={getMDFBarColor(gtoMath.mdf)}
                     />
                   </>
                 }

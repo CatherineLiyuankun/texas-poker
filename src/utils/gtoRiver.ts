@@ -63,11 +63,6 @@ function calculateSPR(ctx: ContextInfo): number {
   return ctx.toCall / ctx.totalPot;
 }
 
-function calculateMDF(betSize: number, potSize: number): number {
-  if (potSize + betSize === 0) return 0.5;
-  return potSize / (potSize + betSize);
-}
-
 function calculateGTOBluffFrequency(betSize: number, potSize: number): number {
   if (betSize + potSize === 0) return 0.33;
   return betSize / (betSize + potSize);
@@ -166,12 +161,26 @@ function unblocksBluffCatchers(hand: Card[], community: Card[]): number {
   return Math.min(unblockScore, 0.3);
 }
 
+/**
+ * 把 hero 的手牌归到极化三分（value / bluff catcher / bluff）。
+ *
+ * 判据只看**手牌本身**：成手牌等级 + 牌面纹理。
+ *
+ * 这里早先还有一条 `equity >= mdf` 的分支，已删除 —— 它属于**量纲混用**：
+ * MDF = P/(P+B) 是「整条范围该防守多少」的**范围级**概念，equity 是
+ * **单手持牌**的权益；而且 MDF 随注码递减、跟注所需权益随注码递增，方向相反。
+ * 只要注码小于 φ≈1.618 倍底池，MDF 就严格高于 potOdds，这条分支会完全支配
+ * 调用点的 `equity >= potOdds`，导致「小注反而要求更高权益」
+ * （MEDIUM 牌面对 1/4 池下注会被 100% 弃掉）。
+ * 删掉后由调用点按价格判断，见 .opencode/plans/pot-odds-consistency.md §10。
+ *
+ * 注意：`PolarizedCategory.VALUE` 目前没有消费方（两个调用点只比较
+ * BLUFF_CATCHER），保留是为了让「极化三分」的语义完整。
+ */
 function getPolarizedCategory(
   equity: number,
   handRank: HandRank | null,
   texture: BoardTexture,
-  toCall: number,
-  totalPot: number,
 ): PolarizedCategory {
   if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
     return PolarizedCategory.VALUE;
@@ -183,11 +192,6 @@ function getPolarizedCategory(
 
   if (handRank === 'pair' && equity >= 0.7) {
     return PolarizedCategory.VALUE;
-  }
-
-  const mdf = calculateMDF(toCall, totalPot);
-  if (equity >= mdf) {
-    return PolarizedCategory.BLUFF_CATCHER;
   }
 
   if (texture.wetness > 7 && equity >= 0.25) {
@@ -330,7 +334,11 @@ function handleRiverFacingBet(
     return handleRiverBigRaise(player, state, flags, config);
   }
 
-  const category = getPolarizedCategory(equity, evaluateHand(player.hand, community).rank, texture, ctx.toCall, ctx.totalPot);
+  const category = getPolarizedCategory(
+    equity,
+    evaluateHand(player.hand, community).rank,
+    texture,
+  );
 
   switch (strength) {
     case HandStrength.NUTS:

@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { HandAnalysis } from '../HandAnalysis';
 import { translations } from '../../utils/translations';
+import { getMDFReferenceTable } from '../../utils/gtoMath';
 import { startNewHand, recordAction, resetOpponentStats } from '../../utils/opponentModel';
 import type { Card, GamePhase, GameState, Player, PlayerId } from '../../types/poker';
 
@@ -303,5 +304,105 @@ describe('HandAnalysis 赔率口径', () => {
     expect(rowOf(translations.handAnalysis.rangeEquity).className).not.toContain(
       BASIS_HIGHLIGHT,
     );
+  });
+});
+
+describe('HandAnalysis MDF 口径', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  function mkHeroAndOpp() {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      bet: 0,
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    return { hero, opp };
+  }
+
+  it('半个底池下注显示 67%，而不是把含注底池当分母的 75%', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100，对手下 50 → 含注底池 150
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 150,
+      betToCall: 50,
+    });
+
+    // MDF = 100 / 150 = 2/3
+    expect(readEquityPct(translations.gtoMath.mdf)).toBe(67);
+    // 旧口径 calculateMDF(50, 150) = 0.75 → 75%，是本次要修掉的偏差
+    expect(readEquityPct(translations.gtoMath.mdf)).not.toBe(75);
+  });
+
+  it('一个底池下注显示 50%，而不是 67%', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100，对手下 100 → 含注底池 200
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 200,
+      betToCall: 100,
+    });
+
+    expect(readEquityPct(translations.gtoMath.mdf)).toBe(50);
+    expect(readEquityPct(translations.gtoMath.mdf)).not.toBe(67);
+  });
+
+  it('无需跟注时不渲染 MDF 行', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      potOdds: 0,
+      currentPot: 60,
+      betToCall: 0,
+    });
+
+    expect(screen.queryByText(translations.gtoMath.mdf)).toBeNull();
+  });
+
+  // 验收标准：面板显示的 MDF 必须与 gtoMath 的参考表对同一注码一致
+  // （即「剧本 D」：显示值与自己的参考表打架）。
+  // 构造方式：下注前底池固定 100，注码 s·100 → 含注底池 100·(1+s)。
+  it.each([
+    { label: '25% pot', s: 0.25 },
+    { label: '50% pot', s: 0.5 },
+    { label: '100% pot', s: 1.0 },
+    { label: '200% pot', s: 2.0 },
+  ])('MDF 显示值与参考表的 $label 一致', async ({ label, s }) => {
+    const { hero, opp } = mkHeroAndOpp();
+    const reference = getMDFReferenceTable().find((e) => e.betSize === label);
+    expect(reference).toBeDefined();
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 100 * (1 + s),
+      betToCall: 100 * s,
+    });
+
+    expect(readEquityPct(translations.gtoMath.mdf)).toBe(
+      Math.round(reference!.mdf * 100),
+    );
+  });
+
+  it('半个底池的 MDF 落在绿档（阈值用精确的 2/3，不是 0.67）', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100、对手下 50 → MDF 恰为 2/3
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 150,
+      betToCall: 50,
+    });
+
+    expect(readEquityPct(translations.gtoMath.mdf)).toBe(67);
+    // 数字的颜色与下面的颜色条必须同档：值 span 带 text-green-400
+    expect(rowOf(translations.gtoMath.mdf).querySelector('span.font-medium')?.className)
+      .toContain('text-green-400');
   });
 });

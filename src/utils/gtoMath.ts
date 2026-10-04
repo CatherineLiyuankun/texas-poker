@@ -25,7 +25,14 @@ export type RangeCategory = 'value' | 'bluff' | 'bluff_catcher' | 'fold';
 export interface MDFReference {
   betSize: string;
   mdf: number;
-  requiredEquity: number;
+  /**
+   * 「我方下注所需的对手弃牌率」= bet / (下注前底池 + bet) = 1 − MDF，
+   * 由 `calculateRequiredFoldEquity` 算出。
+   *
+   * 旧名 `requiredEquity` 会误导：**不是**跟注方的所需权益 ——
+   * 那是 bet / (下注前底池 + 2·bet)，比它小得多（半池 0.25 vs 0.333）。
+   */
+  requiredFoldEquity: number;
   bluffPct: number;
 }
 
@@ -37,9 +44,35 @@ export interface GTOMathResult {
   rangeCategory: RangeCategory | null;
 }
 
+/**
+ * 最小防守频率 —— **MDF 公式的唯一实现**。
+ *
+ * 教科书签名：`potSize` 是**下注前**底池，返回 `potSize / (potSize + betSize)`。
+ * 业务侧只持有含注底池时，请用下面的 `mdfFrom`（它负责换算后调用这里），
+ * 不要自己写 `totalPot - toCall` —— 那正是阶段 2 里两处调用同时写错的原因。
+ */
 export function calculateMDF(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return potSize / (potSize + betSize);
+}
+
+/**
+ * 最小防守频率，**业务口径适配器**：入参是「含注底池」与跟注额，
+ * 换算成下注前底池后交给 `calculateMDF`（公式的唯一实现）。
+ *
+ * 存在的意义：本代码库里 `ctx.totalPot` / `state.mainPot` 都是含注底池，
+ * 调用方不该自己写 `totalPot - toCall` —— 阶段 2 里面板与河牌两处调用
+ * 正是这么写错的（把含注底池当成下注前底池，半池 MDF 由 0.667 变成 0.75）。
+ *
+ * 无需跟注（toCall = 0）时返回 1（「无需防守」）；注意这与
+ * `calculateMDF` 在 betSize <= 0 时返回 0 的哨兵语义不同。
+ */
+export function mdfFrom(totalPot: number, toCall: number): number {
+  const pot = Math.max(0, totalPot);
+  if (pot <= 0) return 0;
+  const bet = Math.max(0, toCall);
+  if (bet <= 0) return 1;
+  return calculateMDF(bet, pot - bet);
 }
 
 export function calculateValueBluffRatio(
@@ -121,19 +154,28 @@ export function getMDFReferenceTable(): MDFReference[] {
     const potSize = 1;
     const betSize = size;
     const mdf = calculateMDF(betSize, potSize);
-    const requiredEquity = betSize / (potSize + betSize);
+    const requiredFoldEquity = calculateRequiredFoldEquity(betSize, potSize);
     const bluffPct = calculateValueBluffRatio(betSize, potSize).bluffPct;
     const pct = Math.round(size * 100);
     return {
       betSize: `${pct}% pot`,
       mdf,
-      requiredEquity,
+      requiredFoldEquity,
       bluffPct,
     };
   });
 }
 
-export function calculateRequiredEquity(betSize: number, potSize: number): number {
+/**
+ * 我方下注所需的**对手弃牌率** = betSize / (potSize + betSize) = 1 − MDF。
+ *
+ * ⚠️ 这**不是**跟注方的所需权益 —— 那是 betSize / (potSize + 2·betSize)。
+ * 两者数值差很多（半池：0.333 vs 0.25），旧名 `calculateRequiredEquity`
+ * 把「弃牌率」和「权益」混为一谈，故改名为 `calculateRequiredFoldEquity`。
+ *
+ * 前提：下注后无人加注、直接收下底池（纯诈唬的盈亏平衡点）。
+ */
+export function calculateRequiredFoldEquity(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return betSize / (potSize + betSize);
 }

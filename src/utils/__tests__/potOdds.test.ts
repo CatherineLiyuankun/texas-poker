@@ -3,7 +3,12 @@ import {
   computePotOddsFor,
   callPotOddsFrom,
 } from '../potOdds';
-import { calculateCallEV, calculateMDF, calculateRequiredEquity } from '../gtoMath';
+import {
+  calculateCallEV,
+  calculateMDF,
+  calculateRequiredFoldEquity,
+  mdfFrom,
+} from '../gtoMath';
 import type { GameState, Player } from '../../types/poker';
 
 function mkPlayer(partial: Partial<Player> & { id: number }): Player {
@@ -128,9 +133,9 @@ describe('computePotOdds — 与 gtoMath 的一致性', () => {
     expect(calculateMDF(50, r.totalPot)).toBeGreaterThan(r.mdf);
   });
 
-  it('betRequiredFold 口径 = calculateRequiredEquity(增量, 下注前底池)', () => {
+  it('betRequiredFold 口径 = calculateRequiredFoldEquity(增量, 下注前底池)', () => {
     // 下注前底池 100，我方下注 50（增量 50）→ 所需弃牌率 = 50/150 = 1/3
-    expect(calculateRequiredEquity(50, 100)).toBeCloseTo(1 / 3, 10);
+    expect(calculateRequiredFoldEquity(50, 100)).toBeCloseTo(1 / 3, 10);
   });
 });
 
@@ -210,5 +215,22 @@ describe('computePotOddsFor / callPotOddsFrom', () => {
   it('callPotOddsFrom 对 toCall <= 0 返回 0', () => {
     expect(callPotOddsFrom(0, 100)).toBe(0);
     expect(callPotOddsFrom(-5, 100)).toBe(0);
+  });
+});
+
+describe('computePotOdds().mdf 与 gtoMath.mdfFrom 一致', () => {
+  // mdfFrom 本体与公式的测试在 gtoMath.test.ts；这里只钉住「面板取数与
+  // 河牌取数走同一个函数」这条不变量。
+  it('与 mdfFrom(totalPot, toCall) 完全一致', () => {
+    for (const [mainPot, toCall] of [
+      [100, 0],
+      [100, 50],
+      [150, 50],
+      [100, 100],
+      [250, 100],
+    ] as const) {
+      const r = computePotOdds({ mainPot, sidePotTotal: 0, lastBet: toCall, playerBet: 0 });
+      expect(mdfFrom(r.totalPot, r.toCall)).toBeCloseTo(r.mdf, 10);
+    }
   });
 });
