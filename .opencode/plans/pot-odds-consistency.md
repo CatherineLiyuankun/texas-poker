@@ -764,3 +764,14 @@ D 的语义：承认 MDF（范围级量）不该参与**手牌级**分档。删�
 - `PolarizedCategory.VALUE` 仍无消费方（保留以维持三分语义）。
 - 河牌行为变更只做了 2 条确定性用例的覆盖；建议后续用批量采样抽查 bot 的整体
   弃牌率是否可接受（本次未做统计层面的抽查）。
+
+### 验证结果
+
+- 全量 jest：**29 suites / 597 passed / 2 skipped / 599 total，全绿**
+  （含新增的 `gtoRiver.polarized.test.ts` 2 条；上一轮偶发的
+  `GameBoard.showdown.settlement` 本轮通过）。
+- 提交拆成 4 个，便于单独回滚：
+  1. `refactor(gtoMath)`: `mdfFrom` 从 `potOdds` 搬到 `gtoMath`（纯搬家）
+  2. `fix(gtoRiver)`: 删除 `equity >= mdf` 判据（**行为变更**，河牌更紧）
+  3. `refactor(gtoMath)`: `requiredEquity` → `requiredFoldEquity` + 复用函数
+  4. `docs(plans)`: 本节
