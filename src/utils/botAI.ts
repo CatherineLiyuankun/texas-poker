@@ -21,6 +21,7 @@ import { decideRiverGTO } from './gtoRiver';
 import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
 import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
 import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
+import { computePotOddsFor } from './potOdds';
 import {
   buildNodelockProfile,
   getNodelockRecommendation,
@@ -973,7 +974,8 @@ function decideRiver(
 
 export function getBotAction(player: Player, state: GameState): BotDecision {
   // 行动记录已移至 GameBoard.tsx 统一管理（每个行动只记录一次）
-  const toCall = state.lastBet - player.bet;
+  const potOddsInfo = computePotOddsFor(state, player);
+  const toCall = potOddsInfo.toCall;
   const canCheckResult = canCheck(state.lastBet, player.bet);
   const canCallResult = canCall(state.lastBet, player.bet, player.chips);
   const canRaiseResult = canRaise(
@@ -1002,9 +1004,8 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     state.dealer,
     state.players.length,
   );
-  const totalPot =
-    state.mainPot + state.sidePots.reduce((sum, sp) => sum + sp.amount, 0);
-  const potOdds = toCall > 0 ? toCall / (totalPot + toCall) : 0;
+  const totalPot = potOddsInfo.totalPot;
+  const potOdds = potOddsInfo.callPotOdds;
   const numOpponents = activePlayers.length;
 
   const ctx: ContextInfo = {

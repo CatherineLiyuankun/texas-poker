@@ -240,8 +240,21 @@ describe('Bot AI 决策', () => {
         lastBet: 5,
         mainPot: 100,
       });
-      const decision = getBotAction(player, state);
-      expect(['call', 'check']).toContain(decision.action);
+
+      // getBotAction 内部有大量 Math.random 分支（加注 / 诈唬 / 混合频率），
+      // 单次采样会以约 10% 的概率抽到 raise，使这条断言随机失败。
+      // 「更多跟注」本身是统计命题，因此多次采样后比较各行动的比例。
+      const N = 100;
+      const counts = { call: 0, raise: 0, fold: 0 };
+      for (let i = 0; i < N; i += 1) {
+        const action = getBotAction(player, state).action;
+        if (action === 'raise') counts.raise += 1;
+        else if (action === 'fold') counts.fold += 1;
+        else counts.call += 1;
+      }
+
+      // 赔率极好（5 跟 100）时跟注应显著多于加注与弃牌
+      expect(counts.call).toBeGreaterThan(counts.raise + counts.fold);
     });
 
     it('赔率差时倾向于弃牌', () => {

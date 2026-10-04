@@ -55,11 +55,18 @@ function mkState(
 
 // 从面板里读出某一行显示的百分比
 function readEquityPct(label: string): number | null {
-  const labelEl = screen.getByText(label);
-  const row = labelEl.parentElement;
-  const match = (row?.textContent ?? '').match(/(\d+)%/);
+  const row = rowOf(label);
+  const match = (row.textContent ?? '').match(/(\d+)%/);
   return match ? Number(match[1]) : null;
 }
+
+// GridRow 的根 div 就是 label span 的父节点；判定依据的绿色边框挂在它身上
+function rowOf(label: string): HTMLElement {
+  return screen.getByText(label).parentElement as HTMLElement;
+}
+
+// GridRow 的 highlight 类名，判定依据所在行会带上它
+const BASIS_HIGHLIGHT = 'border-green-400/80';
 
 async function renderPanel(
   hero: Player,
@@ -67,6 +74,12 @@ async function renderPanel(
   numOpponents: number,
   phase: GamePhase,
   communityCards: Card[],
+  overrides: Partial<{
+    potOdds: number;
+    currentPot: number;
+    betToCall: number;
+    playerRaiseAmount: number | null;
+  }> = {},
 ) {
   render(
     <HandAnalysis
@@ -74,9 +87,10 @@ async function renderPanel(
       communityCards={communityCards}
       phase={phase}
       numOpponents={numOpponents}
-      potOdds={0.25}
-      currentPot={60}
-      betToCall={20}
+      potOdds={overrides.potOdds ?? 0.25}
+      currentPot={overrides.currentPot ?? 60}
+      betToCall={overrides.betToCall ?? 20}
+      playerRaiseAmount={overrides.playerRaiseAmount ?? null}
       spr={8}
       gameState={state}
       heroPlayer={hero}
@@ -204,5 +218,90 @@ describe('HandAnalysis 权益面板（随机权益 + 范围权益）', () => {
     expect(rangePct).toBeLessThan(randomPct!);
     // 面板必须显式标注范围已被翻后行动收窄
     expect(screen.getByText(translations.handAnalysis.rangeNarrowed)).toBeTruthy();
+  });
+});
+
+describe('HandAnalysis 赔率口径', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  function mkHeroAndOpp() {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      bet: 0,
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    return { hero, opp };
+  }
+
+  it('未输入加注额时，「赔率」行显示跟注赔率', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    expect(readEquityPct(translations.handAnalysis.potOdds)).toBe(25);
+    // 没有加注输入时不应出现「所需弃牌率」行
+    expect(screen.queryByText(translations.handAnalysis.betRequiredFold)).toBeNull();
+  });
+
+  it('加注框有值时，「赔率」行仍是跟注赔率，不切换语义', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // raise-to 200，含注底池 60 → 旧实现会显示 200/(60+200) ≈ 77%
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      potOdds: 0.25,
+      currentPot: 60,
+      betToCall: 20,
+      playerRaiseAmount: 200,
+    });
+
+    // 主行必须保持跟注赔率 25%，不能被加注口径劫持
+    expect(readEquityPct(translations.handAnalysis.potOdds)).toBe(25);
+    // 下注口径改为独立一行：200 / (60 + 200) ≈ 77%
+    expect(readEquityPct(translations.handAnalysis.betRequiredFold)).toBe(77);
+  });
+
+  it('能推断范围时，绿色边框加在「范围权益」行上', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    // 翻前对手手牌完整 → 能推断出继续范围 → 建议依据范围权益 → 该行加绿框
+    expect(rowOf(translations.handAnalysis.rangeEquity).className).toContain(
+      BASIS_HIGHLIGHT,
+    );
+    expect(rowOf(translations.handAnalysis.equity).className).not.toContain(
+      BASIS_HIGHLIGHT,
+    );
+  });
+
+  it('推断失败回退随机时，绿色边框加在「随机权益」行上', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      bet: 0,
+      totalBet: 20,
+    });
+    // 对手手牌不完整 → estimateOpponentCombos 返回 null → 权益回退成随机值，
+    // 此时建议的真正依据是随机权益，绿框必须跟着走
+    const opp = mkPlayer({ id: 2, hand: [], totalBet: 20 });
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    expect(rowOf(translations.handAnalysis.equity).className).toContain(
+      BASIS_HIGHLIGHT,
+    );
+    expect(rowOf(translations.handAnalysis.rangeEquity).className).not.toContain(
+      BASIS_HIGHLIGHT,
+    );
   });
 });

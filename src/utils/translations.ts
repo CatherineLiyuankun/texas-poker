@@ -87,6 +87,8 @@ export const translations = {
     rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
+    // 加注框有值时单独显示的「我方下注所需弃牌率」——与跟注赔率是两个不同的量
+    betRequiredFold: '所需弃牌率 Req. Fold',
     gto: 'GTO preflop', // GTO建议
     spr: 'SPR',
     sprShallow: '浅', // Shallow

@@ -6,6 +6,7 @@ import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
+import { callPotOddsFrom } from './potOdds';
 
 interface RiverConfig {
   equity: number;
@@ -482,7 +483,7 @@ export function decideRiverGTO(
   const strength = classifyRiverStrength(equity, evaluated.rank);
   const ip = isIP(ctx);
   const spr = calculateSPR(ctx);
-  const potOdds = ctx.toCall > 0 ? ctx.toCall / (ctx.totalPot + ctx.toCall) : 0;
+  const potOdds = callPotOddsFrom(ctx.toCall, ctx.totalPot);
   const isMultiway = ctx.numOpponents > 1;
 
   let config: RiverConfig = {

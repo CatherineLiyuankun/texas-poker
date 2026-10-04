@@ -16,6 +16,7 @@ import {
   calculateValueBluffRatio,
   calculateCallEV,
   calculateBluffFrequency,
+  calculateRequiredEquity,
   classifyRange,
   type RangeCategory,
 } from '../utils/gtoMath';
@@ -413,13 +414,20 @@ function GridRow({
   label,
   value,
   color = 'text-white',
+  highlight = false,
 }: {
-  label: string;
+  label: React.ReactNode;
   value: React.ReactNode;
   color?: string;
+  /** 判定依据所在行加绿色边框，让用户一眼看出建议是按哪个权益算的 */
+  highlight?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-1">
+    <div
+      className={`flex items-center gap-1 ${
+        highlight ? 'border border-green-400/80 rounded' : ''
+      }`}
+    >
       <span className="text-white/60">{label}</span>
       <span className={`font-medium ${color}`}>{value}</span>
     </div>
@@ -449,8 +457,15 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 }) => {
   const [randomEquity, setRandomEquity] = useState<number | null>(null);
   const [rangeEquity, setRangeEquity] = useState<number | null>(null);
-  // 范围权益的两个附加状态：是否按翻后行动收窄、是否叠加了对手激进度剥削调整
-  const [rangeFlags, setRangeFlags] = useState({ narrowed: false, exploited: false });
+  // 范围权益的附加状态：
+  // applied —— 本轮是否真的推断出了范围（否则 rangeEquity 回退成随机值，
+  //            此时「建议」的依据其实是随机权益，面板要据此高亮对应行）；
+  // narrowed / exploited —— 是否按翻后行动收窄、是否叠加了对手激进度剥削调整
+  const [rangeFlags, setRangeFlags] = useState({
+    applied: false,
+    narrowed: false,
+    exploited: false,
+  });
 
   // getCommunityByPhase 会 slice 出新数组，这里按引用缓存，
   // 避免每次渲染都重新触发蒙特卡洛模拟。
@@ -522,7 +537,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     if (!shouldCalculate) {
       setRandomEquity(null);
       setRangeEquity(null);
-      setRangeFlags({ narrowed: false, exploited: false });
+      setRangeFlags({ applied: false, narrowed: false, exploited: false });
       return;
     }
 
@@ -548,6 +563,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           : random,
       );
       setRangeFlags({
+        applied: range !== null,
         narrowed: range?.narrowedByPostflop ?? false,
         exploited: range?.exploitationApplied ?? false,
       });
@@ -561,6 +577,16 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 蒙特卡洛胜率已包含听牌概率，直接使用。
   // 决策以范围权益为准（更接近真实对手），无法推断范围时等同随机权益。
   const decisionEquity = rangeEquity ?? randomEquity;
+
+  // 「建议」实际依据的是哪一个权益。
+  // 注意不能只看 rangeEquity 是否为 null —— 推断失败时它会被赋成随机值，
+  // 必须用 rangeFlags.applied 才能区分「真的用了范围」与「回退到随机」。
+  const decisionBasis: 'range' | 'random' | null =
+    randomEquity === null || rangeEquity === null
+      ? null
+      : rangeFlags.applied
+        ? 'range'
+        : 'random';
 
   const recommendation = useMemo(() => {
     if (decisionEquity === null) return '';
@@ -631,15 +657,25 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return { mdf, vbRatio, bluffFreq, callEV, raiseEV, bestAction, bestEV, rangeCat };
   }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase]);
 
-  // Calculate pot odds to display (facing bet OR making bet)
-  const displayPotOdds = useMemo(() => {
-    // If player is making a bet/raise, show odds offered to opponent
-    if (playerRaiseAmount && playerRaiseAmount > 0 && currentPot) {
-      return playerRaiseAmount / (currentPot + playerRaiseAmount);
-    }
-    // Otherwise show pot odds when facing a bet
-    return potOdds > 0 ? potOdds : null;
-  }, [playerRaiseAmount, currentPot, potOdds]);
+  // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
+  // 没有跟注额（可以免费过牌）时无意义，显示为 —。
+  const callPotOdds = potOdds > 0 ? potOdds : null;
+
+  // 我方下注/加注的「所需弃牌率」= 追加筹码 / (下注前底池 + 追加筹码)。
+  // 这是与跟注赔率不同的量：衡量我的下注需要对手多频繁弃牌才划算，
+  // 只在加注框有值时显示，且不参与 getRecommendation。
+  const betRequiredFold = useMemo(() => {
+    if (!playerRaiseAmount || playerRaiseAmount <= 0) return null;
+    const heroBet = heroPlayer?.bet ?? 0;
+    const betSize = playerRaiseAmount - heroBet; // 加注框填的是 raise-to 总额
+    const potBeforeHeroBet = (currentPot ?? 0) - heroBet;
+    if (betSize <= 0 || potBeforeHeroBet <= 0) return null;
+    return calculateRequiredEquity(betSize, potBeforeHeroBet);
+  }, [playerRaiseAmount, heroPlayer, currentPot]);
+
+  // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
+  // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
+  // 得出相反结论时误以为面板算错。
 
   return (
     <div className="w-54 bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
@@ -713,6 +749,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           {/* 随机权益：所有对手都按随机牌建模 */}
           <GridRow
             label={translations.handAnalysis.equity}
+            highlight={decisionBasis === 'random'}
             value={
               randomEquity !== null ? (
                 <>
@@ -731,6 +768,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           {/* 范围权益：主要对手按推断的继续范围建模（决策依据） */}
           <GridRow
             label={translations.handAnalysis.rangeEquity}
+            highlight={decisionBasis === 'range'}
             value={
               rangeEquity !== null ? (
                 <>
@@ -760,11 +798,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             color={getEquityTextColor(rangeEquity)}
           />
 
-          {/* 底池赔率 */}
+          {/* 底池赔率：恒为跟注赔率，与机器人决策同口径 */}
           <GridRow
             label={translations.handAnalysis.potOdds}
-            value={displayPotOdds !== null ? `${(displayPotOdds * 100).toFixed(0)}%` : '...'}
-            color={getPotOddsColor(displayPotOdds)}
+            value={callPotOdds !== null ? `${(callPotOdds * 100).toFixed(0)}%` : '—'}
+            color={getPotOddsColor(callPotOdds)}
           />
 
           {/* 胜率 vs 赔率 → 建议 */}
@@ -775,6 +813,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               color={getRecColor(recommendation)}
             />
           </div>
+
+          {/* 我方下注的所需弃牌率：与跟注赔率是两个不同的量，只在加注框有值时出现 */}
+          {betRequiredFold !== null && (
+            <div className="col-span-2">
+              <GridRow
+                label={translations.handAnalysis.betRequiredFold}
+                value={`${(betRequiredFold * 100).toFixed(0)}%`}
+                color={getPotOddsColor(betRequiredFold)}
+              />
+            </div>
+          )}
         </div>
       </div>}
 
