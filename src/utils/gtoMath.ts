@@ -1,5 +1,19 @@
 import type { GamePhase } from '../types/poker';
 
+/**
+ * GTO 数学的唯一实现处。**两套底池口径，务必分清**：
+ *
+ * - 比率类（`calculateMDF` / `calculateValueBluffRatio` / `calculateBluffFrequency` /
+ *   `calculateRequiredFoldEquity`）吃的是**下注前底池** `P` 与**本次投入增量** `B`。
+ *   业务侧手里通常只有「含注底池」（= `P + B`），请走对应的适配器（如 `mdfFrom`），
+ *   不要自己写 `totalPot - toCall`。
+ * - 跟注 EV（`calculateCallEV`）吃的是**含注底池**（= `P + B`）与跟注额 `B`，
+ *   其盈亏平衡点与 `potOdds.callPotOdds` 一致。
+ *
+ * 两套口径混用是本模块历史 bug 的根源（半池 MDF 由 0.667 变 0.75、
+ * V:B 由 3:1 变 4:1）。新增调用方前先确认自己拿的是哪一种底池。
+ */
+
 export interface ValueBluffRatio {
   valuePct: number;
   bluffPct: number;
@@ -75,18 +89,36 @@ export function mdfFrom(totalPot: number, toCall: number): number {
   return calculateMDF(bet, pot - bet);
 }
 
+/**
+ * 均衡时「价值 : 诈唬」的占比 —— **公式的唯一实现**。
+ *
+ * 令对手对跟注 / 弃牌无差异可得 `诈唬占比 = B / (P + 2B)`，
+ * 其中 `P` 是**下注前底池**、`B` 是**本次投入增量**（半池 → 25% 诈唬）。
+ * 入参口径见文件头的约定说明。
+ */
+function bluffShare(
+  betSize: number,
+  potSize: number,
+): { valuePct: number; bluffPct: number } {
+  if (potSize <= 0 || betSize <= 0) return { valuePct: 1, bluffPct: 0 };
+  const bluffPct = betSize / (potSize + 2 * betSize);
+  return { valuePct: 1 - bluffPct, bluffPct };
+}
+
+/** 比例字符串，形如 `3:1` / `2.5:1`（整数不补 `.0`）；无诈唬时为 `∞:1`。 */
+function formatValueBluffRatio(valuePct: number, bluffPct: number): string {
+  if (bluffPct <= 0) return '∞:1';
+  const value = valuePct / bluffPct;
+  const text = value >= 10 ? value.toFixed(0) : value.toFixed(1).replace(/\.0$/, '');
+  return `${text}:1`;
+}
+
 export function calculateValueBluffRatio(
   betSize: number,
   potSize: number,
 ): ValueBluffRatio {
-  if (potSize <= 0 || betSize <= 0) {
-    return { valuePct: 1, bluffPct: 0, ratio: '∞:1' };
-  }
-  const bluffPct = betSize / (potSize + 2 * betSize);
-  const valuePct = 1 - bluffPct;
-  const ratioValue = valuePct / bluffPct;
-  const ratio = `${ratioValue.toFixed(1)}:1`;
-  return { valuePct, bluffPct, ratio };
+  const { valuePct, bluffPct } = bluffShare(betSize, potSize);
+  return { valuePct, bluffPct, ratio: formatValueBluffRatio(valuePct, bluffPct) };
 }
 
 export function calculateCallEV(
@@ -117,17 +149,16 @@ export function calculateRaiseEV(
   return evFold + evCall;
 }
 
+/**
+ * 与 `calculateValueBluffRatio` 同源（共用 `bluffShare`），
+ * 差别只在 `ratio` 的类型：这里返回数值（价值 / 诈唬），供 EV 与阈值判断直接用。
+ */
 export function calculateBluffFrequency(
   betSize: number,
   potSize: number,
 ): BluffFrequency {
-  if (potSize <= 0 || betSize <= 0) {
-    return { bluffPct: 0, valuePct: 1, ratio: 0 };
-  }
-  const bluffPct = betSize / (potSize + 2 * betSize);
-  const valuePct = 1 - bluffPct;
-  const ratio = bluffPct > 0 ? valuePct / bluffPct : 0;
-  return { bluffPct, valuePct, ratio };
+  const { valuePct, bluffPct } = bluffShare(betSize, potSize);
+  return { bluffPct, valuePct, ratio: bluffPct > 0 ? valuePct / bluffPct : 0 };
 }
 
 export function classifyRange(
@@ -180,6 +211,14 @@ export function calculateRequiredFoldEquity(betSize: number, potSize: number): n
   return betSize / (potSize + betSize);
 }
 
+/**
+ * 面板口径的一次性汇总（MDF / V:B / EV / 牌力分类）。
+ *
+ * **入参口径**：`potSize` 是**下注前底池**，`betToCall` / `raiseSize` 都是
+ * **本次投入增量**（与 `calculateMDF` / `calculateValueBluffRatio` 一致）。
+ * 唯独 `calculateCallEV` 吃含注底池，所以下面显式传 `potSize + betToCall`——
+ * 早先直接传 `potSize` 会让跟注 EV 少算一个下注额。
+ */
 export function getGTOMathSummary(
   equity: number,
   potSize: number,
@@ -199,7 +238,7 @@ export function getGTOMathSummary(
   let ev: EVResult | null = null;
   if (betToCall > 0 || (raiseSize !== null && raiseSize > 0)) {
     const callEV = betToCall > 0
-      ? calculateCallEV(equity, potSize, betToCall)
+      ? calculateCallEV(equity, potSize + betToCall, betToCall)
       : 0;
     const foldEV = calculateFoldEV();
     const raiseEV = raiseSize && raiseSize > 0

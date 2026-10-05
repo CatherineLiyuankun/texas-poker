@@ -116,7 +116,7 @@ describe('GTO Math Functions', () => {
       const result = calculateValueBluffRatio(0.5, 1);
       expect(result.valuePct).toBeCloseTo(0.75, 2);
       expect(result.bluffPct).toBeCloseTo(0.25, 2);
-      expect(result.ratio).toBe('3.0:1');
+      expect(result.ratio).toBe('3:1');
     });
 
     it('should return 71.4%/28.6% for 67% pot bet', () => {
@@ -129,7 +129,7 @@ describe('GTO Math Functions', () => {
       const result = calculateValueBluffRatio(1.0, 1);
       expect(result.valuePct).toBeCloseTo(0.667, 2);
       expect(result.bluffPct).toBeCloseTo(0.333, 2);
-      expect(result.ratio).toBe('2.0:1');
+      expect(result.ratio).toBe('2:1');
     });
 
     it('should return 62.5%/37.5% for 150% pot bet', () => {
@@ -222,6 +222,31 @@ describe('GTO Math Functions', () => {
     it('should handle zero values', () => {
       const result = calculateBluffFrequency(0, 1);
       expect(result.bluffPct).toBe(0);
+    });
+  });
+
+  describe('价值:诈唬 比例字符串与同源', () => {
+    it('整数比例不补 .0，非整数保留一位小数', () => {
+      expect(calculateValueBluffRatio(0.25, 1).ratio).toBe('5:1');
+      expect(calculateValueBluffRatio(0.5, 1).ratio).toBe('3:1');
+      expect(calculateValueBluffRatio(1.0, 1).ratio).toBe('2:1');
+      expect(calculateValueBluffRatio(2.0, 1).ratio).toBe('1.5:1');
+      expect(calculateValueBluffRatio(1.5, 1).ratio).toBe('1.7:1');
+    });
+
+    it('无诈唬时比例是 ∞:1，且不产生 NaN', () => {
+      expect(calculateValueBluffRatio(0, 1).ratio).toBe('∞:1');
+      expect(calculateValueBluffRatio(0.5, 0).ratio).toBe('∞:1');
+      expect(Number.isFinite(calculateValueBluffRatio(0, 0).valuePct)).toBe(true);
+    });
+
+    it('两个比例函数共用同一份公式（valuePct / bluffPct 完全一致）', () => {
+      for (const bet of [0, 0.25, 0.33, 0.5, 1, 1.5, 2]) {
+        const a = calculateValueBluffRatio(bet, 1);
+        const b = calculateBluffFrequency(bet, 1);
+        expect(a.valuePct).toBeCloseTo(b.valuePct, 12);
+        expect(a.bluffPct).toBeCloseTo(b.bluffPct, 12);
+      }
     });
   });
 
@@ -335,6 +360,14 @@ describe('GTO Math Functions', () => {
       expect(result.ev).not.toBeNull();
       expect(result.ev!.callEV).toBeGreaterThan(0);
       expect(result.ev!.foldEV).toBe(0);
+    });
+
+    it('callEV 用含注底池（下注前底池 + 跟注额），不少算一个下注额', () => {
+      // 下注前底池 100、跟注 50 → 含注 150；equity 0.6
+      const result = getGTOMathSummary(0.6, 100, 50, null, 0.5, 'flop');
+      expect(result.ev!.callEV).toBeCloseTo(0.6 * 150 - 0.4 * 50, 10); // 70
+      // 旧实现直接传 potSize=100 → 40
+      expect(result.ev!.callEV).not.toBeCloseTo(40, 1);
     });
 
     it('should determine best action', () => {
