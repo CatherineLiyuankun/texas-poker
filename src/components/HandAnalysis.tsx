@@ -1059,18 +1059,33 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
           {/* Right column: V:B ratio + Range classification */}
           <div className="space-y-1">
-            {gtoMath.vbRatio !== null && (
+            {/* V:B 是「下注方」的指标，翻牌前没有意义（范围表驱动），不渲染。
+                主值用标准比（3:1），百分比降为副标签便于对照。 */}
+            {phase !== 'preflop' && gtoMath.vbRatio !== null && (
               <GridRow
-                label={translations.gtoMath.vbRatio}
-                value={`${Math.round(gtoMath.vbRatio.valuePct * 100)}:${Math.round(gtoMath.vbRatio.bluffPct * 100)}`}
+                label={gtoMath.vbSource === 'facing'
+                  ? translations.gtoMath.vbRatioFacing
+                  : translations.gtoMath.vbRatioHero}
+                value={
+                  <>
+                    {gtoMath.vbRatio.ratio}{' '}
+                    <span className="text-[9px] text-white/40">
+                      {Math.round(gtoMath.vbRatio.valuePct * 100)}/
+                      {Math.round(gtoMath.vbRatio.bluffPct * 100)}
+                    </span>
+                  </>
+                }
               />
             )}
             {gtoMath.rangeCat !== null && phase !== 'preflop' && (
               <GridRow
-                label=""
+                label={translations.gtoMath.rangeCategory}
                 value={
                   <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
                     {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
+                    <span className="ml-1 text-[9px] text-white/40">
+                      {translations.gtoMath.heuristic}
+                    </span>
                   </span>
                 }
               />

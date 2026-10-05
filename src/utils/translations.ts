@@ -153,7 +153,10 @@ export const translations = {
     mdf: 'MDF防御频率:', // Minimum Defense Frequency
     callEv: 'Call EV:',
     raiseEV: 'Raise EV:',
-    vbRatio: 'V:B价值:诈唬:',
+    vbRatioFacing: '对手下注 V:B:', // 面对下注时，描述对手那一注
+    vbRatioHero: '我方下注 V:B:', // 我方主动下注/加注时
+    rangeCategory: '牌力分类:',
+    heuristic: '启发式',
     rangeCategories: {
       value: 'Value', // 价值牌
       bluffCatcher: 'Bluff Catcher', // 诈唬捕手

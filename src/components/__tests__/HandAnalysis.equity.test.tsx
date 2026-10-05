@@ -502,6 +502,8 @@ describe('HandAnalysis V:B 口径', () => {
     resetOpponentStats();
   });
 
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
   function mkHeroAndOpp() {
     const hero = mkPlayer({
       id: 1,
@@ -514,46 +516,52 @@ describe('HandAnalysis V:B 口径', () => {
     return { hero, opp };
   }
 
-  // V:B 行渲染成「价值%:诈唬%」（显示格式的调整留到后续改动）
-  function readVbPair(): [number, number] | null {
-    const row = rowOf(translations.gtoMath.vbRatio);
-    const match = (row.textContent ?? '').match(/(\d+)\s*:\s*(\d+)/);
+  // 主值是标准比（3:1），副标签是百分比（75/25）
+  function readVbRatio(label: string): string | null {
+    const match = (rowOf(label).textContent ?? '').match(/([\d.]+):1/);
+    return match ? match[1] : null;
+  }
+
+  function readVbPcts(label: string): [number, number] | null {
+    const match = (rowOf(label).textContent ?? '').match(/(\d+)\/(\d+)/);
     return match ? [Number(match[1]), Number(match[2])] : null;
   }
 
-  it('面对半个底池下注显示 75:25，而不是把含注底池当分母的 80:20', async () => {
+  it('面对半个底池下注显示 3:1（75/25），而不是把含注底池当分母的 4:1', async () => {
     const { hero, opp } = mkHeroAndOpp();
 
     // 下注前底池 100，对手下 50 → 含注底池 150
-    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
       currentPot: 150,
       betToCall: 50,
     });
 
-    // V:B = 75 : 25 = 3 : 1
-    expect(readVbPair()).toEqual([75, 25]);
-    // 旧口径 calculateValueBluffRatio(50, 150) = 80:20，是本次要修掉的偏差
-    expect(readVbPair()).not.toEqual([80, 20]);
+    const label = translations.gtoMath.vbRatioFacing;
+    expect(readVbRatio(label)).toBe('3');
+    expect(readVbPcts(label)).toEqual([75, 25]);
+    // 旧口径 calculateValueBluffRatio(50, 150) = 4:1，是本次要修掉的偏差
+    expect(readVbRatio(label)).not.toBe('4');
   });
 
-  it('面对一个底池下注显示 67:33，而不是 75:25', async () => {
+  it('面对一个底池下注显示 2:1（67/33），而不是 3:1', async () => {
     const { hero, opp } = mkHeroAndOpp();
 
     // 下注前底池 100，对手下 100 → 含注底池 200
-    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
       currentPot: 200,
       betToCall: 100,
     });
 
-    expect(readVbPair()).toEqual([67, 33]);
-    expect(readVbPair()).not.toEqual([75, 25]);
+    const label = translations.gtoMath.vbRatioFacing;
+    expect(readVbRatio(label)).toBe('2');
+    expect(readVbPcts(label)).toEqual([67, 33]);
+    expect(readVbRatio(label)).not.toBe('3');
   });
 
-  it('我方下注时用「我方增量 + 我方下注前底池」算 V:B', async () => {
+  it('我方下注时改用「我方」标签，并用增量 + 下注前底池算 V:B', async () => {
     const { hero, opp } = mkHeroAndOpp();
-    const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
 
-    // 无人下注（可免费过牌），下注框填 100、底池 100 → 一池下注 → 67:33
+    // 无人下注（可免费过牌），下注框填 100、底池 100 → 一池下注 → 2:1
     await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
       potOdds: 0,
       currentPot: 100,
@@ -561,6 +569,22 @@ describe('HandAnalysis V:B 口径', () => {
       playerRaiseAmount: 100,
     });
 
-    expect(readVbPair()).toEqual([67, 33]);
+    const label = translations.gtoMath.vbRatioHero;
+    expect(readVbRatio(label)).toBe('2');
+    expect(readVbPcts(label)).toEqual([67, 33]);
+    // 我方下注时不能显示「对手下注」的标签
+    expect(screen.queryByText(translations.gtoMath.vbRatioFacing)).toBeNull();
+  });
+
+  it('翻牌前不渲染 V:B 行（翻前由范围表驱动，没有 V:B 概念）', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 150,
+      betToCall: 50,
+    });
+
+    expect(screen.queryByText(translations.gtoMath.vbRatioFacing)).toBeNull();
+    expect(screen.queryByText(translations.gtoMath.vbRatioHero)).toBeNull();
   });
 });
