@@ -738,6 +738,16 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
   }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer]);
 
+  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导，未计抽水与 ICM。
+  // 显式标出来，避免把近似值误读成完整 GTO 解。
+  const gtoMathCaveat = useMemo(() => {
+    const street = translations.gtoMath.caveat.street[phase];
+    const opponents = numOpponents <= 1
+      ? translations.gtoMath.caveat.headsUp
+      : translations.gtoMath.caveat.multiway(numOpponents);
+    return [street, opponents, translations.gtoMath.caveat.noIcm].join(' · ');
+  }, [phase, numOpponents]);
+
   // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
   // 没有跟注额（可以免费过牌）时无意义，显示为 —。
   const callPotOdds = potOdds > 0 ? potOdds : null;
@@ -1091,6 +1101,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               />
             )}
           </div>
+        </div>
+
+        {/* 口径说明：本区块是单街闭式 + 单挑推导，且未计抽水 / ICM */}
+        <div className="text-[9px] leading-tight text-white/40 mt-1">
+          {gtoMathCaveat}
         </div>
       </div>
       

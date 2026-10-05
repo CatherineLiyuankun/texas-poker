@@ -161,6 +161,14 @@ export function calculateBluffFrequency(
   return { bluffPct, valuePct, ratio: bluffPct > 0 ? valuePct / bluffPct : 0 };
 }
 
+/**
+ * 按手牌权益把范围粗分成 value / bluff_catcher / bluff / fold。
+ *
+ * ⚠️ **启发式，不是 GTO 解**：阈值是拍出来的 —— 翻后拿 `bluffPct + 0.15`
+ * 当诈唬线，等于把「手牌权益」和「GTO 诈唬频率」直接比，量纲并不一致；
+ * 翻前用 0.60 / 0.45 的硬阈值，与 Chen / Tier 无关。
+ * 只用于面板给个粗标签，**不要**接进 EV 或决策链路。
+ */
 export function classifyRange(
   equity: number,
   betSize: number,

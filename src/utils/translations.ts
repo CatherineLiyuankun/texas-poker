@@ -157,6 +157,19 @@ export const translations = {
     vbRatioHero: '我方下注 V:B:', // 我方主动下注/加注时
     rangeCategory: '牌力分类:',
     heuristic: '启发式',
+    caveat: {
+      street: {
+        preflop: '翻前',
+        flop: '翻牌近似',
+        turn: '转牌近似',
+        river: '河牌严格',
+        showdown: '摊牌',
+        ended: '本手结束',
+      },
+      headsUp: '单挑口径',
+      multiway: (n: number) => `多人(${n})未调整`,
+      noIcm: '未计 ICM',
+    },
     rangeCategories: {
       value: 'Value', // 价值牌
       bluffCatcher: 'Bluff Catcher', // 诈唬捕手

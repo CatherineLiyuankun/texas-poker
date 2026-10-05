@@ -588,3 +588,65 @@ describe('HandAnalysis V:B 口径', () => {
     expect(screen.queryByText(translations.gtoMath.vbRatioHero)).toBeNull();
   });
 });
+
+describe('HandAnalysis GTO Math 口径说明', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+  function mkPlayers(n: number) {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 60,
+    });
+    const villains: Player[] = Array.from({ length: n }, (_, i) =>
+      mkPlayer({
+        id: (i + 2) as PlayerId,
+        hand: [card('♦', 'Q'), card('♣', 'J')],
+        totalBet: 60,
+      }),
+    );
+    return { hero, players: [hero, ...villains] };
+  }
+
+  it('单挑翻牌：标注「翻牌近似 · 单挑口径 · 未计 ICM」', async () => {
+    const { hero, players } = mkPlayers(1);
+
+    await renderPanel(hero, mkState(players, 'flop', board), 1, 'flop', board);
+
+    expect(screen.getByText(/翻牌近似/)).toBeTruthy();
+    expect(screen.getByText(/单挑口径/)).toBeTruthy();
+    expect(screen.getByText(/未计 ICM/)).toBeTruthy();
+  });
+
+  it('多人底池：对手数被显式标进口径行', async () => {
+    const { hero, players } = mkPlayers(2);
+
+    await renderPanel(hero, mkState(players, 'flop', board), 2, 'flop', board);
+
+    expect(screen.getByText(/多人\(2\)未调整/)).toBeTruthy();
+  });
+
+  it('河牌标注为「河牌严格」', async () => {
+    const { hero, players } = mkPlayers(1);
+    const riverBoard = [
+      card('♠', 'K'),
+      card('♦', '7'),
+      card('♣', '2'),
+      card('♥', '9'),
+      card('♦', '4'),
+    ];
+
+    await renderPanel(hero, mkState(players, 'river', riverBoard), 1, 'river', riverBoard);
+
+    expect(screen.getByText(/河牌严格/)).toBeTruthy();
+  });
+});
