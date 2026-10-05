@@ -14,9 +14,6 @@ import {
   getDefenderPositionForDisplay,
   getOpenerPosition,
 } from '../utils/gtoPreflop';
-import { getGtoPostflopRecommendation, analyzeBoardWithEquity } from '../utils/gtoPostflop';
-import { detectDraws } from '../utils/drawDetector';
-import { calculateRangeAwareEquity } from '../utils/rangeEquity';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
@@ -765,55 +762,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               bet: player.bet,
                             },
                           );
-                        })()}
-                        gtoPostflopRecommendation={(() => {
-                          if (
-                            state.phase === 'preflop' ||
-                            state.phase === 'showdown' ||
-                            state.phase === 'ended' ||
-                            !player.isRealPlayer ||
-                            player.hand.length < 2 ||
-                            state.communityCards.length < 3
-                          )
-                            return undefined;
-                          const community = state.communityCards;
-                          const boardTexture = analyzeBoardWithEquity(community);
-                          const equity = calculateRangeAwareEquity(
-                            player, state, community,
-                            state.players.filter(p => !p.folded && p.id !== player.id).length,
-                            state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
-                          );
-                          const draws = detectDraws(player.hand, community,
-                            state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
-                          const evaluated = evaluateHand(player.hand, community);
-                          const { toCall, totalPot, callPotOdds } = potOddsInfo;
-                          const pos =
-                            (player.id - state.dealer + state.players.length) %
-                            state.players.length;
-                          const spr = totalPot > 0 ? player.chips / totalPot : 999;
-                          return getGtoPostflopRecommendation({
-                            hand: player.hand,
-                            communityCards: community,
-                            phase: state.phase as 'flop' | 'turn' | 'river',
-                            equity,
-                            potOdds: callPotOdds,
-                            spr,
-                            position: pos,
-                            totalPlayers: state.players.length,
-                            numOpponents: state.players.filter(p => !p.folded && p.id !== player.id).length,
-                            isButton: pos === 0,
-                            isCutoff: pos === state.players.length - 1 && pos > 2,
-                            isHijack: pos === state.players.length - 2 && pos > 2,
-                            boardTexture,
-                            handRank: evaluated.rank,
-                            draws,
-                            toCall,
-                            totalPot,
-                            smallBlind: state.smallBlind,
-                            chips: player.chips,
-                            playerBet: player.bet,
-                            lastRaiseBet: state.lastRaiseBet,
-                          });
                         })()}
                         actionButtons={
                           showActionButtons ? (

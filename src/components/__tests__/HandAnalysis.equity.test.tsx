@@ -3,6 +3,8 @@ import { HandAnalysis } from '../HandAnalysis';
 import { translations } from '../../utils/translations';
 import { getMDFReferenceTable } from '../../utils/gtoMath';
 import { startNewHand, recordAction, resetOpponentStats } from '../../utils/opponentModel';
+import { evaluateHand } from '../../utils/handEvaluator';
+import { getCommunityByPhase } from '../../utils/communityByPhase';
 import type { Card, GamePhase, GameState, Player, PlayerId } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -404,5 +406,89 @@ describe('HandAnalysis MDF 口径', () => {
     // 数字的颜色与下面的颜色条必须同档：值 span 带 text-green-400
     expect(rowOf(translations.gtoMath.mdf).querySelector('span.font-medium')?.className)
       .toContain('text-green-400');
+  });
+});
+
+describe('HandAnalysis 翻后 Reasoning 与权益行同源（不泄漏未来牌）', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  // 真实对局里 state.communityCards 在开局就发满 5 张（useGameState 的 START_GAME），
+  // 面板只能按当前街的前 3 张算。这里故意把 5 张都传进来：
+  // 前 3 张 9♣2♠7♦ 时 88 只是「一对」，把后两张 4♠9♥ 也算进去就变成「两对」。
+  const board5 = [
+    card('♣', '9'),
+    card('♠', '2'),
+    card('♦', '7'),
+    card('♠', '4'),
+    card('♥', '9'),
+  ];
+
+  function mkFlopHeroAndOpp() {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', '8'), card('♦', '8')],
+      totalBet: 60,
+    });
+    const opp = mkPlayer({
+      id: 2,
+      hand: [card('♦', 'Q'), card('♣', 'J')],
+      totalBet: 60,
+    });
+    return { hero, opp };
+  }
+
+  it('Reasoning 的 Equity / Pot Odds 与面板两行是同一个数', async () => {
+    const { hero, opp } = mkFlopHeroAndOpp();
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board5), 1, 'flop', board5, {
+      potOdds: 0.25,
+      currentPot: 60,
+      betToCall: 20,
+    });
+
+    const text = rowOf(translations.gtoPostflop.reasoning).textContent ?? '';
+
+    // Equity 必须与「范围权益」行同源：同一个数，只是显示精度不同
+    // （行里 toFixed(0)，Reasoning 里 toFixed(1)）→ 差值不会超过半个百分点
+    const eq = text.match(/Equity ([\d.]+)%/);
+    expect(eq).not.toBeNull();
+    expect(
+      Math.abs(Number(eq![1]) - readEquityPct(translations.handAnalysis.rangeEquity)!),
+    ).toBeLessThanOrEqual(0.5);
+
+    // Pot Odds 必须与「赔率」行同源
+    const odds = text.match(/Pot Odds ([\d.]+)%/);
+    expect(odds).not.toBeNull();
+    expect(
+      Math.abs(Number(odds![1]) - readEquityPct(translations.handAnalysis.potOdds)!),
+    ).toBeLessThanOrEqual(0.5);
+  });
+
+  it('Reasoning 的牌型标签按当前街的牌算，不按未来的 5 张', async () => {
+    const { hero, opp } = mkFlopHeroAndOpp();
+    const slicedBoard = getCommunityByPhase(board5, 'flop');
+
+    // fixture 自检：5 张 → 两对，3 张 → 一对。本用例必须能区分这两种口径，
+    // 否则下面的断言测不到东西。
+    expect(evaluateHand(hero.hand, board5).rank).toBe('two_pair');
+    expect(evaluateHand(hero.hand, slicedBoard).rank).toBe('pair');
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board5), 1, 'flop', board5, {
+      potOdds: 0.25,
+      currentPot: 60,
+      betToCall: 20,
+    });
+
+    const text = rowOf(translations.gtoPostflop.reasoning).textContent ?? '';
+    // 误用 5 张时会渲染成 "Fold Two Pair: ..."
+    expect(text).not.toContain('Two Pair');
+    expect(text).toContain('Pair');
   });
 });
