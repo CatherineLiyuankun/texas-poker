@@ -19,7 +19,7 @@ import { SMALL_BLIND } from '../utils/constant';
 import {
   calculateValueBluffRatio,
   calculateCallEV,
-  calculateBluffFrequency,
+  calculateRaiseEV,
   calculateRequiredFoldEquity,
   classifyRange,
   mdfFrom,
@@ -676,42 +676,41 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const pot = currentPot ?? 0;
     const bet = betToCall ?? 0;
     const eq = decisionEquity ?? 0;
-    const raiseSize = playerRaiseAmount ?? 0;
+    const raiseTo = playerRaiseAmount ?? 0;
+    const heroBet = heroPlayer?.bet ?? 0;
+
+    // 口径：gtoMath 的比率函数（MDF / V:B / 所需弃牌率）一律吃
+    // 「下注前底池 + 本次投入增量」，而 currentPot 是**含注底池**。
+    // - 面对对手下注：描述对手那一注 → 下注前底池 = 含注底池 − 跟注额
+    // - 我方下注/加注：下注前底池 = 含注底池 − 我方本轮已投入
+    //   增量 = 加注框的 raise-to 总额 − 我方本轮已投入
+    // 直接把含注底池当分母会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
+    const facingPotBefore = Math.max(0, pot - bet);
+    const heroPotBefore = Math.max(0, pot - heroBet);
+    const heroIncrement = Math.max(0, raiseTo - heroBet);
 
     // MDF: only when facing a bet.
-    // 口径：MDF 描述的是「对手这一注」，必须用**下注前**底池；
-    // 而 currentPot 是含注底池（已包含对手本轮的注），所以要减掉 toCall。
-    // 直接传 currentPot 会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
-    const potBeforeBet = Math.max(0, pot - bet);
-    const mdf = bet > 0 && potBeforeBet > 0 ? mdfFrom(pot, bet) : null;
+    const mdf = bet > 0 && facingPotBefore > 0 ? mdfFrom(pot, bet) : null;
 
-    // Value/Bluff ratio: when considering betting
-    const vbRatio = (bet > 0 || raiseSize > 0) && pot > 0
-      ? calculateValueBluffRatio(bet > 0 ? bet : raiseSize, pot)
-      : null;
+    // V:B 与牌力分类共用同一组「注码 + 下注前底池」：优先描述对手那一注。
+    const facingBet = bet > 0;
+    const refBet = facingBet ? bet : heroIncrement;
+    const refPotBefore = facingBet ? facingPotBefore : heroPotBefore;
 
-    // Bluff frequency
-    const bluffFreq = (bet > 0 || raiseSize > 0) && pot > 0
-      ? calculateBluffFrequency(bet > 0 ? bet : raiseSize, pot)
+    const vbRatio = refBet > 0 && refPotBefore > 0
+      ? calculateValueBluffRatio(refBet, refPotBefore)
       : null;
 
     // EV calculations
     const callEV = bet > 0 ? calculateCallEV(eq, pot, bet) : null;
 
-    // Raise EV: when player is considering a bet/raise
+    // Raise EV：弃牌率由「1 − MDF」推出（GTO 对手按 MDF 防守），
+    // 不再手写 `0.3 + (尺度 − 50) × 0.005` 的线性模型。
+    // 口径与 V:B 一致：注码用我方增量、底池用我方下注前底池。
     let raiseEV: number | null = null;
-    if (raiseSize > 0 && pot > 0) {
-      // Estimate fold equity (simplified model)
-      const betSizePercent = (raiseSize / pot) * 100;
-      const estimatedFoldPct = Math.min(
-        0.3 + (betSizePercent - 50) * 0.005,
-        0.7
-      );
-      const callPct = 1 - estimatedFoldPct;
-
-      // Raise EV = fold% × pot + call% × (equity × (pot + bet) - (1-equity) × bet)
-      raiseEV = estimatedFoldPct * pot +
-        callPct * (eq * (pot + raiseSize) - (1 - eq) * raiseSize);
+    if (heroIncrement > 0 && heroPotBefore > 0) {
+      const foldPct = calculateRequiredFoldEquity(heroIncrement, heroPotBefore);
+      raiseEV = calculateRaiseEV(eq, heroPotBefore, heroIncrement, foldPct);
     }
 
     // Select best action
@@ -733,11 +732,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
     // Range classification
     const rangeCat = eq > 0
-      ? classifyRange(eq, bet > 0 ? bet : raiseSize, pot, phase)
+      ? classifyRange(eq, refBet, refPotBefore, phase)
       : null;
 
-    return { mdf, vbRatio, bluffFreq, callEV, raiseEV, bestAction, bestEV, rangeCat };
-  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase]);
+    return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
+  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer]);
 
   // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
   // 没有跟注额（可以免费过牌）时无意义，显示为 —。

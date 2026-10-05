@@ -492,3 +492,75 @@ describe('HandAnalysis 翻后 Reasoning 与权益行同源（不泄漏未来牌�
     expect(text).toContain('Pair');
   });
 });
+
+describe('HandAnalysis V:B 口径', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  function mkHeroAndOpp() {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      bet: 0,
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    return { hero, opp };
+  }
+
+  // V:B 行渲染成「价值%:诈唬%」（显示格式的调整留到后续改动）
+  function readVbPair(): [number, number] | null {
+    const row = rowOf(translations.gtoMath.vbRatio);
+    const match = (row.textContent ?? '').match(/(\d+)\s*:\s*(\d+)/);
+    return match ? [Number(match[1]), Number(match[2])] : null;
+  }
+
+  it('面对半个底池下注显示 75:25，而不是把含注底池当分母的 80:20', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100，对手下 50 → 含注底池 150
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 150,
+      betToCall: 50,
+    });
+
+    // V:B = 75 : 25 = 3 : 1
+    expect(readVbPair()).toEqual([75, 25]);
+    // 旧口径 calculateValueBluffRatio(50, 150) = 80:20，是本次要修掉的偏差
+    expect(readVbPair()).not.toEqual([80, 20]);
+  });
+
+  it('面对一个底池下注显示 67:33，而不是 75:25', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100，对手下 100 → 含注底池 200
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 200,
+      betToCall: 100,
+    });
+
+    expect(readVbPair()).toEqual([67, 33]);
+    expect(readVbPair()).not.toEqual([75, 25]);
+  });
+
+  it('我方下注时用「我方增量 + 我方下注前底池」算 V:B', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+    const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+    // 无人下注（可免费过牌），下注框填 100、底池 100 → 一池下注 → 67:33
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      potOdds: 0,
+      currentPot: 100,
+      betToCall: 0,
+      playerRaiseAmount: 100,
+    });
+
+    expect(readVbPair()).toEqual([67, 33]);
+  });
+});
