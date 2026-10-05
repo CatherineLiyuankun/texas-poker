@@ -32,14 +32,6 @@ const HandStrength = {
 
 type HandStrength = typeof HandStrength[keyof typeof HandStrength];
 
-const PolarizedCategory = {
-  VALUE: 'value',
-  BLUFF_CATCHER: 'bluff_catcher',
-  BLUFF: 'bluff',
-} as const;
-
-type PolarizedCategory = typeof PolarizedCategory[keyof typeof PolarizedCategory];
-
 function getCommunityByPhase(state: GameState): Card[] {
   const community = state.communityCards || [];
   switch (state.phase) {
@@ -159,46 +151,6 @@ function unblocksBluffCatchers(hand: Card[], community: Card[]): number {
   }
 
   return Math.min(unblockScore, 0.3);
-}
-
-/**
- * 把 hero 的手牌归到极化三分（value / bluff catcher / bluff）。
- *
- * 判据只看**手牌本身**：成手牌等级 + 牌面纹理。
- *
- * 这里早先还有一条 `equity >= mdf` 的分支，已删除 —— 它属于**量纲混用**：
- * MDF = P/(P+B) 是「整条范围该防守多少」的**范围级**概念，equity 是
- * **单手持牌**的权益；而且 MDF 随注码递减、跟注所需权益随注码递增，方向相反。
- * 只要注码小于 φ≈1.618 倍底池，MDF 就严格高于 potOdds，这条分支会完全支配
- * 调用点的 `equity >= potOdds`，导致「小注反而要求更高权益」
- * （MEDIUM 牌面对 1/4 池下注会被 100% 弃掉）。
- * 删掉后由调用点按价格判断，见 .opencode/plans/pot-odds-consistency.md §10。
- *
- * 注意：`PolarizedCategory.VALUE` 目前没有消费方（两个调用点只比较
- * BLUFF_CATCHER），保留是为了让「极化三分」的语义完整。
- */
-function getPolarizedCategory(
-  equity: number,
-  handRank: HandRank | null,
-  texture: BoardTexture,
-): PolarizedCategory {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
-    return PolarizedCategory.VALUE;
-  }
-
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return PolarizedCategory.VALUE;
-  }
-
-  if (handRank === 'pair' && equity >= 0.7) {
-    return PolarizedCategory.VALUE;
-  }
-
-  if (texture.wetness > 7 && equity >= 0.25) {
-    return PolarizedCategory.BLUFF_CATCHER;
-  }
-
-  return PolarizedCategory.BLUFF;
 }
 
 /** 两对及以上仍需达到该权益才算坚果，否则只算 STRONG、按价格决定。 */
@@ -336,6 +288,18 @@ function adjustForOpponent(
   };
 }
 
+/**
+ * 面对下注：按**价格**决定跟注，不再用牌面纹理做闸门。
+ *
+ * 旧实现在 MEDIUM / WEAK / AIR 三档外挂了一道
+ * `category === BLUFF_CATCHER`（只有 `texture.wetness > 7` 才成立）的门：
+ * 非 bluff catcher 一律弃牌、完全跳过价格判断，于是干牌面上的小注也会弃掉
+ * 权益远高于所需权益的牌（详见 .opencode/plans/pot-odds-consistency.md §10）。
+ *
+ * 现在的判据与 STRONG 档一致：`equity` 是 range-aware 权益（已含牌面与
+ * 行动线信息），与 `potOdds` 比较本身就是完整的跟注判据 ——
+ * 「这手牌能不能赢诈唬」已经被「对对手下注范围的权益」包含。
+ */
 function handleRiverFacingBet(
   player: Player,
   state: GameState,
@@ -343,18 +307,11 @@ function handleRiverFacingBet(
   ctx: ContextInfo,
   config: RiverConfig,
 ): BotDecision {
-  const { equity, handStrength: strength, potOdds, texture } = config;
-  const community = getCommunityByPhase(state);
+  const { equity, handStrength: strength, potOdds } = config;
 
   if (ctx.toCall > state.lastRaiseBet * 2) {
     return handleRiverBigRaise(player, state, flags, config);
   }
-
-  const category = getPolarizedCategory(
-    equity,
-    evaluateHand(player.hand, community).rank,
-    texture,
-  );
 
   switch (strength) {
     case HandStrength.NUTS:
@@ -370,20 +327,15 @@ function handleRiverFacingBet(
       return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
 
     case HandStrength.MEDIUM:
-      if (category === PolarizedCategory.BLUFF_CATCHER) {
-        if (equity >= potOdds) {
-          return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-        }
-        return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
+      if (equity >= potOdds) {
+        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
       }
       return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
 
     case HandStrength.WEAK:
     case HandStrength.AIR:
-      if (category === PolarizedCategory.BLUFF_CATCHER) {
-        if (equity >= potOdds + 0.05) {
-          return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-        }
+      if (equity >= potOdds + 0.05) {
+        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
       }
       return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
 
