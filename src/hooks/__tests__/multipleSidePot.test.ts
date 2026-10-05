@@ -239,7 +239,8 @@ describe('多个 Side Pot 场景测试', () => {
       }
 
       if (result.current.state.phase === 'showdown') {
-        const { mainPot: mainPot, sidePots } = result.current.state;
+        const { mainPot: mainPot, sidePots, winner, potDistribution } =
+          result.current.state;
         const total =
           mainPot + sidePots.reduce((sum, sp) => sum + sp.amount, 0);
         console.log(
@@ -251,7 +252,14 @@ describe('多个 Side Pot 场景测试', () => {
           total,
         );
 
-        expect(result.current.state.winner).not.toBeNull();
+        // 平分底池（tie）时 winner 合法地为 null —— 见 useGameState 的
+        // `uniqueWinnerIds.length === 1 ? uniqueWinnerIds[0] : null`，
+        // 此时各池归属记录在 potDistribution.winnings 里。
+        // 原断言 `winner !== null` 在随机洗牌出现平局时会偶发失败。
+        const settled =
+          winner !== null ||
+          potDistribution.some((d) => d.winnings.some((amount) => amount > 0));
+        expect(settled).toBe(true);
       }
     });
   });
