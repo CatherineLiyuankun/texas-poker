@@ -288,6 +288,17 @@ function adjustForOpponent(
 }
 
 /**
+ * 超池门槛：跟注额达到「下注前底池」的多少倍时，进入超池分支。
+ *
+ * 旧实现写的是 `ctx.toCall > state.lastRaiseBet * 2`，而 `lastRaiseBet` 是
+ * **本轮最后一次加注的增量**（useGameState：首次下注 = 下注额本身，
+ * 加注 = additional − toCall）。量纲错位导致两个方向的错判：
+ * 小于翻倍的加注会被误判成「大额加注」，而单手大注
+ * （lastRaiseBet 恰好等于下注额本身）永远不触发。
+ */
+const OVERBET_RATIO = 1.5;
+
+/**
  * 面对下注：按**价格**决定跟注，不再用牌面纹理做闸门。
  *
  * 旧实现在 MEDIUM / WEAK / AIR 三档外挂了一道
@@ -308,7 +319,9 @@ function handleRiverFacingBet(
 ): BotDecision {
   const { equity, handStrength: strength, potOdds } = config;
 
-  if (ctx.toCall > state.lastRaiseBet * 2) {
+  // 「下注前底池」= 含注底池 − 跟注额；跟注额达到它的 OVERBET_RATIO 倍即为超池。
+  const potBeforeBet = Math.max(0, ctx.totalPot - ctx.toCall);
+  if (ctx.toCall >= potBeforeBet * OVERBET_RATIO) {
     return handleRiverBigRaise(player, state, flags, config);
   }
 
@@ -343,19 +356,29 @@ function handleRiverFacingBet(
   }
 }
 
+/**
+ * 面对超池下注：**放弃加注**（连坚果也只跟），但跟 / 弃仍按价格判断。
+ *
+ * 旧实现只放行 NUTS 与 `STRONG && equity >= 0.7`，其余一律弃牌 —— 配合原先
+ * 错位的门槛，会把价格本来合适的牌（例如权益 0.6 对 1.5 倍池的 0.375 赔率）
+ * 一刀切弃掉。价格判据本身已经能挡住垃圾牌，超池场景额外要表达的只是
+ * 「不要往超池下注里加注」。
+ */
 function handleRiverBigRaise(
   _player: Player,
   _state: GameState,
   flags: ActionFlags,
   config: RiverConfig,
 ): BotDecision {
-  const { equity, handStrength: strength } = config;
+  const { equity, handStrength: strength, potOdds } = config;
 
-  if (strength === HandStrength.NUTS) {
-    return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-  }
+  const canContinue =
+    strength === HandStrength.NUTS ||
+    (strength === HandStrength.MEDIUM
+      ? equity >= potOdds
+      : equity >= potOdds + 0.05);
 
-  if (strength === HandStrength.STRONG && equity >= 0.7) {
+  if (canContinue) {
     return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
   }
 
