@@ -201,19 +201,35 @@ function getPolarizedCategory(
   return PolarizedCategory.BLUFF;
 }
 
+/** 两对及以上仍需达到该权益才算坚果，否则只算 STRONG、按价格决定。 */
+const NUTS_EQUITY = 0.85;
+
+/** 权益达到该值即算 STRONG。 */
+const STRONG_EQUITY = 0.75;
+
+/**
+ * 河牌手牌强度分档。
+ *
+ * 成手牌等级（两对及以上）只用来**抬地板**：这类牌不可能比 STRONG 更弱，
+ * 但**不再等于坚果** —— 四同花 / 四顺牌面上的两对可能输给同花 / 顺子。
+ * 是否坚果由 `equity` 决定，而它是 range-aware 权益（已含牌面与行动线信息）。
+ *
+ * 旧实现把 `rank >= two_pair` 直接判成 NUTS，于是湿牌面上的两对会 100% 跟注
+ * 任意价格、并 60% 加注（见 `handleRiverFacingBet` 的 NUTS 分支）。
+ */
 function classifyRiverStrength(
   equity: number,
   handRank: HandRank | null,
 ): HandStrength {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
+  const isTwoPairPlus =
+    handRank != null &&
+    HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair;
+
+  if (isTwoPairPlus && equity >= NUTS_EQUITY) {
     return HandStrength.NUTS;
   }
 
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return HandStrength.NUTS;
-  }
-
-  if (equity >= 0.75) {
+  if (isTwoPairPlus || equity >= STRONG_EQUITY) {
     return HandStrength.STRONG;
   }
 
