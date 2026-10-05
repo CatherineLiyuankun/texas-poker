@@ -7,6 +7,7 @@ import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import { callPotOddsFrom } from './potOdds';
+import { calculateBluffFrequency } from './gtoMath';
 
 interface RiverConfig {
   equity: number;
@@ -32,14 +33,6 @@ const HandStrength = {
 
 type HandStrength = typeof HandStrength[keyof typeof HandStrength];
 
-const PolarizedCategory = {
-  VALUE: 'value',
-  BLUFF_CATCHER: 'bluff_catcher',
-  BLUFF: 'bluff',
-} as const;
-
-type PolarizedCategory = typeof PolarizedCategory[keyof typeof PolarizedCategory];
-
 function getCommunityByPhase(state: GameState): Card[] {
   const community = state.communityCards || [];
   switch (state.phase) {
@@ -61,11 +54,6 @@ function isIP(ctx: ContextInfo): boolean {
 function calculateSPR(ctx: ContextInfo): number {
   if (ctx.totalPot === 0) return 10;
   return ctx.toCall / ctx.totalPot;
-}
-
-function calculateGTOBluffFrequency(betSize: number, potSize: number): number {
-  if (betSize + potSize === 0) return 0.33;
-  return betSize / (betSize + potSize);
 }
 
 function countSuits(cards: Card[]): Map<Suit, number> {
@@ -161,59 +149,35 @@ function unblocksBluffCatchers(hand: Card[], community: Card[]): number {
   return Math.min(unblockScore, 0.3);
 }
 
+/** 两对及以上仍需达到该权益才算坚果，否则只算 STRONG、按价格决定。 */
+const NUTS_EQUITY = 0.85;
+
+/** 权益达到该值即算 STRONG。 */
+const STRONG_EQUITY = 0.75;
+
 /**
- * 把 hero 的手牌归到极化三分（value / bluff catcher / bluff）。
+ * 河牌手牌强度分档。
  *
- * 判据只看**手牌本身**：成手牌等级 + 牌面纹理。
+ * 成手牌等级（两对及以上）只用来**抬地板**：这类牌不可能比 STRONG 更弱，
+ * 但**不再等于坚果** —— 四同花 / 四顺牌面上的两对可能输给同花 / 顺子。
+ * 是否坚果由 `equity` 决定，而它是 range-aware 权益（已含牌面与行动线信息）。
  *
- * 这里早先还有一条 `equity >= mdf` 的分支，已删除 —— 它属于**量纲混用**：
- * MDF = P/(P+B) 是「整条范围该防守多少」的**范围级**概念，equity 是
- * **单手持牌**的权益；而且 MDF 随注码递减、跟注所需权益随注码递增，方向相反。
- * 只要注码小于 φ≈1.618 倍底池，MDF 就严格高于 potOdds，这条分支会完全支配
- * 调用点的 `equity >= potOdds`，导致「小注反而要求更高权益」
- * （MEDIUM 牌面对 1/4 池下注会被 100% 弃掉）。
- * 删掉后由调用点按价格判断，见 .opencode/plans/pot-odds-consistency.md §10。
- *
- * 注意：`PolarizedCategory.VALUE` 目前没有消费方（两个调用点只比较
- * BLUFF_CATCHER），保留是为了让「极化三分」的语义完整。
+ * 旧实现把 `rank >= two_pair` 直接判成 NUTS，于是湿牌面上的两对会 100% 跟注
+ * 任意价格、并 60% 加注（见 `handleRiverFacingBet` 的 NUTS 分支）。
  */
-function getPolarizedCategory(
-  equity: number,
-  handRank: HandRank | null,
-  texture: BoardTexture,
-): PolarizedCategory {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
-    return PolarizedCategory.VALUE;
-  }
-
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return PolarizedCategory.VALUE;
-  }
-
-  if (handRank === 'pair' && equity >= 0.7) {
-    return PolarizedCategory.VALUE;
-  }
-
-  if (texture.wetness > 7 && equity >= 0.25) {
-    return PolarizedCategory.BLUFF_CATCHER;
-  }
-
-  return PolarizedCategory.BLUFF;
-}
-
 function classifyRiverStrength(
   equity: number,
   handRank: HandRank | null,
 ): HandStrength {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
+  const isTwoPairPlus =
+    handRank != null &&
+    HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair;
+
+  if (isTwoPairPlus && equity >= NUTS_EQUITY) {
     return HandStrength.NUTS;
   }
 
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return HandStrength.NUTS;
-  }
-
-  if (equity >= 0.75) {
+  if (isTwoPairPlus || equity >= STRONG_EQUITY) {
     return HandStrength.STRONG;
   }
 
@@ -272,7 +236,10 @@ function shouldBluff(
   isIP: boolean,
   isMultiway: boolean,
 ): boolean {
-  const bluffFreq = calculateGTOBluffFrequency(betSize, totalPot);
+  // 让对手抓诈唬无差别的诈唬占比 = 跟注赔率 = B/(P+2B)，公式由 gtoMath 单点持有。
+  // 旧实现在这里算的是 Alpha = B/(B+P)（纯 0 权益诈唬所需的弃牌率），
+  // 半池会给 0.33 而不是 0.25，系统性高估诈唬频率。
+  const bluffFreq = calculateBluffFrequency(betSize, totalPot).bluffPct;
 
   if (equity >= 0.3) {
     return false;
@@ -320,6 +287,29 @@ function adjustForOpponent(
   };
 }
 
+/**
+ * 超池门槛：跟注额达到「下注前底池」的多少倍时，进入超池分支。
+ *
+ * 旧实现写的是 `ctx.toCall > state.lastRaiseBet * 2`，而 `lastRaiseBet` 是
+ * **本轮最后一次加注的增量**（useGameState：首次下注 = 下注额本身，
+ * 加注 = additional − toCall）。量纲错位导致两个方向的错判：
+ * 小于翻倍的加注会被误判成「大额加注」，而单手大注
+ * （lastRaiseBet 恰好等于下注额本身）永远不触发。
+ */
+const OVERBET_RATIO = 1.5;
+
+/**
+ * 面对下注：按**价格**决定跟注，不再用牌面纹理做闸门。
+ *
+ * 旧实现在 MEDIUM / WEAK / AIR 三档外挂了一道
+ * `category === BLUFF_CATCHER`（只有 `texture.wetness > 7` 才成立）的门：
+ * 非 bluff catcher 一律弃牌、完全跳过价格判断，于是干牌面上的小注也会弃掉
+ * 权益远高于所需权益的牌（详见 .opencode/plans/pot-odds-consistency.md §10）。
+ *
+ * 现在的判据与 STRONG 档一致：`equity` 是 range-aware 权益（已含牌面与
+ * 行动线信息），与 `potOdds` 比较本身就是完整的跟注判据 ——
+ * 「这手牌能不能赢诈唬」已经被「对对手下注范围的权益」包含。
+ */
 function handleRiverFacingBet(
   player: Player,
   state: GameState,
@@ -327,18 +317,13 @@ function handleRiverFacingBet(
   ctx: ContextInfo,
   config: RiverConfig,
 ): BotDecision {
-  const { equity, handStrength: strength, potOdds, texture } = config;
-  const community = getCommunityByPhase(state);
+  const { equity, handStrength: strength, potOdds } = config;
 
-  if (ctx.toCall > state.lastRaiseBet * 2) {
+  // 「下注前底池」= 含注底池 − 跟注额；跟注额达到它的 OVERBET_RATIO 倍即为超池。
+  const potBeforeBet = Math.max(0, ctx.totalPot - ctx.toCall);
+  if (ctx.toCall >= potBeforeBet * OVERBET_RATIO) {
     return handleRiverBigRaise(player, state, flags, config);
   }
-
-  const category = getPolarizedCategory(
-    equity,
-    evaluateHand(player.hand, community).rank,
-    texture,
-  );
 
   switch (strength) {
     case HandStrength.NUTS:
@@ -354,20 +339,15 @@ function handleRiverFacingBet(
       return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
 
     case HandStrength.MEDIUM:
-      if (category === PolarizedCategory.BLUFF_CATCHER) {
-        if (equity >= potOdds) {
-          return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-        }
-        return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
+      if (equity >= potOdds) {
+        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
       }
       return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
 
     case HandStrength.WEAK:
     case HandStrength.AIR:
-      if (category === PolarizedCategory.BLUFF_CATCHER) {
-        if (equity >= potOdds + 0.05) {
-          return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-        }
+      if (equity >= potOdds + 0.05) {
+        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
       }
       return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
 
@@ -376,19 +356,29 @@ function handleRiverFacingBet(
   }
 }
 
+/**
+ * 面对超池下注：**放弃加注**（连坚果也只跟），但跟 / 弃仍按价格判断。
+ *
+ * 旧实现只放行 NUTS 与 `STRONG && equity >= 0.7`，其余一律弃牌 —— 配合原先
+ * 错位的门槛，会把价格本来合适的牌（例如权益 0.6 对 1.5 倍池的 0.375 赔率）
+ * 一刀切弃掉。价格判据本身已经能挡住垃圾牌，超池场景额外要表达的只是
+ * 「不要往超池下注里加注」。
+ */
 function handleRiverBigRaise(
   _player: Player,
   _state: GameState,
   flags: ActionFlags,
   config: RiverConfig,
 ): BotDecision {
-  const { equity, handStrength: strength } = config;
+  const { equity, handStrength: strength, potOdds } = config;
 
-  if (strength === HandStrength.NUTS) {
-    return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-  }
+  const canContinue =
+    strength === HandStrength.NUTS ||
+    (strength === HandStrength.MEDIUM
+      ? equity >= potOdds
+      : equity >= potOdds + 0.05);
 
-  if (strength === HandStrength.STRONG && equity >= 0.7) {
+  if (canContinue) {
     return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
   }
 
