@@ -7,6 +7,7 @@ import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import { callPotOddsFrom } from './potOdds';
+import { calculateBluffFrequency } from './gtoMath';
 
 interface RiverConfig {
   equity: number;
@@ -53,11 +54,6 @@ function isIP(ctx: ContextInfo): boolean {
 function calculateSPR(ctx: ContextInfo): number {
   if (ctx.totalPot === 0) return 10;
   return ctx.toCall / ctx.totalPot;
-}
-
-function calculateGTOBluffFrequency(betSize: number, potSize: number): number {
-  if (betSize + potSize === 0) return 0.33;
-  return betSize / (betSize + potSize);
 }
 
 function countSuits(cards: Card[]): Map<Suit, number> {
@@ -240,7 +236,10 @@ function shouldBluff(
   isIP: boolean,
   isMultiway: boolean,
 ): boolean {
-  const bluffFreq = calculateGTOBluffFrequency(betSize, totalPot);
+  // 让对手抓诈唬无差别的诈唬占比 = 跟注赔率 = B/(P+2B)，公式由 gtoMath 单点持有。
+  // 旧实现在这里算的是 Alpha = B/(B+P)（纯 0 权益诈唬所需的弃牌率），
+  // 半池会给 0.33 而不是 0.25，系统性高估诈唬频率。
+  const bluffFreq = calculateBluffFrequency(betSize, totalPot).bluffPct;
 
   if (equity >= 0.3) {
     return false;
