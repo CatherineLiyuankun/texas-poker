@@ -19,7 +19,7 @@ import { SMALL_BLIND } from '../utils/constant';
 import {
   calculateValueBluffRatio,
   calculateCallEV,
-  calculateRaiseEV,
+  raiseEVFromContext,
   calculateRequiredFoldEquity,
   classifyRange,
   mdfFrom,
@@ -697,8 +697,18 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     //   增量 = 加注框的 raise-to 总额 − 我方本轮已投入
     // 直接把含注底池当分母会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
     const facingPotBefore = Math.max(0, pot - bet);
-    const heroPotBefore = Math.max(0, pot - heroBet);
-    const heroIncrement = Math.max(0, raiseTo - heroBet);
+
+    // 加注 EV 的换算（含注底池 → 下注前底池 + 增量 + toCall）收敛在
+    // gtoMath.raiseEVFromContext 里，顺带取回 heroPotBefore / heroIncrement
+    // 供 V:B 复用，避免同一套换算在面板里写两遍。
+    const raiseEv = raiseEVFromContext({
+      equity: eq,
+      totalPot: pot,
+      heroBet,
+      raiseTo,
+      toCall: bet,
+    });
+    const { heroPotBefore, heroIncrement } = raiseEv;
 
     // MDF: only when facing a bet.
     const mdf = bet > 0 && facingPotBefore > 0 ? mdfFrom(pot, bet) : null;
@@ -717,12 +727,9 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
     // Raise EV：弃牌率由「1 − MDF」推出（GTO 对手按 MDF 防守），
     // 不再手写 `0.3 + (尺度 − 50) × 0.005` 的线性模型。
-    // 口径与 V:B 一致：注码用我方增量、底池用我方下注前底池。
-    let raiseEV: number | null = null;
-    if (heroIncrement > 0 && heroPotBefore > 0) {
-      const foldPct = calculateRequiredFoldEquity(heroIncrement, heroPotBefore);
-      raiseEV = calculateRaiseEV(eq, heroPotBefore, heroIncrement, foldPct);
-    }
+    // 换算已收敛在 raiseEVFromContext；toCall 让对手跟注只补「加注增量 − 已投入」，
+    // 不再按「对称下注」把对手那一注多算一份。
+    const raiseEV = raiseEv.raiseEV;
 
     // Select best action
     let bestAction: 'call' | 'fold' | 'check' | 'raise' = 'check';

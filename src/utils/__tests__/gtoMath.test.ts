@@ -5,6 +5,7 @@ import {
   calculateCallEV,
   calculateFoldEV,
   calculateRaiseEV,
+  raiseEVFromContext,
   calculateBluffFrequency,
   classifyRange,
   getMDFReferenceTable,
@@ -242,6 +243,85 @@ describe('GTO Math Functions', () => {
         calculateRaiseEV(0.5, 100, 100, 0.5, 100),
         12,
       );
+    });
+  });
+
+  describe('raiseEVFromContext', () => {
+    it('把「含注底池 + raise-to + 跟注额」换算成下注前底池与增量', () => {
+      const r = raiseEVFromContext({
+        equity: 0.6,
+        totalPot: 250,
+        heroBet: 0,
+        raiseTo: 200,
+        toCall: 50,
+      });
+      expect(r.heroPotBefore).toBe(250); // 250 − 0
+      expect(r.heroIncrement).toBe(200); // 200 − 0
+      expect(r.toCall).toBe(50);
+      expect(r.foldPct).toBeCloseTo(calculateRequiredFoldEquity(200, 250), 12); // 200/450
+      expect(r.raiseEV).toBeCloseTo(
+        calculateRaiseEV(0.6, 250, 200, calculateRequiredFoldEquity(200, 250), 50),
+        12,
+      );
+    });
+
+    it('扣除我方本轮已投入（heroBet）后再算增量与底池', () => {
+      const r = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 250,
+        heroBet: 50,
+        raiseTo: 200,
+        toCall: 50,
+      });
+      expect(r.heroPotBefore).toBe(200); // 250 − 50
+      expect(r.heroIncrement).toBe(150); // 200 − 50
+      expect(r.raiseEV).not.toBeNull();
+    });
+
+    it('无可加注（增量或底池为 0）时 raiseEV 为 null，但换算值仍返回', () => {
+      const noRaise = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 250,
+        heroBet: 0,
+        raiseTo: 0,
+        toCall: 50,
+      });
+      expect(noRaise.raiseEV).toBeNull();
+      expect(noRaise.heroIncrement).toBe(0);
+
+      const noPot = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 0,
+        heroBet: 0,
+        raiseTo: 200,
+        toCall: 0,
+      });
+      expect(noPot.raiseEV).toBeNull();
+      expect(noPot.heroPotBefore).toBe(0);
+    });
+
+    it('主动下注（toCall = 0）时与 calculateRaiseEV 省略 toCall 一致', () => {
+      const r = raiseEVFromContext({
+        equity: 0.55,
+        totalPot: 100,
+        heroBet: 0,
+        raiseTo: 100,
+        toCall: 0,
+      });
+      expect(r.raiseEV).toBeCloseTo(
+        calculateRaiseEV(0.55, 100, 100, calculateRequiredFoldEquity(100, 100)),
+        12,
+      );
+    });
+
+    it('面对下注加注的 raiseEV 低于「按 toCall = 0」的旧口径（修正生效）', () => {
+      const ctx = { equity: 0.6, totalPot: 250, heroBet: 0, raiseTo: 200, toCall: 50 };
+      const fixed = raiseEVFromContext(ctx).raiseEV!;
+      const foldPct = calculateRequiredFoldEquity(200, 250);
+      const naive = calculateRaiseEV(0.6, 250, 200, foldPct, 0);
+      expect(fixed).toBeLessThan(naive);
+      // 差额恰为 equity · toCall · callPct
+      expect(naive - fixed).toBeCloseTo(0.6 * 50 * (1 - foldPct), 10);
     });
   });
 

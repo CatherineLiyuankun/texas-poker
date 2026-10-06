@@ -179,6 +179,60 @@ export function calculateBluffFrequency(
   return { bluffPct, valuePct, ratio: bluffPct > 0 ? valuePct / bluffPct : 0 };
 }
 
+export interface RaiseEVContext {
+  /** 我方手牌权益（0–1）。 */
+  equity: number;
+  /** 我方行动前的**含注底池**（= 下注前底池 + 对手那一注）。 */
+  totalPot: number;
+  /** 我方本轮已投入的筹码。 */
+  heroBet: number;
+  /** 加注框里的 raise-to **总额**（不是增量）。 */
+  raiseTo: number;
+  /** 跟注额（对手那一注）；主动下注、无注可跟时为 0。 */
+  toCall: number;
+}
+
+export interface RaiseEVBreakdown {
+  /** 加注 EV；无可加注（无增量 / 无底池）时为 null。 */
+  raiseEV: number | null;
+  /** 我方下注前底池 = totalPot − heroBet（夹到 ≥ 0）。 */
+  heroPotBefore: number;
+  /** 本次加注增量 = raiseTo − heroBet（夹到 ≥ 0）。 */
+  heroIncrement: number;
+  /** 对手已投入（跟注额），夹到 ≥ 0。 */
+  toCall: number;
+  /** 我方下注所需对手弃牌率 = `calculateRequiredFoldEquity(增量, 下注前底池)`。 */
+  foldPct: number;
+}
+
+/**
+ * 面板口径的加注 EV：把业务侧持有的「含注底池 + raise-to 总额 + 跟注额」
+ * 换算成 `calculateRaiseEV` 需要的「下注前底池 + 增量 + toCall」并算 EV。
+ *
+ * 抽成纯函数是为了让这套换算有唯一实现、可被确定性单测直接覆盖 ——
+ * 之前它散在 `HandAnalysis` 的 `useMemo` 里，只能靠渲染断言间接验证。
+ *
+ * 返回的中间量（`heroPotBefore` / `heroIncrement`）同时供 V:B 复用，
+ * 避免同一套换算在面板里写两遍。
+ */
+export function raiseEVFromContext(ctx: RaiseEVContext): RaiseEVBreakdown {
+  const heroPotBefore = Math.max(0, ctx.totalPot - ctx.heroBet);
+  const heroIncrement = Math.max(0, ctx.raiseTo - ctx.heroBet);
+  const toCall = Math.max(0, ctx.toCall);
+  if (heroIncrement <= 0 || heroPotBefore <= 0) {
+    return { raiseEV: null, heroPotBefore, heroIncrement, toCall, foldPct: 0 };
+  }
+  const foldPct = calculateRequiredFoldEquity(heroIncrement, heroPotBefore);
+  const raiseEV = calculateRaiseEV(
+    ctx.equity,
+    heroPotBefore,
+    heroIncrement,
+    foldPct,
+    toCall,
+  );
+  return { raiseEV, heroPotBefore, heroIncrement, toCall, foldPct };
+}
+
 /**
  * 按手牌权益把范围粗分成 value / bluff_catcher / bluff / fold。
  *
