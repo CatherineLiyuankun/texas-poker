@@ -635,6 +635,15 @@ describe('HandAnalysis GTO Math 口径说明', () => {
     expect(screen.getByText(/多人\(2\)未调整/)).toBeTruthy();
   });
 
+  it('全员弃牌（0 个对手）标为「无对手」，不误标成单挑', async () => {
+    const { hero, players } = mkPlayers(0);
+
+    await renderPanel(hero, mkState(players, 'flop', board), 0, 'flop', board);
+
+    expect(screen.getByText(/无对手/)).toBeTruthy();
+    expect(screen.queryByText(/单挑口径/)).toBeNull();
+  });
+
   it('河牌标注为「河牌严格」', async () => {
     const { hero, players } = mkPlayers(1);
     const riverBoard = [

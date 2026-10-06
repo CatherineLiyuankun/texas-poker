@@ -386,6 +386,17 @@ function getRangeCategoryEmoji(cat: RangeCategory): string {
   }
 }
 
+/**
+ * 口径行里的对手数说明。`numOpponents` 来自「未弃牌的对手数」，
+ * 全员弃牌时是 0 —— 此时既不是单挑也不是多人，不能落进 `<= 1` 的单挑分支。
+ */
+function opponentsCaveat(numOpponents: number): string {
+  const { headsUp, multiway, noOpponent } = translations.gtoMath.caveat;
+  if (numOpponents <= 0) return noOpponent;
+  if (numOpponents === 1) return headsUp;
+  return multiway(numOpponents);
+}
+
 // 蒙特卡洛迭代次数：翻前要模拟 5 张公共牌，成本最高；单次模拟成本随对手数
 // 近似线性增长，因此多人底池自动下调迭代数，保证面板不卡顿。
 const EQUITY_ITERATIONS: Record<string, number> = {
@@ -742,10 +753,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 显式标出来，避免把近似值误读成完整 GTO 解。
   const gtoMathCaveat = useMemo(() => {
     const street = translations.gtoMath.caveat.street[phase];
-    const opponents = numOpponents <= 1
-      ? translations.gtoMath.caveat.headsUp
-      : translations.gtoMath.caveat.multiway(numOpponents);
-    return [street, opponents, translations.gtoMath.caveat.noIcm].join(' · ');
+    return [street, opponentsCaveat(numOpponents), translations.gtoMath.caveat.noIcm].join(' · ');
   }, [phase, numOpponents]);
 
   // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。

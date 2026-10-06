@@ -168,6 +168,7 @@ export const translations = {
       },
       headsUp: '单挑口径',
       multiway: (n: number) => `多人(${n})未调整`,
+      noOpponent: '无对手',
       noIcm: '未计 ICM',
     },
     rangeCategories: {
