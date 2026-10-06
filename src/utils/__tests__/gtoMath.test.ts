@@ -193,6 +193,56 @@ describe('GTO Math Functions', () => {
       const ev2 = calculateRaiseEV(0.4, 100, 200, 0.6);
       expect(ev2).toBeGreaterThan(ev1);
     });
+
+    it('对手跟注只补「加注增量 − 已投入」，不是再下同样一注', () => {
+      // 底池 100，我方加注 100；对手已投入 50 → 只需再补 50
+      const potSize = 100;
+      const raiseSize = 100;
+      const foldPct = 0.5;
+      const equity = 0.5;
+
+      const noBet = calculateRaiseEV(equity, potSize, raiseSize, foldPct, 0);
+      const facingBet = calculateRaiseEV(equity, potSize, raiseSize, foldPct, 50);
+
+      // toCall = 0：最终底池 = 100 + 100 + 100 = 300
+      expect(noBet).toBeCloseTo(foldPct * potSize + 0.5 * (0.5 * 300 - 100), 10); // 75
+      // toCall = 50：最终底池 = 100 + 100 + 50 = 250
+      expect(facingBet).toBeCloseTo(foldPct * potSize + 0.5 * (0.5 * 250 - 100), 10); // 62.5
+      // 差值恰为 equity · toCall · callPct
+      expect(noBet - facingBet).toBeCloseTo(equity * 50 * (1 - foldPct), 10);
+    });
+
+    it('省略 toCall 等价于 0（主动下注场景不变）', () => {
+      expect(calculateRaiseEV(0.6, 150, 200, 0.571)).toBeCloseTo(
+        calculateRaiseEV(0.6, 150, 200, 0.571, 0),
+        12,
+      );
+    });
+
+    it('面对下注加注与闭式解一致，且与旧「对称下注」模型差 equity·toCall·callPct', () => {
+      // 下注前底池 150、加注增量 200、对手已投入 50、equity 0.6
+      const foldPct = 200 / 350; // = calculateRequiredFoldEquity(200, 150)
+      const callPct = 1 - foldPct;
+      const equity = 0.6;
+
+      const ev = calculateRaiseEV(equity, 150, 200, foldPct, 50);
+      // 最终底池 = 150 + 200 + 150 = 500
+      expect(ev).toBeCloseTo(foldPct * 150 + callPct * (equity * 500 - 200), 10); // ≈128.57
+
+      // 旧模型（多算一份跟注额）的最终底池 = 150 + 200 + 200 = 550
+      const oldModel = foldPct * 150 + callPct * (equity * 550 - 200);
+      expect(oldModel - ev).toBeCloseTo(equity * 50 * callPct, 10);
+      expect(oldModel).toBeGreaterThan(ev);
+    });
+
+    it('toCall 夹到 [0, raiseSize]，畸形入参不改变底池', () => {
+      const base = calculateRaiseEV(0.5, 100, 100, 0.5, 0);
+      expect(calculateRaiseEV(0.5, 100, 100, 0.5, -30)).toBeCloseTo(base, 12);
+      expect(calculateRaiseEV(0.5, 100, 100, 0.5, 999)).toBeCloseTo(
+        calculateRaiseEV(0.5, 100, 100, 0.5, 100),
+        12,
+      );
+    });
   });
 
   describe('calculateBluffFrequency', () => {

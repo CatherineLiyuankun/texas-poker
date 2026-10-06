@@ -134,18 +134,36 @@ export function calculateFoldEV(): number {
   return 0;
 }
 
+/**
+ * 我方加注 / 下注的 EV（相对「弃牌 = 0」）。
+ *
+ * 模型：以 `foldPct` 概率对手弃牌、我方直接收下 `potSize`；否则对手跟注，
+ * 双方进入摊牌，我方按 `equity` 分走最终底池、扣掉自己投入的 `raiseSize`。
+ *
+ * ⚠️ **`toCall` 不能省**：对手跟注时只需补齐到与我方加注持平，即再投入
+ * `raiseSize − toCall`（`toCall` 是对手**已经**放进底池的那一注）。所以最终底池是
+ * `potSize + raiseSize + (raiseSize − toCall)`，而**不是** `potSize + 2·raiseSize`
+ * ——后者等于假设对手「从头再下同样大小的一注」，只在我方主动下注、对手本无投入
+ * （`toCall = 0`）时才成立。面对对手下注再加注时，旧式会把对手的跟注额多算一份，
+ * 使 raiseEV 系统性偏高，偏差恰为 `equity · toCall · (1 − foldPct)`。
+ *
+ * `potSize` 与 `raiseSize` 同为「下注前底池 + 本次投入增量」口径（见文件头约定）。
+ */
 export function calculateRaiseEV(
   equity: number,
   potSize: number,
   raiseSize: number,
   foldPct: number,
+  toCall = 0,
 ): number {
   if (raiseSize <= 0) return 0;
   const callPct = 1 - foldPct;
+  // 对手跟注再投入 = 加注增量 − 已投入；夹到 [0, raiseSize]，
+  // 防止畸形 toCall 让最终底池膨胀（或缩到负）。
+  const villainAdd = raiseSize - Math.min(Math.max(0, toCall), raiseSize);
+  const calledPot = potSize + raiseSize + villainAdd;
   const evFold = foldPct * potSize;
-  const evCall = callPct * (
-    equity * (potSize + raiseSize) - (1 - equity) * raiseSize
-  );
+  const evCall = callPct * (equity * calledPot - raiseSize);
   return evFold + evCall;
 }
 
