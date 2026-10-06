@@ -3,14 +3,12 @@ import {
   mdfFrom,
   calculateValueBluffRatio,
   calculateCallEV,
-  calculateFoldEV,
   calculateRaiseEV,
   raiseEVFromContext,
   calculateBluffFrequency,
   classifyRange,
   getMDFReferenceTable,
   calculateRequiredFoldEquity,
-  getGTOMathSummary,
 } from '../gtoMath';
 
 describe('GTO Math Functions', () => {
@@ -170,12 +168,6 @@ describe('GTO Math Functions', () => {
 
     it('should return 0 when no bet to call', () => {
       expect(calculateCallEV(0.6, 100, 0)).toBe(0);
-    });
-  });
-
-  describe('calculateFoldEV', () => {
-    it('should always return 0', () => {
-      expect(calculateFoldEV()).toBe(0);
     });
   });
 
@@ -470,52 +462,6 @@ describe('GTO Math Functions', () => {
       expect(calculateRequiredFoldEquity(betSize, potSize)).toBeCloseTo(1 / 3, 10);
       expect(callerEquity).toBeCloseTo(0.25, 10);
       expect(calculateRequiredFoldEquity(betSize, potSize)).toBeGreaterThan(callerEquity);
-    });
-  });
-
-  describe('getGTOMathSummary', () => {
-    it('should calculate MDF when facing a bet', () => {
-      const result = getGTOMathSummary(0.55, 100, 50, null, 0.5, 'flop');
-      expect(result.mdf).toBeCloseTo(0.667, 2);
-    });
-
-    it('should calculate value/bluff ratio', () => {
-      const result = getGTOMathSummary(0.55, 100, 50, null, 0.5, 'flop');
-      expect(result.valueBluff).not.toBeNull();
-      expect(result.valueBluff!.valuePct).toBeCloseTo(0.75, 2);
-    });
-
-    it('should calculate EV results', () => {
-      const result = getGTOMathSummary(0.6, 100, 50, 150, 0.4, 'flop');
-      expect(result.ev).not.toBeNull();
-      expect(result.ev!.callEV).toBeGreaterThan(0);
-      expect(result.ev!.foldEV).toBe(0);
-    });
-
-    it('callEV 用含注底池（下注前底池 + 跟注额），不少算一个下注额', () => {
-      // 下注前底池 100、跟注 50 → 含注 150；equity 0.6
-      const result = getGTOMathSummary(0.6, 100, 50, null, 0.5, 'flop');
-      expect(result.ev!.callEV).toBeCloseTo(0.6 * 150 - 0.4 * 50, 10); // 70
-      // 旧实现直接传 potSize=100 → 40
-      expect(result.ev!.callEV).not.toBeCloseTo(40, 1);
-    });
-
-    it('should determine best action', () => {
-      const result = getGTOMathSummary(0.6, 100, 50, null, 0.5, 'flop');
-      expect(result.ev).not.toBeNull();
-      expect(result.ev!.bestAction).toBe('call');
-    });
-
-    it('should classify range', () => {
-      const result = getGTOMathSummary(0.7, 100, 50, null, 0.5, 'flop');
-      expect(result.rangeCategory).toBe('value');
-    });
-
-    it('should handle check scenario (no bet to call)', () => {
-      const result = getGTOMathSummary(0.55, 100, 0, null, 0.5, 'flop');
-      expect(result.mdf).toBeNull();
-      expect(result.ev).not.toBeNull();
-      expect(result.ev!.bestAction).toBe('check');
     });
   });
 });

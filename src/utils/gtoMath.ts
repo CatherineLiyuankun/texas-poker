@@ -26,14 +26,6 @@ export interface BluffFrequency {
   ratio: number;
 }
 
-export interface EVResult {
-  callEV: number;
-  foldEV: number;
-  raiseEV: number | null;
-  bestAction: 'call' | 'fold' | 'raise' | 'check';
-  bestEV: number;
-}
-
 export type RangeCategory = 'value' | 'bluff' | 'bluff_catcher' | 'fold';
 
 export interface MDFReference {
@@ -48,14 +40,6 @@ export interface MDFReference {
    */
   requiredFoldEquity: number;
   bluffPct: number;
-}
-
-export interface GTOMathResult {
-  mdf: number | null;
-  valueBluff: ValueBluffRatio | null;
-  ev: EVResult | null;
-  bluffFreq: BluffFrequency | null;
-  rangeCategory: RangeCategory | null;
 }
 
 /**
@@ -128,10 +112,6 @@ export function calculateCallEV(
 ): number {
   if (betToCall <= 0) return 0;
   return equity * potSize - (1 - equity) * betToCall;
-}
-
-export function calculateFoldEV(): number {
-  return 0;
 }
 
 /**
@@ -289,77 +269,4 @@ export function getMDFReferenceTable(): MDFReference[] {
 export function calculateRequiredFoldEquity(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return betSize / (potSize + betSize);
-}
-
-/**
- * 面板口径的一次性汇总（MDF / V:B / EV / 牌力分类）。
- *
- * **入参口径**：`potSize` 是**下注前底池**，`betToCall` / `raiseSize` 都是
- * **本次投入增量**（与 `calculateMDF` / `calculateValueBluffRatio` 一致）。
- * 唯独 `calculateCallEV` 吃含注底池，所以下面显式传 `potSize + betToCall`——
- * 早先直接传 `potSize` 会让跟注 EV 少算一个下注额。
- */
-export function getGTOMathSummary(
-  equity: number,
-  potSize: number,
-  betToCall: number,
-  raiseSize: number | null,
-  foldPct: number,
-  phase: GamePhase,
-): GTOMathResult {
-  const mdf = betToCall > 0 ? calculateMDF(betToCall, potSize) : null;
-  const valueBluff = betToCall > 0
-    ? calculateValueBluffRatio(betToCall, potSize)
-    : null;
-  const bluffFreq = betToCall > 0
-    ? calculateBluffFrequency(betToCall, potSize)
-    : null;
-
-  let ev: EVResult | null = null;
-  if (betToCall > 0 || (raiseSize !== null && raiseSize > 0)) {
-    const callEV = betToCall > 0
-      ? calculateCallEV(equity, potSize + betToCall, betToCall)
-      : 0;
-    const foldEV = calculateFoldEV();
-    const raiseEV = raiseSize && raiseSize > 0
-      ? calculateRaiseEV(equity, potSize, raiseSize, foldPct)
-      : null;
-
-    let bestAction: 'call' | 'fold' | 'raise' | 'check' = 'fold';
-    let bestEV = foldEV;
-
-    if (betToCall === 0) {
-      bestAction = 'check';
-      bestEV = 0;
-    }
-
-    if (callEV > bestEV) {
-      bestAction = 'call';
-      bestEV = callEV;
-    }
-
-    if (raiseEV !== null && raiseEV > bestEV) {
-      bestAction = 'raise';
-      bestEV = raiseEV;
-    }
-
-    ev = { callEV, foldEV, raiseEV, bestAction, bestEV };
-  } else {
-    ev = {
-      callEV: 0,
-      foldEV: 0,
-      raiseEV: null,
-      bestAction: 'check',
-      bestEV: 0,
-    };
-  }
-
-  const rangeCategory = classifyRange(
-    equity,
-    betToCall > 0 ? betToCall : (raiseSize ?? 0),
-    potSize,
-    phase,
-  );
-
-  return { mdf, valueBluff, ev, bluffFreq, rangeCategory };
 }
