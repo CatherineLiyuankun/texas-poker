@@ -173,7 +173,10 @@ export interface RaiseEVContext {
 }
 
 export interface RaiseEVBreakdown {
-  /** 加注 EV；无可加注（无增量 / 无底池）时为 null。 */
+  /**
+   * 加注 EV；**只有真加注**（raise-to 严格超过当前注）才有值，否则为 null：
+   * 无增量 / 无底池，或 raise-to 未超过当前注（见 `raiseEVFromContext`）。
+   */
   raiseEV: number | null;
   /** 我方下注前底池 = totalPot − heroBet（夹到 ≥ 0）。 */
   heroPotBefore: number;
@@ -192,6 +195,16 @@ export interface RaiseEVBreakdown {
  * 抽成纯函数是为了让这套换算有唯一实现、可被确定性单测直接覆盖 ——
  * 之前它散在 `HandAnalysis` 的 `useMemo` 里，只能靠渲染断言间接验证。
  *
+ * **只对「真加注」返回 EV**：`heroIncrement > toCall` 等价于 `raiseTo > lastBet`
+ * （因为 `toCall = lastBet − heroBet`），即 raise-to 严格超过当前注。
+ * - `===`：raise-to 恰好追平当前注，那就是**跟注**，不存在弃牌收益；
+ * - `<`：比跟注还少，是**非法动作**（`ActionButtons` 的确认键此时本就是禁用的）。
+ *
+ * 这两种情况下对手都不可能「面对加注弃牌」，而 `calculateRaiseEV` 会无条件计入
+ * `foldPct × 底池` 的弃牌收益 —— 那笔收益是凭空的，会让面板把不存在的加注
+ * 打成 ✅ 推荐（实测：底池 50 / 已投 10 / 跟注 25 / raise-to 25 时，
+ * 跟注 EV +2.0，而凭空的加注 EV +14.4）。故一律返回 null，由面板整行隐藏。
+ *
  * 返回的中间量（`heroPotBefore` / `heroIncrement`）同时供 V:B 复用，
  * 避免同一套换算在面板里写两遍。
  */
@@ -199,7 +212,7 @@ export function raiseEVFromContext(ctx: RaiseEVContext): RaiseEVBreakdown {
   const heroPotBefore = Math.max(0, ctx.totalPot - ctx.heroBet);
   const heroIncrement = Math.max(0, ctx.raiseTo - ctx.heroBet);
   const toCall = Math.max(0, ctx.toCall);
-  if (heroIncrement <= 0 || heroPotBefore <= 0) {
+  if (heroIncrement <= 0 || heroPotBefore <= 0 || heroIncrement <= toCall) {
     return { raiseEV: null, heroPotBefore, heroIncrement, toCall, foldPct: 0 };
   }
   const foldPct = calculateRequiredFoldEquity(heroIncrement, heroPotBefore);

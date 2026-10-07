@@ -659,3 +659,74 @@ describe('HandAnalysis GTO Math 口径说明', () => {
     expect(screen.getByText(/河牌严格/)).toBeTruthy();
   });
 });
+
+describe('HandAnalysis 加注 EV 口径（只对真加注给 EV）', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+  function mkHeroAndOpp(heroBet: number) {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      bet: heroBet,
+      totalBet: 20,
+    });
+    const opp = mkPlayer({
+      id: 2,
+      hand: [card('♦', 'K'), card('♣', 'K')],
+      totalBet: 20,
+    });
+    return { hero, opp };
+  }
+
+  it('raise-to 低于跟注总额时不渲染「加注 EV」行（截图回归）', async () => {
+    const { hero, opp } = mkHeroAndOpp(10);
+
+    // 含注底池 50、我方已投 10、跟注 25 → 当前注 = 35。
+    // raise-to 25 连跟注都不到，此前会凭「弃牌收益」算出 ≈+14.4 并打 ✅。
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      potOdds: 0.25,
+      currentPot: 50,
+      betToCall: 25,
+      playerRaiseAmount: 25,
+    });
+
+    expect(screen.queryByText(translations.gtoMath.raiseEV)).toBeNull();
+    // 跟注 EV 行不受影响，仍应渲染
+    expect(screen.getByText(translations.gtoMath.callEv)).toBeTruthy();
+  });
+
+  it('raise-to 恰好追平当前注（等于跟注）时也不渲染「加注 EV」行', async () => {
+    const { hero, opp } = mkHeroAndOpp(10);
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      potOdds: 0.25,
+      currentPot: 50,
+      betToCall: 25,
+      playerRaiseAmount: 35, // 恰好追平当前注 35
+    });
+
+    expect(screen.queryByText(translations.gtoMath.raiseEV)).toBeNull();
+  });
+
+  it('raise-to 严格超过当前注时才渲染「加注 EV」行', async () => {
+    const { hero, opp } = mkHeroAndOpp(10);
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      potOdds: 0.25,
+      currentPot: 50,
+      betToCall: 25,
+      playerRaiseAmount: 60, // 超过当前注 35 → 真加注
+    });
+
+    expect(screen.getByText(translations.gtoMath.raiseEV)).toBeTruthy();
+  });
+});

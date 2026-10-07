@@ -212,6 +212,12 @@ turned a half-pot MDF of 0.667 into 0.75 and a 3:1 value:bluff into 4:1.
   toCall })` — it owns the pot-with-bet → pot-before-bet conversion and returns
   `heroPotBefore` / `heroIncrement` for reuse by the value:bluff row. Do not re-inline the
   conversion in the component.
+- `raiseEVFromContext` returns `raiseEV: null` unless the raise-to **strictly exceeds** the
+  current bet (`heroIncrement > toCall`, i.e. `raiseTo > lastBet`). A raise-to that merely
+  matches the call **is** a call, and anything below it is an illegal amount the
+  `ActionButtons` confirm key already rejects — neither has fold equity, so pricing them
+  with `calculateRaiseEV`'s `foldPct × pot` term invents EV and makes the panel recommend a
+  raise that does not exist. The panel hides the row (and the ✅) on `null`.
 - `classifyRange` is a **heuristic**, not a GTO solution; it only labels the panel. Never
   feed it into EV or decision logic.
 
