@@ -182,6 +182,39 @@ Decision quality hinges on equity estimates. Two layers:
   `rangeNarrowed` / `rangeExploitative` labels so the user knows the figure is
   exploitative, not a pure GTO range.
 
+### GTO Math (`src/utils/gtoMath.ts`)
+
+The panel's GTO Math block (MDF / value:bluff / call & raise EV) is closed-form,
+single-street and heads-up — an approximation for display, not a full GTO solution.
+
+**Two pot conventions — the root of most past bugs:**
+
+- Ratio functions (`calculateMDF`, `calculateValueBluffRatio`, `calculateBluffFrequency`,
+  `calculateRequiredFoldEquity`) take the **pot before the bet** `P` plus the **increment** `B`.
+- `calculateCallEV` takes the **pot with the bet** (`P + B`) plus the call amount `B`.
+
+`state.mainPot` / `currentPot` are pot-with-bet. Callers holding only the pot-with-bet must
+go through the adapter (`mdfFrom`), never hand-write `totalPot - toCall` — doing that once
+turned a half-pot MDF of 0.667 into 0.75 and a 3:1 value:bluff into 4:1.
+
+**Rules:**
+
+- MDF has a single implementation (`calculateMDF`); business code goes through `mdfFrom`.
+- The value:bluff formula has a single implementation (`bluffShare`), shared by
+  `calculateValueBluffRatio` (string ratio, e.g. `3:1`) and `calculateBluffFrequency`
+  (numeric ratio). Do not re-derive `B / (P + 2B)`.
+- `calculateRaiseEV` **must be passed `toCall`** (the chips the opponent already put in):
+  on a call they only add `raiseSize − toCall`, so the final pot is
+  `potSize + raiseSize + (raiseSize − toCall)`, **not** `potSize + 2·raiseSize`. Omitting it
+  (default 0) is only correct for a bet into an unbet pot, and otherwise overstates raise EV
+  by `equity · toCall · (1 − foldPct)`.
+- The panel path for raise EV is `raiseEVFromContext({ equity, totalPot, heroBet, raiseTo,
+  toCall })` — it owns the pot-with-bet → pot-before-bet conversion and returns
+  `heroPotBefore` / `heroIncrement` for reuse by the value:bluff row. Do not re-inline the
+  conversion in the component.
+- `classifyRange` is a **heuristic**, not a GTO solution; it only labels the panel. Never
+  feed it into EV or decision logic.
+
 ---
 
 ## 4. Code Style and Formatting Rules

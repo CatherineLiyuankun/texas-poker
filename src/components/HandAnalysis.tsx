@@ -19,7 +19,7 @@ import { SMALL_BLIND } from '../utils/constant';
 import {
   calculateValueBluffRatio,
   calculateCallEV,
-  calculateBluffFrequency,
+  raiseEVFromContext,
   calculateRequiredFoldEquity,
   classifyRange,
   mdfFrom,
@@ -386,6 +386,17 @@ function getRangeCategoryEmoji(cat: RangeCategory): string {
   }
 }
 
+/**
+ * 口径行里的对手数说明。`numOpponents` 来自「未弃牌的对手数」，
+ * 全员弃牌时是 0 —— 此时既不是单挑也不是多人，不能落进 `<= 1` 的单挑分支。
+ */
+function opponentsCaveat(numOpponents: number): string {
+  const { headsUp, multiway, noOpponent } = translations.gtoMath.caveat;
+  if (numOpponents <= 0) return noOpponent;
+  if (numOpponents === 1) return headsUp;
+  return multiway(numOpponents);
+}
+
 // 蒙特卡洛迭代次数：翻前要模拟 5 张公共牌，成本最高；单次模拟成本随对手数
 // 近似线性增长，因此多人底池自动下调迭代数，保证面板不卡顿。
 const EQUITY_ITERATIONS: Record<string, number> = {
@@ -676,43 +687,49 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const pot = currentPot ?? 0;
     const bet = betToCall ?? 0;
     const eq = decisionEquity ?? 0;
-    const raiseSize = playerRaiseAmount ?? 0;
+    const raiseTo = playerRaiseAmount ?? 0;
+    const heroBet = heroPlayer?.bet ?? 0;
+
+    // 口径：gtoMath 的比率函数（MDF / V:B / 所需弃牌率）一律吃
+    // 「下注前底池 + 本次投入增量」，而 currentPot 是**含注底池**。
+    // - 面对对手下注：描述对手那一注 → 下注前底池 = 含注底池 − 跟注额
+    // - 我方下注/加注：下注前底池 = 含注底池 − 我方本轮已投入
+    //   增量 = 加注框的 raise-to 总额 − 我方本轮已投入
+    // 直接把含注底池当分母会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
+    const facingPotBefore = Math.max(0, pot - bet);
+
+    // 加注 EV 的换算（含注底池 → 下注前底池 + 增量 + toCall）收敛在
+    // gtoMath.raiseEVFromContext 里，顺带取回 heroPotBefore / heroIncrement
+    // 供 V:B 复用，避免同一套换算在面板里写两遍。
+    const raiseEv = raiseEVFromContext({
+      equity: eq,
+      totalPot: pot,
+      heroBet,
+      raiseTo,
+      toCall: bet,
+    });
+    const { heroPotBefore, heroIncrement } = raiseEv;
 
     // MDF: only when facing a bet.
-    // 口径：MDF 描述的是「对手这一注」，必须用**下注前**底池；
-    // 而 currentPot 是含注底池（已包含对手本轮的注），所以要减掉 toCall。
-    // 直接传 currentPot 会把半池算成 0.75、满池算成 0.667（正确为 0.667 / 0.5）。
-    const potBeforeBet = Math.max(0, pot - bet);
-    const mdf = bet > 0 && potBeforeBet > 0 ? mdfFrom(pot, bet) : null;
+    const mdf = bet > 0 && facingPotBefore > 0 ? mdfFrom(pot, bet) : null;
 
-    // Value/Bluff ratio: when considering betting
-    const vbRatio = (bet > 0 || raiseSize > 0) && pot > 0
-      ? calculateValueBluffRatio(bet > 0 ? bet : raiseSize, pot)
-      : null;
+    // V:B 与牌力分类共用同一组「注码 + 下注前底池」：优先描述对手那一注。
+    const facingBet = bet > 0;
+    const refBet = facingBet ? bet : heroIncrement;
+    const refPotBefore = facingBet ? facingPotBefore : heroPotBefore;
 
-    // Bluff frequency
-    const bluffFreq = (bet > 0 || raiseSize > 0) && pot > 0
-      ? calculateBluffFrequency(bet > 0 ? bet : raiseSize, pot)
+    const vbRatio = refBet > 0 && refPotBefore > 0
+      ? calculateValueBluffRatio(refBet, refPotBefore)
       : null;
 
     // EV calculations
     const callEV = bet > 0 ? calculateCallEV(eq, pot, bet) : null;
 
-    // Raise EV: when player is considering a bet/raise
-    let raiseEV: number | null = null;
-    if (raiseSize > 0 && pot > 0) {
-      // Estimate fold equity (simplified model)
-      const betSizePercent = (raiseSize / pot) * 100;
-      const estimatedFoldPct = Math.min(
-        0.3 + (betSizePercent - 50) * 0.005,
-        0.7
-      );
-      const callPct = 1 - estimatedFoldPct;
-
-      // Raise EV = fold% × pot + call% × (equity × (pot + bet) - (1-equity) × bet)
-      raiseEV = estimatedFoldPct * pot +
-        callPct * (eq * (pot + raiseSize) - (1 - eq) * raiseSize);
-    }
+    // Raise EV：弃牌率由「1 − MDF」推出（GTO 对手按 MDF 防守），
+    // 不再手写 `0.3 + (尺度 − 50) × 0.005` 的线性模型。
+    // 换算已收敛在 raiseEVFromContext；toCall 让对手跟注只补「加注增量 − 已投入」，
+    // 不再按「对称下注」把对手那一注多算一份。
+    const raiseEV = raiseEv.raiseEV;
 
     // Select best action
     let bestAction: 'call' | 'fold' | 'check' | 'raise' = 'check';
@@ -733,11 +750,18 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
     // Range classification
     const rangeCat = eq > 0
-      ? classifyRange(eq, bet > 0 ? bet : raiseSize, pot, phase)
+      ? classifyRange(eq, refBet, refPotBefore, phase)
       : null;
 
-    return { mdf, vbRatio, bluffFreq, callEV, raiseEV, bestAction, bestEV, rangeCat };
-  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase]);
+    return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
+  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer]);
+
+  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导，未计抽水与 ICM。
+  // 显式标出来，避免把近似值误读成完整 GTO 解。
+  const gtoMathCaveat = useMemo(() => {
+    const street = translations.gtoMath.caveat.street[phase];
+    return [street, opponentsCaveat(numOpponents), translations.gtoMath.caveat.noIcm].join(' · ');
+  }, [phase, numOpponents]);
 
   // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
   // 没有跟注额（可以免费过牌）时无意义，显示为 —。
@@ -1060,23 +1084,43 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
           {/* Right column: V:B ratio + Range classification */}
           <div className="space-y-1">
-            {gtoMath.vbRatio !== null && (
+            {/* V:B 是「下注方」的指标，翻牌前没有意义（范围表驱动），不渲染。
+                主值用标准比（3:1），百分比降为副标签便于对照。 */}
+            {phase !== 'preflop' && gtoMath.vbRatio !== null && (
               <GridRow
-                label={translations.gtoMath.vbRatio}
-                value={`${Math.round(gtoMath.vbRatio.valuePct * 100)}:${Math.round(gtoMath.vbRatio.bluffPct * 100)}`}
+                label={gtoMath.vbSource === 'facing'
+                  ? translations.gtoMath.vbRatioFacing
+                  : translations.gtoMath.vbRatioHero}
+                value={
+                  <>
+                    {gtoMath.vbRatio.ratio}{' '}
+                    <span className="text-[9px] text-white/40">
+                      {Math.round(gtoMath.vbRatio.valuePct * 100)}/
+                      {Math.round(gtoMath.vbRatio.bluffPct * 100)}
+                    </span>
+                  </>
+                }
               />
             )}
             {gtoMath.rangeCat !== null && phase !== 'preflop' && (
               <GridRow
-                label=""
+                label={translations.gtoMath.rangeCategory}
                 value={
                   <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
                     {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
+                    <span className="ml-1 text-[9px] text-white/40">
+                      {translations.gtoMath.heuristic}
+                    </span>
                   </span>
                 }
               />
             )}
           </div>
+        </div>
+
+        {/* 口径说明：本区块是单街闭式 + 单挑推导，且未计抽水 / ICM */}
+        <div className="text-[9px] leading-tight text-white/40 mt-1">
+          {gtoMathCaveat}
         </div>
       </div>
       

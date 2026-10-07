@@ -492,3 +492,170 @@ describe('HandAnalysis 翻后 Reasoning 与权益行同源（不泄漏未来牌�
     expect(text).toContain('Pair');
   });
 });
+
+describe('HandAnalysis V:B 口径', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+  function mkHeroAndOpp() {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      bet: 0,
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    return { hero, opp };
+  }
+
+  // 主值是标准比（3:1），副标签是百分比（75/25）
+  function readVbRatio(label: string): string | null {
+    const match = (rowOf(label).textContent ?? '').match(/([\d.]+):1/);
+    return match ? match[1] : null;
+  }
+
+  function readVbPcts(label: string): [number, number] | null {
+    const match = (rowOf(label).textContent ?? '').match(/(\d+)\/(\d+)/);
+    return match ? [Number(match[1]), Number(match[2])] : null;
+  }
+
+  it('面对半个底池下注显示 3:1（75/25），而不是把含注底池当分母的 4:1', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100，对手下 50 → 含注底池 150
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      currentPot: 150,
+      betToCall: 50,
+    });
+
+    const label = translations.gtoMath.vbRatioFacing;
+    expect(readVbRatio(label)).toBe('3');
+    expect(readVbPcts(label)).toEqual([75, 25]);
+    // 旧口径 calculateValueBluffRatio(50, 150) = 4:1，是本次要修掉的偏差
+    expect(readVbRatio(label)).not.toBe('4');
+  });
+
+  it('面对一个底池下注显示 2:1（67/33），而不是 3:1', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 下注前底池 100，对手下 100 → 含注底池 200
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      currentPot: 200,
+      betToCall: 100,
+    });
+
+    const label = translations.gtoMath.vbRatioFacing;
+    expect(readVbRatio(label)).toBe('2');
+    expect(readVbPcts(label)).toEqual([67, 33]);
+    expect(readVbRatio(label)).not.toBe('3');
+  });
+
+  it('我方下注时改用「我方」标签，并用增量 + 下注前底池算 V:B', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    // 无人下注（可免费过牌），下注框填 100、底池 100 → 一池下注 → 2:1
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board, {
+      potOdds: 0,
+      currentPot: 100,
+      betToCall: 0,
+      playerRaiseAmount: 100,
+    });
+
+    const label = translations.gtoMath.vbRatioHero;
+    expect(readVbRatio(label)).toBe('2');
+    expect(readVbPcts(label)).toEqual([67, 33]);
+    // 我方下注时不能显示「对手下注」的标签
+    expect(screen.queryByText(translations.gtoMath.vbRatioFacing)).toBeNull();
+  });
+
+  it('翻牌前不渲染 V:B 行（翻前由范围表驱动，没有 V:B 概念）', async () => {
+    const { hero, opp } = mkHeroAndOpp();
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], {
+      currentPot: 150,
+      betToCall: 50,
+    });
+
+    expect(screen.queryByText(translations.gtoMath.vbRatioFacing)).toBeNull();
+    expect(screen.queryByText(translations.gtoMath.vbRatioHero)).toBeNull();
+  });
+});
+
+describe('HandAnalysis GTO Math 口径说明', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+  function mkPlayers(n: number) {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 60,
+    });
+    const villains: Player[] = Array.from({ length: n }, (_, i) =>
+      mkPlayer({
+        id: (i + 2) as PlayerId,
+        hand: [card('♦', 'Q'), card('♣', 'J')],
+        totalBet: 60,
+      }),
+    );
+    return { hero, players: [hero, ...villains] };
+  }
+
+  it('单挑翻牌：标注「翻牌近似 · 单挑口径 · 未计 ICM」', async () => {
+    const { hero, players } = mkPlayers(1);
+
+    await renderPanel(hero, mkState(players, 'flop', board), 1, 'flop', board);
+
+    expect(screen.getByText(/翻牌近似/)).toBeTruthy();
+    expect(screen.getByText(/单挑口径/)).toBeTruthy();
+    expect(screen.getByText(/未计 ICM/)).toBeTruthy();
+  });
+
+  it('多人底池：对手数被显式标进口径行', async () => {
+    const { hero, players } = mkPlayers(2);
+
+    await renderPanel(hero, mkState(players, 'flop', board), 2, 'flop', board);
+
+    expect(screen.getByText(/多人\(2\)未调整/)).toBeTruthy();
+  });
+
+  it('全员弃牌（0 个对手）标为「无对手」，不误标成单挑', async () => {
+    const { hero, players } = mkPlayers(0);
+
+    await renderPanel(hero, mkState(players, 'flop', board), 0, 'flop', board);
+
+    expect(screen.getByText(/无对手/)).toBeTruthy();
+    expect(screen.queryByText(/单挑口径/)).toBeNull();
+  });
+
+  it('河牌标注为「河牌严格」', async () => {
+    const { hero, players } = mkPlayers(1);
+    const riverBoard = [
+      card('♠', 'K'),
+      card('♦', '7'),
+      card('♣', '2'),
+      card('♥', '9'),
+      card('♦', '4'),
+    ];
+
+    await renderPanel(hero, mkState(players, 'river', riverBoard), 1, 'river', riverBoard);
+
+    expect(screen.getByText(/河牌严格/)).toBeTruthy();
+  });
+});

@@ -3,13 +3,12 @@ import {
   mdfFrom,
   calculateValueBluffRatio,
   calculateCallEV,
-  calculateFoldEV,
   calculateRaiseEV,
+  raiseEVFromContext,
   calculateBluffFrequency,
   classifyRange,
   getMDFReferenceTable,
   calculateRequiredFoldEquity,
-  getGTOMathSummary,
 } from '../gtoMath';
 
 describe('GTO Math Functions', () => {
@@ -116,7 +115,7 @@ describe('GTO Math Functions', () => {
       const result = calculateValueBluffRatio(0.5, 1);
       expect(result.valuePct).toBeCloseTo(0.75, 2);
       expect(result.bluffPct).toBeCloseTo(0.25, 2);
-      expect(result.ratio).toBe('3.0:1');
+      expect(result.ratio).toBe('3:1');
     });
 
     it('should return 71.4%/28.6% for 67% pot bet', () => {
@@ -129,7 +128,7 @@ describe('GTO Math Functions', () => {
       const result = calculateValueBluffRatio(1.0, 1);
       expect(result.valuePct).toBeCloseTo(0.667, 2);
       expect(result.bluffPct).toBeCloseTo(0.333, 2);
-      expect(result.ratio).toBe('2.0:1');
+      expect(result.ratio).toBe('2:1');
     });
 
     it('should return 62.5%/37.5% for 150% pot bet', () => {
@@ -172,12 +171,6 @@ describe('GTO Math Functions', () => {
     });
   });
 
-  describe('calculateFoldEV', () => {
-    it('should always return 0', () => {
-      expect(calculateFoldEV()).toBe(0);
-    });
-  });
-
   describe('calculateRaiseEV', () => {
     it('should calculate EV considering fold equity', () => {
       const ev = calculateRaiseEV(0.5, 100, 200, 0.5);
@@ -192,6 +185,135 @@ describe('GTO Math Functions', () => {
       const ev1 = calculateRaiseEV(0.4, 100, 200, 0.3);
       const ev2 = calculateRaiseEV(0.4, 100, 200, 0.6);
       expect(ev2).toBeGreaterThan(ev1);
+    });
+
+    it('对手跟注只补「加注增量 − 已投入」，不是再下同样一注', () => {
+      // 底池 100，我方加注 100；对手已投入 50 → 只需再补 50
+      const potSize = 100;
+      const raiseSize = 100;
+      const foldPct = 0.5;
+      const equity = 0.5;
+
+      const noBet = calculateRaiseEV(equity, potSize, raiseSize, foldPct, 0);
+      const facingBet = calculateRaiseEV(equity, potSize, raiseSize, foldPct, 50);
+
+      // toCall = 0：最终底池 = 100 + 100 + 100 = 300
+      expect(noBet).toBeCloseTo(foldPct * potSize + 0.5 * (0.5 * 300 - 100), 10); // 75
+      // toCall = 50：最终底池 = 100 + 100 + 50 = 250
+      expect(facingBet).toBeCloseTo(foldPct * potSize + 0.5 * (0.5 * 250 - 100), 10); // 62.5
+      // 差值恰为 equity · toCall · callPct
+      expect(noBet - facingBet).toBeCloseTo(equity * 50 * (1 - foldPct), 10);
+    });
+
+    it('省略 toCall 等价于 0（主动下注场景不变）', () => {
+      expect(calculateRaiseEV(0.6, 150, 200, 0.571)).toBeCloseTo(
+        calculateRaiseEV(0.6, 150, 200, 0.571, 0),
+        12,
+      );
+    });
+
+    it('面对下注加注与闭式解一致，且与旧「对称下注」模型差 equity·toCall·callPct', () => {
+      // 下注前底池 150、加注增量 200、对手已投入 50、equity 0.6
+      const foldPct = 200 / 350; // = calculateRequiredFoldEquity(200, 150)
+      const callPct = 1 - foldPct;
+      const equity = 0.6;
+
+      const ev = calculateRaiseEV(equity, 150, 200, foldPct, 50);
+      // 最终底池 = 150 + 200 + 150 = 500
+      expect(ev).toBeCloseTo(foldPct * 150 + callPct * (equity * 500 - 200), 10); // ≈128.57
+
+      // 旧模型（多算一份跟注额）的最终底池 = 150 + 200 + 200 = 550
+      const oldModel = foldPct * 150 + callPct * (equity * 550 - 200);
+      expect(oldModel - ev).toBeCloseTo(equity * 50 * callPct, 10);
+      expect(oldModel).toBeGreaterThan(ev);
+    });
+
+    it('toCall 夹到 [0, raiseSize]，畸形入参不改变底池', () => {
+      const base = calculateRaiseEV(0.5, 100, 100, 0.5, 0);
+      expect(calculateRaiseEV(0.5, 100, 100, 0.5, -30)).toBeCloseTo(base, 12);
+      expect(calculateRaiseEV(0.5, 100, 100, 0.5, 999)).toBeCloseTo(
+        calculateRaiseEV(0.5, 100, 100, 0.5, 100),
+        12,
+      );
+    });
+  });
+
+  describe('raiseEVFromContext', () => {
+    it('把「含注底池 + raise-to + 跟注额」换算成下注前底池与增量', () => {
+      const r = raiseEVFromContext({
+        equity: 0.6,
+        totalPot: 250,
+        heroBet: 0,
+        raiseTo: 200,
+        toCall: 50,
+      });
+      expect(r.heroPotBefore).toBe(250); // 250 − 0
+      expect(r.heroIncrement).toBe(200); // 200 − 0
+      expect(r.toCall).toBe(50);
+      expect(r.foldPct).toBeCloseTo(calculateRequiredFoldEquity(200, 250), 12); // 200/450
+      expect(r.raiseEV).toBeCloseTo(
+        calculateRaiseEV(0.6, 250, 200, calculateRequiredFoldEquity(200, 250), 50),
+        12,
+      );
+    });
+
+    it('扣除我方本轮已投入（heroBet）后再算增量与底池', () => {
+      const r = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 250,
+        heroBet: 50,
+        raiseTo: 200,
+        toCall: 50,
+      });
+      expect(r.heroPotBefore).toBe(200); // 250 − 50
+      expect(r.heroIncrement).toBe(150); // 200 − 50
+      expect(r.raiseEV).not.toBeNull();
+    });
+
+    it('无可加注（增量或底池为 0）时 raiseEV 为 null，但换算值仍返回', () => {
+      const noRaise = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 250,
+        heroBet: 0,
+        raiseTo: 0,
+        toCall: 50,
+      });
+      expect(noRaise.raiseEV).toBeNull();
+      expect(noRaise.heroIncrement).toBe(0);
+
+      const noPot = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 0,
+        heroBet: 0,
+        raiseTo: 200,
+        toCall: 0,
+      });
+      expect(noPot.raiseEV).toBeNull();
+      expect(noPot.heroPotBefore).toBe(0);
+    });
+
+    it('主动下注（toCall = 0）时与 calculateRaiseEV 省略 toCall 一致', () => {
+      const r = raiseEVFromContext({
+        equity: 0.55,
+        totalPot: 100,
+        heroBet: 0,
+        raiseTo: 100,
+        toCall: 0,
+      });
+      expect(r.raiseEV).toBeCloseTo(
+        calculateRaiseEV(0.55, 100, 100, calculateRequiredFoldEquity(100, 100)),
+        12,
+      );
+    });
+
+    it('面对下注加注的 raiseEV 低于「按 toCall = 0」的旧口径（修正生效）', () => {
+      const ctx = { equity: 0.6, totalPot: 250, heroBet: 0, raiseTo: 200, toCall: 50 };
+      const fixed = raiseEVFromContext(ctx).raiseEV!;
+      const foldPct = calculateRequiredFoldEquity(200, 250);
+      const naive = calculateRaiseEV(0.6, 250, 200, foldPct, 0);
+      expect(fixed).toBeLessThan(naive);
+      // 差额恰为 equity · toCall · callPct
+      expect(naive - fixed).toBeCloseTo(0.6 * 50 * (1 - foldPct), 10);
     });
   });
 
@@ -222,6 +344,31 @@ describe('GTO Math Functions', () => {
     it('should handle zero values', () => {
       const result = calculateBluffFrequency(0, 1);
       expect(result.bluffPct).toBe(0);
+    });
+  });
+
+  describe('价值:诈唬 比例字符串与同源', () => {
+    it('整数比例不补 .0，非整数保留一位小数', () => {
+      expect(calculateValueBluffRatio(0.25, 1).ratio).toBe('5:1');
+      expect(calculateValueBluffRatio(0.5, 1).ratio).toBe('3:1');
+      expect(calculateValueBluffRatio(1.0, 1).ratio).toBe('2:1');
+      expect(calculateValueBluffRatio(2.0, 1).ratio).toBe('1.5:1');
+      expect(calculateValueBluffRatio(1.5, 1).ratio).toBe('1.7:1');
+    });
+
+    it('无诈唬时比例是 ∞:1，且不产生 NaN', () => {
+      expect(calculateValueBluffRatio(0, 1).ratio).toBe('∞:1');
+      expect(calculateValueBluffRatio(0.5, 0).ratio).toBe('∞:1');
+      expect(Number.isFinite(calculateValueBluffRatio(0, 0).valuePct)).toBe(true);
+    });
+
+    it('两个比例函数共用同一份公式（valuePct / bluffPct 完全一致）', () => {
+      for (const bet of [0, 0.25, 0.33, 0.5, 1, 1.5, 2]) {
+        const a = calculateValueBluffRatio(bet, 1);
+        const b = calculateBluffFrequency(bet, 1);
+        expect(a.valuePct).toBeCloseTo(b.valuePct, 12);
+        expect(a.bluffPct).toBeCloseTo(b.bluffPct, 12);
+      }
     });
   });
 
@@ -315,44 +462,6 @@ describe('GTO Math Functions', () => {
       expect(calculateRequiredFoldEquity(betSize, potSize)).toBeCloseTo(1 / 3, 10);
       expect(callerEquity).toBeCloseTo(0.25, 10);
       expect(calculateRequiredFoldEquity(betSize, potSize)).toBeGreaterThan(callerEquity);
-    });
-  });
-
-  describe('getGTOMathSummary', () => {
-    it('should calculate MDF when facing a bet', () => {
-      const result = getGTOMathSummary(0.55, 100, 50, null, 0.5, 'flop');
-      expect(result.mdf).toBeCloseTo(0.667, 2);
-    });
-
-    it('should calculate value/bluff ratio', () => {
-      const result = getGTOMathSummary(0.55, 100, 50, null, 0.5, 'flop');
-      expect(result.valueBluff).not.toBeNull();
-      expect(result.valueBluff!.valuePct).toBeCloseTo(0.75, 2);
-    });
-
-    it('should calculate EV results', () => {
-      const result = getGTOMathSummary(0.6, 100, 50, 150, 0.4, 'flop');
-      expect(result.ev).not.toBeNull();
-      expect(result.ev!.callEV).toBeGreaterThan(0);
-      expect(result.ev!.foldEV).toBe(0);
-    });
-
-    it('should determine best action', () => {
-      const result = getGTOMathSummary(0.6, 100, 50, null, 0.5, 'flop');
-      expect(result.ev).not.toBeNull();
-      expect(result.ev!.bestAction).toBe('call');
-    });
-
-    it('should classify range', () => {
-      const result = getGTOMathSummary(0.7, 100, 50, null, 0.5, 'flop');
-      expect(result.rangeCategory).toBe('value');
-    });
-
-    it('should handle check scenario (no bet to call)', () => {
-      const result = getGTOMathSummary(0.55, 100, 0, null, 0.5, 'flop');
-      expect(result.mdf).toBeNull();
-      expect(result.ev).not.toBeNull();
-      expect(result.ev!.bestAction).toBe('check');
     });
   });
 });

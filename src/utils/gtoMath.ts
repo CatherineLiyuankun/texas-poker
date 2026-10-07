@@ -1,5 +1,19 @@
 import type { GamePhase } from '../types/poker';
 
+/**
+ * GTO 数学的唯一实现处。**两套底池口径，务必分清**：
+ *
+ * - 比率类（`calculateMDF` / `calculateValueBluffRatio` / `calculateBluffFrequency` /
+ *   `calculateRequiredFoldEquity`）吃的是**下注前底池** `P` 与**本次投入增量** `B`。
+ *   业务侧手里通常只有「含注底池」（= `P + B`），请走对应的适配器（如 `mdfFrom`），
+ *   不要自己写 `totalPot - toCall`。
+ * - 跟注 EV（`calculateCallEV`）吃的是**含注底池**（= `P + B`）与跟注额 `B`，
+ *   其盈亏平衡点与 `potOdds.callPotOdds` 一致。
+ *
+ * 两套口径混用是本模块历史 bug 的根源（半池 MDF 由 0.667 变 0.75、
+ * V:B 由 3:1 变 4:1）。新增调用方前先确认自己拿的是哪一种底池。
+ */
+
 export interface ValueBluffRatio {
   valuePct: number;
   bluffPct: number;
@@ -10,14 +24,6 @@ export interface BluffFrequency {
   bluffPct: number;
   valuePct: number;
   ratio: number;
-}
-
-export interface EVResult {
-  callEV: number;
-  foldEV: number;
-  raiseEV: number | null;
-  bestAction: 'call' | 'fold' | 'raise' | 'check';
-  bestEV: number;
 }
 
 export type RangeCategory = 'value' | 'bluff' | 'bluff_catcher' | 'fold';
@@ -34,14 +40,6 @@ export interface MDFReference {
    */
   requiredFoldEquity: number;
   bluffPct: number;
-}
-
-export interface GTOMathResult {
-  mdf: number | null;
-  valueBluff: ValueBluffRatio | null;
-  ev: EVResult | null;
-  bluffFreq: BluffFrequency | null;
-  rangeCategory: RangeCategory | null;
 }
 
 /**
@@ -75,18 +73,36 @@ export function mdfFrom(totalPot: number, toCall: number): number {
   return calculateMDF(bet, pot - bet);
 }
 
+/**
+ * 均衡时「价值 : 诈唬」的占比 —— **公式的唯一实现**。
+ *
+ * 令对手对跟注 / 弃牌无差异可得 `诈唬占比 = B / (P + 2B)`，
+ * 其中 `P` 是**下注前底池**、`B` 是**本次投入增量**（半池 → 25% 诈唬）。
+ * 入参口径见文件头的约定说明。
+ */
+function bluffShare(
+  betSize: number,
+  potSize: number,
+): { valuePct: number; bluffPct: number } {
+  if (potSize <= 0 || betSize <= 0) return { valuePct: 1, bluffPct: 0 };
+  const bluffPct = betSize / (potSize + 2 * betSize);
+  return { valuePct: 1 - bluffPct, bluffPct };
+}
+
+/** 比例字符串，形如 `3:1` / `2.5:1`（整数不补 `.0`）；无诈唬时为 `∞:1`。 */
+function formatValueBluffRatio(valuePct: number, bluffPct: number): string {
+  if (bluffPct <= 0) return '∞:1';
+  const value = valuePct / bluffPct;
+  const text = value >= 10 ? value.toFixed(0) : value.toFixed(1).replace(/\.0$/, '');
+  return `${text}:1`;
+}
+
 export function calculateValueBluffRatio(
   betSize: number,
   potSize: number,
 ): ValueBluffRatio {
-  if (potSize <= 0 || betSize <= 0) {
-    return { valuePct: 1, bluffPct: 0, ratio: '∞:1' };
-  }
-  const bluffPct = betSize / (potSize + 2 * betSize);
-  const valuePct = 1 - bluffPct;
-  const ratioValue = valuePct / bluffPct;
-  const ratio = `${ratioValue.toFixed(1)}:1`;
-  return { valuePct, bluffPct, ratio };
+  const { valuePct, bluffPct } = bluffShare(betSize, potSize);
+  return { valuePct, bluffPct, ratio: formatValueBluffRatio(valuePct, bluffPct) };
 }
 
 export function calculateCallEV(
@@ -98,38 +114,113 @@ export function calculateCallEV(
   return equity * potSize - (1 - equity) * betToCall;
 }
 
-export function calculateFoldEV(): number {
-  return 0;
-}
-
+/**
+ * 我方加注 / 下注的 EV（相对「弃牌 = 0」）。
+ *
+ * 模型：以 `foldPct` 概率对手弃牌、我方直接收下 `potSize`；否则对手跟注，
+ * 双方进入摊牌，我方按 `equity` 分走最终底池、扣掉自己投入的 `raiseSize`。
+ *
+ * ⚠️ **`toCall` 不能省**：对手跟注时只需补齐到与我方加注持平，即再投入
+ * `raiseSize − toCall`（`toCall` 是对手**已经**放进底池的那一注）。所以最终底池是
+ * `potSize + raiseSize + (raiseSize − toCall)`，而**不是** `potSize + 2·raiseSize`
+ * ——后者等于假设对手「从头再下同样大小的一注」，只在我方主动下注、对手本无投入
+ * （`toCall = 0`）时才成立。面对对手下注再加注时，旧式会把对手的跟注额多算一份，
+ * 使 raiseEV 系统性偏高，偏差恰为 `equity · toCall · (1 − foldPct)`。
+ *
+ * `potSize` 与 `raiseSize` 同为「下注前底池 + 本次投入增量」口径（见文件头约定）。
+ */
 export function calculateRaiseEV(
   equity: number,
   potSize: number,
   raiseSize: number,
   foldPct: number,
+  toCall = 0,
 ): number {
   if (raiseSize <= 0) return 0;
   const callPct = 1 - foldPct;
+  // 对手跟注再投入 = 加注增量 − 已投入；夹到 [0, raiseSize]，
+  // 防止畸形 toCall 让最终底池膨胀（或缩到负）。
+  const villainAdd = raiseSize - Math.min(Math.max(0, toCall), raiseSize);
+  const calledPot = potSize + raiseSize + villainAdd;
   const evFold = foldPct * potSize;
-  const evCall = callPct * (
-    equity * (potSize + raiseSize) - (1 - equity) * raiseSize
-  );
+  const evCall = callPct * (equity * calledPot - raiseSize);
   return evFold + evCall;
 }
 
+/**
+ * 与 `calculateValueBluffRatio` 同源（共用 `bluffShare`），
+ * 差别只在 `ratio` 的类型：这里返回数值（价值 / 诈唬），供 EV 与阈值判断直接用。
+ */
 export function calculateBluffFrequency(
   betSize: number,
   potSize: number,
 ): BluffFrequency {
-  if (potSize <= 0 || betSize <= 0) {
-    return { bluffPct: 0, valuePct: 1, ratio: 0 };
-  }
-  const bluffPct = betSize / (potSize + 2 * betSize);
-  const valuePct = 1 - bluffPct;
-  const ratio = bluffPct > 0 ? valuePct / bluffPct : 0;
-  return { bluffPct, valuePct, ratio };
+  const { valuePct, bluffPct } = bluffShare(betSize, potSize);
+  return { bluffPct, valuePct, ratio: bluffPct > 0 ? valuePct / bluffPct : 0 };
 }
 
+export interface RaiseEVContext {
+  /** 我方手牌权益（0–1）。 */
+  equity: number;
+  /** 我方行动前的**含注底池**（= 下注前底池 + 对手那一注）。 */
+  totalPot: number;
+  /** 我方本轮已投入的筹码。 */
+  heroBet: number;
+  /** 加注框里的 raise-to **总额**（不是增量）。 */
+  raiseTo: number;
+  /** 跟注额（对手那一注）；主动下注、无注可跟时为 0。 */
+  toCall: number;
+}
+
+export interface RaiseEVBreakdown {
+  /** 加注 EV；无可加注（无增量 / 无底池）时为 null。 */
+  raiseEV: number | null;
+  /** 我方下注前底池 = totalPot − heroBet（夹到 ≥ 0）。 */
+  heroPotBefore: number;
+  /** 本次加注增量 = raiseTo − heroBet（夹到 ≥ 0）。 */
+  heroIncrement: number;
+  /** 对手已投入（跟注额），夹到 ≥ 0。 */
+  toCall: number;
+  /** 我方下注所需对手弃牌率 = `calculateRequiredFoldEquity(增量, 下注前底池)`。 */
+  foldPct: number;
+}
+
+/**
+ * 面板口径的加注 EV：把业务侧持有的「含注底池 + raise-to 总额 + 跟注额」
+ * 换算成 `calculateRaiseEV` 需要的「下注前底池 + 增量 + toCall」并算 EV。
+ *
+ * 抽成纯函数是为了让这套换算有唯一实现、可被确定性单测直接覆盖 ——
+ * 之前它散在 `HandAnalysis` 的 `useMemo` 里，只能靠渲染断言间接验证。
+ *
+ * 返回的中间量（`heroPotBefore` / `heroIncrement`）同时供 V:B 复用，
+ * 避免同一套换算在面板里写两遍。
+ */
+export function raiseEVFromContext(ctx: RaiseEVContext): RaiseEVBreakdown {
+  const heroPotBefore = Math.max(0, ctx.totalPot - ctx.heroBet);
+  const heroIncrement = Math.max(0, ctx.raiseTo - ctx.heroBet);
+  const toCall = Math.max(0, ctx.toCall);
+  if (heroIncrement <= 0 || heroPotBefore <= 0) {
+    return { raiseEV: null, heroPotBefore, heroIncrement, toCall, foldPct: 0 };
+  }
+  const foldPct = calculateRequiredFoldEquity(heroIncrement, heroPotBefore);
+  const raiseEV = calculateRaiseEV(
+    ctx.equity,
+    heroPotBefore,
+    heroIncrement,
+    foldPct,
+    toCall,
+  );
+  return { raiseEV, heroPotBefore, heroIncrement, toCall, foldPct };
+}
+
+/**
+ * 按手牌权益把范围粗分成 value / bluff_catcher / bluff / fold。
+ *
+ * ⚠️ **启发式，不是 GTO 解**：阈值是拍出来的 —— 翻后拿 `bluffPct + 0.15`
+ * 当诈唬线，等于把「手牌权益」和「GTO 诈唬频率」直接比，量纲并不一致；
+ * 翻前用 0.60 / 0.45 的硬阈值，与 Chen / Tier 无关。
+ * 只用于面板给个粗标签，**不要**接进 EV 或决策链路。
+ */
 export function classifyRange(
   equity: number,
   betSize: number,
@@ -178,69 +269,4 @@ export function getMDFReferenceTable(): MDFReference[] {
 export function calculateRequiredFoldEquity(betSize: number, potSize: number): number {
   if (potSize <= 0 || betSize <= 0) return 0;
   return betSize / (potSize + betSize);
-}
-
-export function getGTOMathSummary(
-  equity: number,
-  potSize: number,
-  betToCall: number,
-  raiseSize: number | null,
-  foldPct: number,
-  phase: GamePhase,
-): GTOMathResult {
-  const mdf = betToCall > 0 ? calculateMDF(betToCall, potSize) : null;
-  const valueBluff = betToCall > 0
-    ? calculateValueBluffRatio(betToCall, potSize)
-    : null;
-  const bluffFreq = betToCall > 0
-    ? calculateBluffFrequency(betToCall, potSize)
-    : null;
-
-  let ev: EVResult | null = null;
-  if (betToCall > 0 || (raiseSize !== null && raiseSize > 0)) {
-    const callEV = betToCall > 0
-      ? calculateCallEV(equity, potSize, betToCall)
-      : 0;
-    const foldEV = calculateFoldEV();
-    const raiseEV = raiseSize && raiseSize > 0
-      ? calculateRaiseEV(equity, potSize, raiseSize, foldPct)
-      : null;
-
-    let bestAction: 'call' | 'fold' | 'raise' | 'check' = 'fold';
-    let bestEV = foldEV;
-
-    if (betToCall === 0) {
-      bestAction = 'check';
-      bestEV = 0;
-    }
-
-    if (callEV > bestEV) {
-      bestAction = 'call';
-      bestEV = callEV;
-    }
-
-    if (raiseEV !== null && raiseEV > bestEV) {
-      bestAction = 'raise';
-      bestEV = raiseEV;
-    }
-
-    ev = { callEV, foldEV, raiseEV, bestAction, bestEV };
-  } else {
-    ev = {
-      callEV: 0,
-      foldEV: 0,
-      raiseEV: null,
-      bestAction: 'check',
-      bestEV: 0,
-    };
-  }
-
-  const rangeCategory = classifyRange(
-    equity,
-    betToCall > 0 ? betToCall : (raiseSize ?? 0),
-    potSize,
-    phase,
-  );
-
-  return { mdf, valueBluff, ev, bluffFreq, rangeCategory };
 }
