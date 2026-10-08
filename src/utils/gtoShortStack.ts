@@ -3,19 +3,28 @@ import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
-import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
+import {
+  classifyPostflopHand,
+  MADE_HAND_FLOORS,
+  type HandStrengthRules,
+} from './handStrength';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
  * 这里只声明「本调用方用哪套规则」。
  *
- * - `promoteMadeHandsByRank: true` —— 复现既有行为：两对及以上一律算 strong。
+ * - `madeHandFloors: MADE_HAND_FLOORS` —— 有条件的成牌类别下限（A3）。旧行为是
+ *   `promoteMadeHandsByRank: true`（两对及以上无条件 `strong`），于是 4 花面上的
+ *   底两对会被判 `strong` → 短筹码引擎直接加注。
  * - `drawOutsThreshold: 0` —— **不产出 `'draw'` 档**（给单个数字表示两条街同值）。
  *   短筹码（≤20bb）主要走全下/弃牌，听牌的价值已经由权益本身体现，
  *   再单列一个半诈唬档没有意义；这里保留既有行为（短筹码原本只有四档）。
+ *
+ * 这是三处调用方里**唯一**与 `gtoPostflop` 不同的规则，差异只在档位集合
+ * （没有 `'draw'`），不在判定口径。
  */
 export const HAND_STRENGTH_RULES: HandStrengthRules = {
-  promoteMadeHandsByRank: true,
+  madeHandFloors: MADE_HAND_FLOORS,
   drawOutsThreshold: 0,
 };
 

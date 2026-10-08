@@ -11,6 +11,7 @@ import { detectDraws } from './drawDetector';
 import {
   classifyPostflopHand,
   DRAW_OUTS_BY_STREET,
+  MADE_HAND_FLOORS,
   type HandStrengthRules,
 } from './handStrength';
 import { drawCallEquityThreshold } from './gtoMath';
@@ -19,14 +20,17 @@ import { drawCallEquityThreshold } from './gtoMath';
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
  * 这里只声明「本调用方用哪套规则」。
  *
- * - `promoteMadeHandsByRank: true` —— 复现既有行为：两对及以上一律算 strong。
- *   这条没有权益下限（4 花面上的底两对也会被判 strong），后续批次会换成
- *   「有条件的向上修正」。
+ * - `madeHandFloors: MADE_HAND_FLOORS` —— 有条件的成牌类别下限（A3）。
+ *   旧行为是 `promoteMadeHandsByRank: true`：两对及以上**无条件** `strong`，
+ *   于是 4 花面上的底两对（权益可能只有 0.20）也会被拿去加注。
  * - `drawOutsThreshold: DRAW_OUTS_BY_STREET` —— 与 `gtoPostflop` 同一张分街表：
  *   翻牌 8 outs、转牌 9 outs。听牌质量是概率事实，两个引擎不该有第二套阈值。
+ *
+ * A3 之后本模块与 `gtoPostflop` 的规则**完全相同** —— 这是收敛而不是巧合：
+ * 分档是纯概率问题，不该因为「哪个引擎在问」而不同。
  */
 export const HAND_STRENGTH_RULES: HandStrengthRules = {
-  promoteMadeHandsByRank: true,
+  madeHandFloors: MADE_HAND_FLOORS,
   drawOutsThreshold: DRAW_OUTS_BY_STREET,
 };
 

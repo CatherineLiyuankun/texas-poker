@@ -21,6 +21,7 @@ import {
 import {
   classifyPostflopHand,
   DRAW_OUTS_BY_STREET,
+  MADE_HAND_FLOORS,
   type HandStrengthRules,
 } from './handStrength';
 import { drawCallEquityThreshold } from './gtoMath';
@@ -29,14 +30,16 @@ import { drawCallEquityThreshold } from './gtoMath';
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
  * 这里只声明「本调用方用哪套规则」，避免三份实现再次漂移。
  *
- * - `promoteMadeHandsByRank: false` —— 复现既有行为：本模块原本的 `_handRank`
- *   参数完全没被使用，成牌类别不参与分档。
+ * - `madeHandFloors: MADE_HAND_FLOORS` —— **有条件的**成牌类别下限（A3）。
+ *   本模块原本的 `_handRank` 参数完全没被使用（成牌类别不参与分档），于是
+ *   「顶对但权益只有 0.30」会被判 `air`、引擎去走诈唬分支；现在按下限抬到 `weak`，
+ *   而「两对但牌面已经到齐」也不会再被无条件抬成 `strong`。
  * - `drawOutsThreshold: DRAW_OUTS_BY_STREET` —— 听牌档阈值**按街给**：
  *   翻牌 8 outs（两张牌未发，≈31.5%），转牌 9 outs（只剩一张，8 outs 掉到 ≈17.4%，
  *   已不够格当半诈唬听牌，降级为 weak 走纯赔率判据）。
  */
 export const HAND_STRENGTH_RULES: HandStrengthRules = {
-  promoteMadeHandsByRank: false,
+  madeHandFloors: MADE_HAND_FLOORS,
   drawOutsThreshold: DRAW_OUTS_BY_STREET,
 };
 
