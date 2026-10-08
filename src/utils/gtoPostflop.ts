@@ -15,7 +15,7 @@ import {
 import { getCommunityByPhase } from './communityByPhase';
 import {
   getBetSizing,
-  getCbetFreq,
+  getCategoryBetFreq,
   type HandStrengthCategory,
 } from './postflopFrequencies';
 
@@ -216,8 +216,11 @@ export function decidePostflopGTO(
   }
 
   // Flop/Turn: not facing bet (bet/check decision)
-  const cbetFreq = getCbetFreq(street, ip, texture.classification);
   const sizing = getBetSizing(texture.classification, spr);
+  // 档位下注频率：与面板 getGtoPostflopRecommendation 共用 getCategoryBetFreq，
+  // 两边不再各自内联乘数（此前面板的 medium 写死 0.70、此处 0.50）。
+  const catFreq = (category: HandStrengthCategory) =>
+    getCategoryBetFreq(category, street, ip, texture.classification);
 
   if (strength === 'strong') {
     if (flags.canAllInResult && shouldAllInBySPR(
@@ -231,28 +234,28 @@ export function decidePostflopGTO(
   }
 
   if (strength === 'draw') {
-    if (flags.canRaiseResult && Math.random() < cbetFreq * 0.6) {
+    if (flags.canRaiseResult && Math.random() < catFreq('draw')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'medium') {
-    if (ip && flags.canRaiseResult && Math.random() < cbetFreq * 0.5) {
+    if (ip && flags.canRaiseResult && Math.random() < catFreq('medium')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'weak' && ip && ctx.numOpponents <= 2) {
-    if (flags.canRaiseResult && Math.random() < cbetFreq * 0.3) {
+    if (flags.canRaiseResult && Math.random() < catFreq('weak')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'air' && ip && ctx.numOpponents <= 2) {
-    if (flags.canRaiseResult && Math.random() < cbetFreq * 0.2) {
+    if (flags.canRaiseResult && Math.random() < catFreq('air')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
@@ -380,25 +383,29 @@ export function getGtoPostflopRecommendation(params: {
   }
 
   // Flop/Turn: bet/check decision
-  const cbetFreq = getCbetFreq(street, ip, boardTexture.classification);
+  // 档位下注频率与机器人 decidePostflopGTO 共用 getCategoryBetFreq，
+  // 面板不再内联乘数（此前的 medium 0.70 与机器人的 0.50 长期漂移）。
+  const catFreq = (category: HandStrengthCategory) =>
+    getCategoryBetFreq(category, street, ip, boardTexture.classification);
   const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 100);
 
   if (strength === 'strong') {
     const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 100);
     const sizingBB = Math.round(totalPot * getBetSizing(boardTexture.classification, spr) / bb * 10) / 10;
     const isAllIn = spr < 2.0 || sizingBB >= chips / bb * 0.5;
+    const strongFreq = catFreq('strong');
     return {
       ...baseRec, action: 'raise',
       sizingPercent,
       sizingBB: isAllIn ? Math.round(chips / bb) : sizingBB,
-      freq: { bet: Math.round(cbetFreq * 100), check: Math.round((1 - cbetFreq) * 100), fold: 0 },
+      freq: { bet: Math.round(strongFreq * 100), check: Math.round((1 - strongFreq) * 100), fold: 0 },
       isAllIn: isAllIn || undefined,
       reasoning: `Value bet with ${getHandRankName(handRank)} on ${boardTexture.classification} board: ${fmtEqOdds(equity, potOdds)}`,
     };
   }
 
   if (strength === 'draw') {
-    const bluffFreq = Math.round(cbetFreq * 60);
+    const bluffFreq = Math.round(catFreq('draw') * 100);
     const drawType = draws?.draws?.[0]?.type === 'flush_draw' ? 'flush' : draws?.draws?.[0]?.type?.includes('straight') ? 'straight' : 'combo';
     return {
       ...baseRec, action: 'raise', sizingPercent,
@@ -408,7 +415,7 @@ export function getGtoPostflopRecommendation(params: {
   }
 
   if (strength === 'medium' && ip) {
-    const betFreq = Math.round(cbetFreq * 70);
+    const betFreq = Math.round(catFreq('medium') * 100);
     return {
       ...baseRec, action: 'raise', sizingPercent,
       freq: { bet: betFreq, check: 100 - betFreq, fold: 0 },
@@ -417,11 +424,20 @@ export function getGtoPostflopRecommendation(params: {
   }
 
   if (strength === 'weak' && ip && numOpponents <= 2) {
-    const bluffFreq = Math.round(cbetFreq * 30);
+    const bluffFreq = Math.round(catFreq('weak') * 100);
     return {
       ...baseRec, action: 'check',
       freq: { bet: bluffFreq, check: 100 - bluffFreq, fold: 0 },
       reasoning: `Weak hand (${getHandRankName(handRank)}) - check or bluff on ${boardTexture.classification} board`,
+    };
+  }
+
+  if (strength === 'air' && ip && numOpponents <= 2) {
+    const bluffFreq = Math.round(catFreq('air') * 100);
+    return {
+      ...baseRec, action: 'check',
+      freq: { bet: bluffFreq, check: 100 - bluffFreq, fold: 0 },
+      reasoning: `Air (${getHandRankName(handRank)}) - check or bluff on ${boardTexture.classification} board`,
     };
   }
 

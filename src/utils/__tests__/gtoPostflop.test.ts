@@ -1,6 +1,7 @@
 import { getGtoPostflopRecommendation } from '../gtoPostflop';
 import { analyzeBoard } from '../boardTexture';
 import { detectDraws } from '../drawDetector';
+import { getCategoryBetFreq } from '../postflopFrequencies';
 import type { Card, HandRank } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -45,7 +46,9 @@ describe('GTO Postflop Engine', () => {
         equity: 0.55, handRank: 'pair' as HandRank, isButton: true,
       }));
       expect(rec.action).toBe('raise');
-      expect((rec.freq?.bet ?? 0)).toBeGreaterThanOrEqual(40);
+      // very_dry IP 的 flop c-bet 频率 0.80 × medium 档 0.50 = 40%。
+      // 面板此前把 medium 写死 0.70（= 56%），已统一到共享档位乘数。
+      expect(rec.freq?.bet).toBe(40);
     });
 
     it('IP on wet board: lower C-bet frequency', () => {
@@ -164,6 +167,63 @@ describe('GTO Postflop Engine', () => {
       expect(rec.action).toBe('raise');
       expect(rec.freq?.bet).toBe(30);
       expect(rec.reasoning).toContain('River bluff attempt');
+    });
+  });
+
+  describe('档位下注频率与机器人共用 getCategoryBetFreq', () => {
+    const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+    const cls = analyzeBoard(board).classification;
+
+    it('medium 档：freq.bet 等于共享口径（不再写死 70）', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.55, handRank: 'pair' as HandRank, isButton: true,
+      }));
+      expect(rec.freq?.bet).toBe(Math.round(getCategoryBetFreq('medium', 'flop', true, cls) * 100));
+      expect(rec.freq?.bet).toBe(40);
+    });
+
+    it('draw 档：freq.bet 等于共享口径', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.35, handRank: 'high_card' as HandRank,
+        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35 },
+        isButton: true, toCall: 0,
+      }));
+      expect(rec.freq?.bet).toBe(Math.round(getCategoryBetFreq('draw', 'flop', true, cls) * 100));
+    });
+
+    it('weak 档：主行动为过牌，但展示半诈唬频率', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.40, handRank: 'high_card' as HandRank,
+        draws: null, isButton: true, numOpponents: 1, toCall: 0,
+      }));
+      expect(rec.action).toBe('check');
+      expect(rec.freq?.bet).toBe(Math.round(getCategoryBetFreq('weak', 'flop', true, cls) * 100));
+    });
+
+    it('air 档：不再显示成纯过牌，而是展示空气诈唬频率', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.10, handRank: 'high_card' as HandRank,
+        draws: null, isButton: true, numOpponents: 1, toCall: 0,
+      }));
+      expect(rec.action).toBe('check');
+      // very_dry IP 的 c-bet 0.80 × air 0.20 = 16%
+      expect(rec.freq?.bet).toBe(16);
+      expect(rec.reasoning).toContain('check or bluff');
+    });
+
+    it('air 档在 OOP 或多人底池不诈唬（与机器人分支条件一致）', () => {
+      const oop = getGtoPostflopRecommendation(makeParams({
+        equity: 0.10, handRank: 'high_card' as HandRank,
+        draws: null, isButton: false, isCutoff: false, isHijack: false,
+        numOpponents: 1, toCall: 0,
+      }));
+      expect(oop.freq?.bet).toBe(0);
+
+      const multiway = getGtoPostflopRecommendation(makeParams({
+        equity: 0.10, handRank: 'high_card' as HandRank,
+        draws: null, isButton: true, numOpponents: 3, toCall: 0,
+      }));
+      expect(multiway.freq?.bet).toBe(0);
     });
   });
 

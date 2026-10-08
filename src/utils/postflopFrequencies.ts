@@ -47,9 +47,9 @@ const VERY_LOW_SPR = 1.5;
  * (see the bet/check branch); they are extracted here so that postflop range
  * narrowing can reuse the same frequencies instead of inventing its own.
  *
- * Note: `getGtoPostflopRecommendation` uses a slightly different medium-hand
- * multiplier (0.70 instead of 0.50). That inconsistency predates this table and
- * is deliberately left untouched so bot behaviour is unchanged.
+ * `gtoPostflop` 的两条路径（机器人的 `decidePostflopGTO` 与面板的
+ * `getGtoPostflopRecommendation`）**都必须**通过 `getCategoryBetFreq` 取值 ——
+ * 面板原本把 medium 写死成 0.70，与这里的 0.50 长期漂移，已统一。
  */
 export const HAND_CATEGORY_BET_MULTIPLIER: Record<HandStrengthCategory, number> = {
   strong: 1.0,
@@ -82,6 +82,22 @@ export function getRiverBarrelFreq(
   texture: BoardClassification,
 ): number {
   return getCbetFreq('turn', isIP, texture) * RIVER_BARREL_TIGHTENING;
+}
+
+/**
+ * 按牌力档位给出的**下注 / 半诈唬频率**（0–1）：范围级 c-bet 频率 × 档位倾向。
+ *
+ * 这是 `gtoPostflop` 两条路径共用的唯一下注频率口径：
+ * 机器人 `decidePostflopGTO` 用它掷骰子，面板 `getGtoPostflopRecommendation`
+ * 用它填 `freq.bet`。任何一边再内联乘数都会立刻产生漂移。
+ */
+export function getCategoryBetFreq(
+  category: HandStrengthCategory,
+  street: 'flop' | 'turn',
+  isIP: boolean,
+  texture: BoardClassification,
+): number {
+  return getCbetFreq(street, isIP, texture) * HAND_CATEGORY_BET_MULTIPLIER[category];
 }
 
 /**
