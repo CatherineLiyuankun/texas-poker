@@ -274,7 +274,7 @@ describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
     expect(screen.getByText(translations.handAnalysis.equityVsRandom)).toBeTruthy();
   });
 
-  it('口径文案不并进权益行（列宽约 96px，标签一长就换行）', async () => {
+  it('口径文案不并进权益行（权益区每列实测仅 134.8px）', async () => {
     const hero = mkPlayer({
       id: 1,
       isRealPlayer: true,

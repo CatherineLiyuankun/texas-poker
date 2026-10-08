@@ -86,8 +86,9 @@ export const translations = {
     rangeEquity: '范围权益 Equity', //  Equity vs estimated continuing range（对推断范围）
     // 随机权益一行的口径标注。对手全部按随机牌建模 → 翻前会系统性高估
     // （真实对手的跟注范围远强于随机牌），必须显式写出来。
-    // 放在独立的整行里而不是并进 equity 标签：面板列宽只有约 96px，
-    // 标签一长就会换行，挤掉右侧的权益条。
+    // 放在独立的整行里而不是并进 equity 标签：权益区是 grid-cols-2，
+    // 每列实测只有 134.8px，标签一长就换行、挤掉右侧的权益条；
+    // 整行有 278px 可用（本行文本实测 146.7px，单行）。
     equityVsRandom: 'vs 随机牌（对手全部按随机牌建模）',
     // 行内短标注：翻后 Reasoning 里那串 "Equity x%" 用的是 decisionEquity，
     // 范围推断失败时它就是随机权益，必须在同一行就地说明，否则同样会被误读成真实胜率。
