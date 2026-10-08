@@ -185,7 +185,7 @@ describe('GTO Postflop Engine', () => {
     it('draw 档：freq.bet 等于共享口径', () => {
       const rec = getGtoPostflopRecommendation(makeParams({
         equity: 0.35, handRank: 'high_card' as HandRank,
-        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35 },
+        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35, cardsToCome: 2 },
         isButton: true, toCall: 0,
       }));
       expect(rec.freq?.bet).toBe(Math.round(getCategoryBetFreq('draw', 'flop', true, cls) * 100));
@@ -231,7 +231,7 @@ describe('GTO Postflop Engine', () => {
     it('strong draw facing bet: call if equity >= pot odds', () => {
       const rec = getGtoPostflopRecommendation(makeParams({
         equity: 0.35, potOdds: 0.25, handRank: 'high_card' as HandRank,
-        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35 },
+        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35, cardsToCome: 2 },
         toCall: 30, lastRaiseBet: 30,
       }));
       expect(rec.action).toBe('call');
@@ -240,7 +240,7 @@ describe('GTO Postflop Engine', () => {
     it('draw not facing bet: semi-bluff', () => {
       const rec = getGtoPostflopRecommendation(makeParams({
         equity: 0.35, handRank: 'high_card' as HandRank,
-        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35 },
+        draws: { draws: [{ type: 'flush_draw', outs: 9 }], totalOuts: 9, estimatedEquity: 0.35, cardsToCome: 2 },
         isButton: true, toCall: 0,
       }));
       expect(rec.action).toBe('raise');

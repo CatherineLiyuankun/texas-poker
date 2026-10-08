@@ -9,6 +9,8 @@ import {
   classifyRange,
   getMDFReferenceTable,
   calculateRequiredFoldEquity,
+  drawCallEquityThreshold,
+  DRAW_IMPLIED_ODDS,
 } from '../gtoMath';
 
 describe('GTO Math Functions', () => {
@@ -168,6 +170,40 @@ describe('GTO Math Functions', () => {
 
     it('should return 0 when no bet to call', () => {
       expect(calculateCallEV(0.6, 100, 0)).toBe(0);
+    });
+  });
+
+  describe('drawCallEquityThreshold（听牌跟注门槛 = 赔率 − 隐含赔率额度）', () => {
+    it('额度是 0.06，门槛比直接赔率低这么多', () => {
+      expect(DRAW_IMPLIED_ODDS).toBe(0.06);
+      expect(drawCallEquityThreshold(0.25)).toBeCloseTo(0.19, 6);
+      expect(drawCallEquityThreshold(1 / 3)).toBeCloseTo(1 / 3 - 0.06, 6);
+    });
+
+    it('额度是有界的：无论赔率多大，门槛都只低固定的 0.06', () => {
+      // 这是它与被删掉的「potOdds < 0.35 无条件跟注」的本质区别 ——
+      // 那条在 0.35 以内完全不看权益，这条始终只放宽 0.06。
+      for (const odds of [0.1, 0.2, 0.3, 0.35, 0.5, 0.9]) {
+        expect(odds - drawCallEquityThreshold(odds)).toBeCloseTo(DRAW_IMPLIED_ODDS, 6);
+      }
+    });
+
+    it('赔率极小时门槛夹到 0，不产生负门槛', () => {
+      expect(drawCallEquityThreshold(0)).toBe(0);
+      expect(drawCallEquityThreshold(0.02)).toBe(0);
+      expect(drawCallEquityThreshold(-0.1)).toBe(0);
+    });
+
+    it('与 calculateCallEV 同向：门槛处跟注 EV 略为负，直接赔率处为零', () => {
+      // calculateCallEV 的 potSize 就是**含注底池**本身（见 gtoMath 文件头约定），
+      // 不要再加一次 toCall —— 那样盈亏平衡点会跑到 7.5 而不是 0。
+      const totalPot = 90;
+      const toCall = 30;
+      const potOdds = toCall / (totalPot + toCall);
+      expect(calculateCallEV(potOdds, totalPot, toCall)).toBeCloseTo(0, 6);
+      expect(
+        calculateCallEV(drawCallEquityThreshold(potOdds), totalPot, toCall),
+      ).toBeLessThan(0);
     });
   });
 

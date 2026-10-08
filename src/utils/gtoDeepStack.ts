@@ -4,10 +4,16 @@ import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
 import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
+import { getCardsToCome } from './communityByPhase';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import { detectDraws } from './drawDetector';
-import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
+import {
+  classifyPostflopHand,
+  DRAW_OUTS_BY_STREET,
+  type HandStrengthRules,
+} from './handStrength';
+import { drawCallEquityThreshold } from './gtoMath';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -16,11 +22,12 @@ import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
  * - `promoteMadeHandsByRank: true` —— 复现既有行为：两对及以上一律算 strong。
  *   这条没有权益下限（4 花面上的底两对也会被判 strong），后续批次会换成
  *   「有条件的向上修正」。
- * - `drawOutsThreshold: 8` —— 8 outs 及以上算听牌档。
+ * - `drawOutsThreshold: DRAW_OUTS_BY_STREET` —— 与 `gtoPostflop` 同一张分街表：
+ *   翻牌 8 outs、转牌 9 outs。听牌质量是概率事实，两个引擎不该有第二套阈值。
  */
 export const HAND_STRENGTH_RULES: HandStrengthRules = {
   promoteMadeHandsByRank: true,
-  drawOutsThreshold: 8,
+  drawOutsThreshold: DRAW_OUTS_BY_STREET,
 };
 
 interface DeepStackConfig {
@@ -188,8 +195,7 @@ function handleDeepStackFacingBet(
   const sizing = getDeepStackSizing(boardTexture, sprDecision, handAdjustment);
 
   const community = getCommunityByPhase(state);
-  const draws = detectDraws(hand, community,
-    state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
+  const draws = detectDraws(hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(hand, community);
   const strength = classifyPostflopHand(
     equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
@@ -227,6 +233,21 @@ function handleDeepStackFacingBet(
           handAdjustment,
           sprDecision,
           reasoning: 'Deep stack commit: calling with medium hand',
+        };
+      }
+    }
+
+    // 听牌出口。必须显式写出来：本分支原本只有 strong / medium 两个出口，
+    // 分档顺序调整后「权益已过 medium 线的组合听牌」从 medium 挪到了 draw，
+    // 若不补这一支就会直接掉到下面的默认弃牌 —— 低 SPR 下弃掉 15+ outs 的组合听牌。
+    if (strength === 'draw' && equity >= drawCallEquityThreshold(potOdds)) {
+      if (flags.canCallResult) {
+        return {
+          action: 'call',
+          sizing,
+          handAdjustment,
+          sprDecision,
+          reasoning: 'Deep stack commit: calling with draw',
         };
       }
     }
@@ -276,7 +297,9 @@ function handleDeepStackFacingBet(
       }
     }
 
-    if (strength === 'draw' && equity >= potOdds) {
+    // 跟注门槛与 gtoPostflop / 面板共用（含隐含赔率额度），
+    // 否则同一条街的同一个听牌在两个引擎里会得出相反的结论。
+    if (strength === 'draw' && equity >= drawCallEquityThreshold(potOdds)) {
       if (flags.canCallResult) {
         return {
           action: 'call',
@@ -333,6 +356,20 @@ function handleDeepStackFacingBet(
       }
     }
 
+    // 听牌出口，理由同 commit 分支：分档顺序调整后组合听牌从 medium 挪到 draw，
+    // 本分支若不显式接住就会掉到默认弃牌。判据与 control 档同口径（含隐含赔率额度）。
+    if (strength === 'draw' && equity >= drawCallEquityThreshold(potOdds)) {
+      if (flags.canCallResult) {
+        return {
+          action: 'call',
+          sizing,
+          handAdjustment,
+          sprDecision,
+          reasoning: 'Deep stack cautious: calling with draw',
+        };
+      }
+    }
+
     if (flags.canFoldResult) {
       return {
         action: 'fold',
@@ -377,8 +414,7 @@ function handleDeepStackNoBet(
   const sizing = getDeepStackSizing(boardTexture, sprDecision, handAdjustment);
 
   const community = getCommunityByPhase(state);
-  const draws = detectDraws(hand, community,
-    state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
+  const draws = detectDraws(hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(hand, community);
   const strength = classifyPostflopHand(
     equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
@@ -408,6 +444,20 @@ function handleDeepStackNoBet(
         handAdjustment,
         sprDecision,
         reasoning: 'Deep stack commit: betting medium hand',
+      };
+    }
+
+    // 听牌出口：commit 档下组合听牌按半诈唬下注。分档顺序调整前它们走的是
+    // 上面 medium 的 0.8 倍下注，调整后必须补上，否则会退化成过牌（丢掉下注频率）。
+    if (strength === 'draw' && flags.canRaiseResult) {
+      const target = Math.floor(ctx.totalPot * sizing * 0.8);
+      return {
+        action: 'raise',
+        amount: calculateRaiseAmount(player, state, target),
+        sizing: sizing * 0.8,
+        handAdjustment,
+        sprDecision,
+        reasoning: 'Deep stack commit: semi-bluff with draw',
       };
     }
 

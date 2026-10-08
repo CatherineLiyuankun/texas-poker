@@ -12,13 +12,18 @@ import {
   analyzeBoardWithEquity,
   type BoardTexture,
 } from './boardTexture';
-import { getCommunityByPhase } from './communityByPhase';
+import { getCommunityByPhase, getCardsToCome } from './communityByPhase';
 import {
   getBetSizing,
   getCategoryBetFreq,
   type HandStrengthCategory,
 } from './postflopFrequencies';
-import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
+import {
+  classifyPostflopHand,
+  DRAW_OUTS_BY_STREET,
+  type HandStrengthRules,
+} from './handStrength';
+import { drawCallEquityThreshold } from './gtoMath';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -26,11 +31,13 @@ import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
  *
  * - `promoteMadeHandsByRank: false` —— 复现既有行为：本模块原本的 `_handRank`
  *   参数完全没被使用，成牌类别不参与分档。
- * - `drawOutsThreshold: 8` —— 8 outs（OESD）及以上算听牌档。
+ * - `drawOutsThreshold: DRAW_OUTS_BY_STREET` —— 听牌档阈值**按街给**：
+ *   翻牌 8 outs（两张牌未发，≈31.5%），转牌 9 outs（只剩一张，8 outs 掉到 ≈17.4%，
+ *   已不够格当半诈唬听牌，降级为 weak 走纯赔率判据）。
  */
 export const HAND_STRENGTH_RULES: HandStrengthRules = {
   promoteMadeHandsByRank: false,
-  drawOutsThreshold: 8,
+  drawOutsThreshold: DRAW_OUTS_BY_STREET,
 };
 
 export interface GtoPostflopRecommendation {
@@ -101,8 +108,7 @@ export function decidePostflopGTO(
     player, state, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
   );
-  const draws = detectDraws(player.hand, community,
-    state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
+  const draws = detectDraws(player.hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(player.hand, community);
   const strength = classifyPostflopHand(
     equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
@@ -199,8 +205,16 @@ export function decidePostflopGTO(
         const target = Math.floor(ctx.totalPot * sizing * 1.2);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
       }
-      if (equity >= ctx.potOdds && flags.canCallResult) return { action: 'call' };
-      if (flags.canCallResult && ctx.potOdds < 0.35) return { action: 'call' };
+      // 跟注门槛 = 直接赔率 − 隐含赔率额度（口径见 gtoMath.drawCallEquityThreshold，
+      // 与面板的 draw 分支共用同一处，不再各写各的）。
+      //
+      // 这里原本还有一条**无条件**兜底 `ctx.potOdds < 0.35`：0.35 的赔率覆盖到
+      // 「下注约 ≤54% 底池」，等于「只要是听牌就跟」—— 转牌 8 outs 的两头顺
+      // （权益约 19%）会去跟半池（需要 25%），是实打实的漏。它已被门槛判据取代，
+      // 只在「差得不多」时才放宽，且放宽量有上界。
+      if (flags.canCallResult && equity >= drawCallEquityThreshold(ctx.potOdds)) {
+        return { action: 'call' };
+      }
       if (flags.canFoldResult) return { action: 'fold' };
     }
 
@@ -374,10 +388,14 @@ export function getGtoPostflopRecommendation(params: {
     }
     if (strength === 'draw') {
       const drawType = draws?.draws?.[0]?.type === 'flush_draw' ? 'flush' : draws?.draws?.[0]?.type?.includes('straight') ? 'straight' : 'combo';
-      if (equity >= potOdds) {
-        return { ...baseRec, action: 'call', freq: { bet: 25, check: 60, fold: 15 }, reasoning: `Call draw: ${draws?.totalOuts ?? 0} outs (${drawType} draw): ${fmtEqOdds(equity, potOdds)}` };
+      // 与机器人 decidePostflopGTO 的 draw 分支共用门槛（gtoMath.drawCallEquityThreshold）。
+      // 门槛低于直接赔率（隐含赔率额度），所以把「需要多少」一起显示出来，
+      // 否则用户会看到「权益 20% < 赔率 25% 却是 Call」而以为算错了。
+      const needPct = (drawCallEquityThreshold(potOdds) * 100).toFixed(1);
+      if (equity >= drawCallEquityThreshold(potOdds)) {
+        return { ...baseRec, action: 'call', freq: { bet: 25, check: 60, fold: 15 }, reasoning: `Call draw: ${draws?.totalOuts ?? 0} outs (${drawType} draw): ${fmtEqOdds(equity, potOdds)} (need ${needPct}%)` };
       }
-      return { ...baseRec, action: 'fold', reasoning: `Fold draw: ${draws?.totalOuts ?? 0} outs insufficient odds: ${fmtEqOdds(equity, potOdds)}` };
+      return { ...baseRec, action: 'fold', reasoning: `Fold draw: ${draws?.totalOuts ?? 0} outs insufficient odds: ${fmtEqOdds(equity, potOdds)} (need ${needPct}%)` };
     }
     if (equity >= potOdds + 0.05) {
       return { ...baseRec, action: 'call', reasoning: `Call with ${getHandRankName(handRank)}: ${fmtEqOdds(equity, potOdds)} (+${((equity - potOdds) * 100).toFixed(1)}% edge)` };

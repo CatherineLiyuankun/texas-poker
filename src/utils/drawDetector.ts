@@ -6,6 +6,17 @@ export interface DrawInfo {
   draws: Array<{ type: DrawType; outs: number }>;
   totalOuts: number;
   estimatedEquity: number;
+  /**
+   * 本街还剩几张公共牌未发：翻牌 2 / 转牌 1 / 河牌 0。
+   *
+   * 听牌的**质量**不只是 outs 数量：同样 8 outs，翻牌有两张牌可发（成牌率 ≈31.5%），
+   * 转牌只剩一张（≈17.4%），两者该不该按同一个档位处理完全不同
+   * （见 `handStrength.DRAW_OUTS_BY_STREET`）。把街信息随 `DrawInfo` 一起带出来，
+   * 下游分档就不必再自己去问「现在是哪条街」，也免掉各调用方内联
+   * `phase === 'flop' ? 2 : ...` 而各自漂移 —— `estimatedEquity` 本来就是按它算的，
+   * 这里只是把那条隐含依赖显式化。
+   */
+  cardsToCome: number;
 }
 
 const RANK_VAL: Record<string, number> = {
@@ -82,7 +93,9 @@ export function detectDraws(
   // 不存在补牌，必须返回空。否则下游会把 busted draw 当成 'draw' 处理 ——
   // gtoPostflop / gtoDeepStack 通过 handStrength.classifyPostflopHand 分档，
   // 会据此跳过 air 分支（河牌诈唬尝试、以及 deep stack 的「semi-bluff with draw」都会走错）。
-  if (cardsToCome <= 0) return { draws: [], totalOuts: 0, estimatedEquity: 0 };
+  if (cardsToCome <= 0) {
+    return { draws: [], totalOuts: 0, estimatedEquity: 0, cardsToCome: 0 };
+  }
 
   const allCards = [...holeCards, ...communityCards];
   const draws: Array<{ type: DrawType; outs: number }> = [];
@@ -109,5 +122,5 @@ export function detectDraws(
     }
   }
 
-  return { draws, totalOuts, estimatedEquity };
+  return { draws, totalOuts, estimatedEquity, cardsToCome };
 }

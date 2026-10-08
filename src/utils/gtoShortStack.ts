@@ -10,9 +10,9 @@ import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
  * 这里只声明「本调用方用哪套规则」。
  *
  * - `promoteMadeHandsByRank: true` —— 复现既有行为：两对及以上一律算 strong。
- * - `drawOutsThreshold: 0` —— **不产出 `'draw'` 档**。短筹码（≤20bb）主要走
- *   全下/弃牌，听牌的价值已经由权益本身体现，再单列一个半诈唬档没有意义；
- *   这里保留既有行为（短筹码原本只有四档）。
+ * - `drawOutsThreshold: 0` —— **不产出 `'draw'` 档**（给单个数字表示两条街同值）。
+ *   短筹码（≤20bb）主要走全下/弃牌，听牌的价值已经由权益本身体现，
+ *   再单列一个半诈唬档没有意义；这里保留既有行为（短筹码原本只有四档）。
  */
 export const HAND_STRENGTH_RULES: HandStrengthRules = {
   promoteMadeHandsByRank: true,

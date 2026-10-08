@@ -115,6 +115,35 @@ export function calculateCallEV(
 }
 
 /**
+ * 听牌跟注的**隐含赔率额度**：允许在直接赔率之外放宽的权益百分点数。
+ *
+ * 听牌跟注不能只看当下这一注 —— 成牌之后还能再赢一条街。这里用一个固定的、
+ * 有界的额度来近似它，而不是把「未来能多赢多少」真正建模进去（那需要对手支付
+ * 模型，是另一个量级的工作）。0.06 ≈ 3 个 outs 的权益，量级与「成牌后至少再拿到
+ * 一个小注」相当。与本模块其它阈值一样，这是**建模值**，不是求解值。
+ *
+ * ⚠️ 这条额度只对**真听牌**生效（`HandStrengthCategory === 'draw'`）。
+ * 「转牌隐含赔率变少」这层意思由 `handStrength` 的分街阈值负责：转牌上 8 outs 的
+ * 两端顺已被降级为 `weak`，走的是纯直接赔率判据，拿不到这条额度。
+ * 这样判据本身保持统一，分街只出现在分档一处。
+ */
+export const DRAW_IMPLIED_ODDS = 0.06;
+
+/**
+ * 听牌跟注的权益门槛 = 跟注赔率 − 隐含赔率额度。
+ *
+ * 与 `calculateCallEV(equity, ...) >= 0` 同向：`potOdds` 正是它的盈亏平衡点，
+ * 这里只是把门槛下调 `DRAW_IMPLIED_ODDS`。
+ *
+ * 机器人（`gtoPostflop` / `gtoDeepStack`）与面板（`getGtoPostflopRecommendation`）
+ * 必须共用这一条 —— 此前机器人有一条**无条件**兜底 `potOdds < 0.35`（等于「听牌跟
+ * 任何 ≤54% 底池的下注」），而面板只看 `equity >= potOdds`，两边口径完全不一致。
+ */
+export function drawCallEquityThreshold(potOdds: number): number {
+  return Math.max(0, potOdds - DRAW_IMPLIED_ODDS);
+}
+
+/**
  * 我方加注 / 下注的 EV（相对「弃牌 = 0」）。
  *
  * 模型：以 `foldPct` 概率对手弃牌、我方直接收下 `potSize`；否则对手跟注，

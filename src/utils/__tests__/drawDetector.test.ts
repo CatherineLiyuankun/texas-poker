@@ -207,4 +207,30 @@ describe('Draw Detector', () => {
       expect(riverOesd.totalOuts).toBe(0);
     });
   });
+
+  describe('cardsToCome 随结果带出（下游分街分档的唯一依据）', () => {
+    const hand = [card('♠', 'A'), card('♠', '4')];
+    const board = [card('♠', 'K'), card('♠', '7'), card('♣', '2'), card('♦', '9')];
+
+    it('翻牌 / 转牌 / 河牌分别报 2 / 1 / 0', () => {
+      expect(detectDraws(hand, board.slice(0, 3), 2).cardsToCome).toBe(2);
+      expect(detectDraws(hand, board, 1).cardsToCome).toBe(1);
+      expect(detectDraws(hand, board, 0).cardsToCome).toBe(0);
+    });
+
+    it('无听牌时也照实带出（下游不能靠「outs > 0」推断街）', () => {
+      const result = detectDraws(
+        [card('♠', 'A'), card('♥', 'K')],
+        [card('♣', '2'), card('♦', '3'), card('♣', '7')],
+        2,
+      );
+      expect(result.totalOuts).toBe(0);
+      expect(result.cardsToCome).toBe(2);
+    });
+
+    it('河牌短路路径也带出 0（而不是 undefined）', () => {
+      const result = detectDraws(hand, board, 0);
+      expect(result.cardsToCome).toBe(0);
+    });
+  });
 });
