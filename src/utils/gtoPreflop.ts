@@ -806,6 +806,52 @@ function isCold3bet(state: GameState, player: Player): boolean {
   return distinctBets.size >= 2;
 }
 
+// ─── 筹码深度分档 ────────────────────────────────────────────
+
+/**
+ * 翻前筹码深度分档。
+ *
+ * GTO 的开池 / 3bet / 4bet 范围本身就按有效筹码深度分层（100 / 60 / 40 / 25 / 15bb
+ * 各一套），但本模块只维护一套 ≈100bb 现金局口径的表。因此在低深度下把「定尺加注」
+ * 降级为全下 —— 这是方向上正确、且不需要臆造新范围数据的最小修正。
+ */
+export type PreflopStackBand = 'push' | 'short' | 'medium' | 'deep';
+
+export function preflopStackBand(effectiveStackBB: number): PreflopStackBand {
+  if (!Number.isFinite(effectiveStackBB) || effectiveStackBB <= 0) return 'deep';
+  if (effectiveStackBB <= 15) return 'push';
+  if (effectiveStackBB <= 25) return 'short';
+  if (effectiveStackBB <= 40) return 'medium';
+  return 'deep';
+}
+
+/**
+ * 该场景下「范围表给出的加注」是否应该直接全下，而不是给一个定尺。
+ *
+ * - `rfi`：≤15bb 连开池都没有小尺度的空间
+ * - 3bet（`facing_open` / `cold_3bet`）：≤25bb 以全下为主，专业上不存在定尺 3bet
+ * - 4bet（`facing_3bet`）：≤40bb 直接全下，专业上不存在「小尺度 4bet」
+ */
+function jamInsteadOfSizing(
+  band: PreflopStackBand,
+  scenario: 'rfi' | 'facing_open' | 'facing_3bet' | 'cold_3bet',
+): boolean {
+  switch (scenario) {
+    case 'rfi':
+      return band === 'push';
+    case 'facing_open':
+    case 'cold_3bet':
+      return band === 'push' || band === 'short';
+    case 'facing_3bet':
+      return band !== 'deep';
+  }
+}
+
+/** bb 单位的下注尺度，保留一位小数。 */
+function roundBB(bbValue: number): number {
+  return Math.round(bbValue * 10) / 10;
+}
+
 export function decidePreflopGTO(
   player: Player,
   state: GameState,
@@ -817,6 +863,8 @@ export function decidePreflopGTO(
     return { action: 'fold' };
   }
   const hand = player.hand;
+  const bb = state.smallBlind * 2;
+  const band = preflopStackBand(player.chips / bb);
   const facingOpen = ctx.toCall > 0;
   const facing3bet = isFacing3bet(state, player);
   const cold3bet = !facing3bet && facingOpen && isCold3bet(state, player);
@@ -834,9 +882,10 @@ export function decidePreflopGTO(
       const threeBetSize = state.lastBet;
       const oop = pos === 'SB' || pos === 'BB' || pos === 'UTG';
       const target = getGto4betSize(oop, threeBetSize);
-      if (flags.canAllInResult && shouldAllInBySPR(
+      const jamByDepth = jamInsteadOfSizing(band, 'facing_3bet');
+      if (flags.canAllInResult && (jamByDepth || shouldAllInBySPR(
         player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
-      )) {
+      ))) {
         return { action: 'allin' };
       }
       if (flags.canRaiseResult) {
@@ -864,9 +913,10 @@ export function decidePreflopGTO(
       const threeBetSize = state.lastBet;
       const oop = defenderPos === 'SB' || defenderPos === 'BB';
       const target = getGto4betSize(oop, threeBetSize);
-      if (flags.canAllInResult && shouldAllInBySPR(
+      const jamByDepth = jamInsteadOfSizing(band, 'cold_3bet');
+      if (flags.canAllInResult && (jamByDepth || shouldAllInBySPR(
         player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
-      )) {
+      ))) {
         return { action: 'allin' };
       }
       if (flags.canRaiseResult) {
@@ -899,9 +949,10 @@ export function decidePreflopGTO(
       const openSize = state.lastBet;
       const oop = defenderPos === 'SB' || defenderPos === 'BB';
       const target = getGto3betSize(oop, openSize);
-      if (flags.canAllInResult && shouldAllInBySPR(
+      const jamByDepth = jamInsteadOfSizing(band, 'facing_open');
+      if (flags.canAllInResult && (jamByDepth || shouldAllInBySPR(
         player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
-      )) {
+      ))) {
         return { action: 'allin' };
       }
       if (flags.canRaiseResult) {
@@ -931,12 +982,17 @@ export function decidePreflopGTO(
   if (pos === 'BB') {
     const bbRange = ctx.hasLimpers ? RFI_BB_LIMP : RFI_TABLES['UTG'];
     const bbCode = lookup(bbRange, hand);
-    if (bbCode === 'R' && flags.canRaiseResult) {
-      const target = getGtoOpenSize('UTG', state.smallBlind);
-      return {
-        action: 'raise',
-        amount: calculateRaiseAmount(player, state, target),
-      };
+    if (bbCode === 'R') {
+      if (flags.canAllInResult && jamInsteadOfSizing(band, 'rfi')) {
+        return { action: 'allin' };
+      }
+      if (flags.canRaiseResult) {
+        const target = getGtoOpenSize('UTG', state.smallBlind);
+        return {
+          action: 'raise',
+          amount: calculateRaiseAmount(player, state, target),
+        };
+      }
     }
     if (flags.canCheckResult) return { action: 'check' };
     if (flags.canCallResult) return { action: 'call' };
@@ -949,6 +1005,10 @@ export function decidePreflopGTO(
 
   if (code === 'R') {
     const target = getGtoOpenSize(pos, state.smallBlind);
+    // 短筹码下开池没有小尺度可言，直接全下
+    if (flags.canAllInResult && jamInsteadOfSizing(band, 'rfi')) {
+      return { action: 'allin' };
+    }
     // 对手弃牌率高时，加注偷盲概率提升
     if (flags.canAllInResult && Math.random() < (1.0 + stealBoost) && shouldAllInBySPR(
       player.chips, 0, ctx.totalPot, player.bet, target,
@@ -996,18 +1056,35 @@ export function getGtoPreflopRecommendation(
     );
   };
 
+  // 没有筹码信息时视作深筹码（band = 'deep'），保持原有的定尺行为，
+  // 这样既有的、不传 stackContext 的调用方输出完全不变。
+  const effectiveStackBB = stackContext ? stackContext.chips / bb : Infinity;
+  const band = preflopStackBand(effectiveStackBB);
+
   if (scenario === 'rfi') {
     const code = lookup(RFI_TABLES[rfiPosition], hand);
     if (code === 'R') {
+      const freq = getFreq('rfi', rfiPosition, hand, 'R');
+      if (jamInsteadOfSizing(band, 'rfi')) {
+        return { action: 'R', sizingBB: roundBB(effectiveStackBB), freq, isAllIn: true };
+      }
       return {
         action: 'R',
         sizingBB: getGtoOpenSize(rfiPosition, sb) / bb,
-        freq: getFreq('rfi', rfiPosition, hand, 'R'),
+        freq,
       };
     }
     if (rfiPosition === 'BB') {
       const bbCode = lookup(RFI_TABLES['UTG'], hand);
       if (bbCode === 'R') {
+        if (jamInsteadOfSizing(band, 'rfi')) {
+          return {
+            action: 'R',
+            sizingBB: roundBB(effectiveStackBB),
+            freq: { r: 1, c: 0, f: 0 },
+            isAllIn: true,
+          };
+        }
         return {
           action: 'R',
           sizingBB: getGtoOpenSize('UTG', sb) / bb,
@@ -1023,14 +1100,18 @@ export function getGtoPreflopRecommendation(
     const table3bet = VS_3BET_TABLES[rfiPosition] ?? VS_3BET_TABLES['CO'];
     const code = lookup(table3bet, hand);
     if (code === 'R') {
+      const freq = getFreq('facing_3bet', rfiPosition, hand, 'R');
+      if (jamInsteadOfSizing(band, 'facing_3bet')) {
+        return { action: 'R', sizingBB: roundBB(effectiveStackBB), freq, isAllIn: true };
+      }
       const threeBetBB = currentBet ? currentBet / bb : 10;
       const oop = rfiPosition === 'SB' || rfiPosition === 'UTG' || rfiPosition === 'BB';
       const fourBetBB = Math.round(threeBetBB * (oop ? 2.5 : 2.2) * 10) / 10;
       const allIn = isAllInBySPR(fourBetBB * bb);
       return {
         action: 'R',
-        sizingBB: allIn && stackContext ? Math.round(stackContext.chips / bb * 10) / 10 : fourBetBB,
-        freq: getFreq('facing_3bet', rfiPosition, hand, 'R'),
+        sizingBB: allIn && stackContext ? roundBB(stackContext.chips / bb) : fourBetBB,
+        freq,
         isAllIn: allIn || undefined,
       };
     }
@@ -1046,13 +1127,21 @@ export function getGtoPreflopRecommendation(
     const table = COLD_3BET_TABLES[dType] ?? COLD_3BET_TABLES['IP'];
     const code = lookup(table, hand);
     if (code === 'R') {
+      if (jamInsteadOfSizing(band, 'cold_3bet')) {
+        return {
+          action: 'R',
+          sizingBB: roundBB(effectiveStackBB),
+          freq: { r: 1, c: 0, f: 0 },
+          isAllIn: true,
+        };
+      }
       const threeBetBB = currentBet ? currentBet / bb : 10;
       const oop = dPos === 'SB' || dPos === 'BB';
       const fourBetBB = Math.round(threeBetBB * (oop ? 2.5 : 2.2) * 10) / 10;
       const allIn = isAllInBySPR(fourBetBB * bb);
       return {
         action: 'R',
-        sizingBB: allIn && stackContext ? Math.round(stackContext.chips / bb * 10) / 10 : fourBetBB,
+        sizingBB: allIn && stackContext ? roundBB(stackContext.chips / bb) : fourBetBB,
         freq: { r: 1, c: 0, f: 0 },
         isAllIn: allIn || undefined,
       };
@@ -1070,6 +1159,10 @@ export function getGtoPreflopRecommendation(
   const code = lookup(table, hand);
   const freqPos = `${oPos}:${dType}`;
   if (code === 'R') {
+    const freq = getFreq('facing_open', freqPos, hand, 'R');
+    if (jamInsteadOfSizing(band, 'facing_open')) {
+      return { action: 'R', sizingBB: roundBB(effectiveStackBB), freq, isAllIn: true };
+    }
     const oop = dPos === 'SB' || dPos === 'BB';
     const actualOpenBB = currentBet
       ? currentBet / bb
@@ -1078,8 +1171,8 @@ export function getGtoPreflopRecommendation(
     const allIn = isAllInBySPR(threeBetBB * bb);
     return {
       action: 'R',
-      sizingBB: allIn && stackContext ? Math.round(stackContext.chips / bb * 10) / 10 : threeBetBB,
-      freq: getFreq('facing_open', freqPos, hand, 'R'),
+      sizingBB: allIn && stackContext ? roundBB(stackContext.chips / bb) : threeBetBB,
+      freq,
       isAllIn: allIn || undefined,
     };
   }

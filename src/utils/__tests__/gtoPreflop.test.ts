@@ -4,11 +4,58 @@ import {
   getOpenerPosition,
   getPreflopRangeClasses,
   positionLabelFor,
+  preflopStackBand,
+  decidePreflopGTO,
 } from '../gtoPreflop';
 import type { Card, Player, GameState, PlayerId } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
   return { suit, rank } as Card;
+}
+
+function mkBotPlayer(id: PlayerId, chips: number, bet: number): Player {
+  return {
+    id,
+    chips,
+    bet,
+    totalBet: bet,
+    hand: [],
+    hasActed: bet > 0,
+    folded: false,
+    revealed: false,
+    isRealPlayer: id === 1,
+    buyInCount: 0,
+    allIn: false,
+  };
+}
+
+function mkBotState(
+  players: Player[],
+  dealer: PlayerId,
+  lastBet: number,
+  sb: number,
+): GameState {
+  return {
+    phase: 'preflop',
+    mainPot: players.reduce((s, p) => s + p.bet, 0),
+    sidePots: [],
+    communityCards: [],
+    players,
+    currentPlayer: 1 as PlayerId,
+    dealer,
+    lastBet,
+    lastRaiseBet: Math.max(lastBet - sb * 2, 0),
+    raiseRightsOpened: true,
+    winner: null,
+    handRank: null,
+    winningCards: [],
+    realPlayerCount: 1,
+    botPlayerCount: players.length - 1,
+    smallBlind: sb,
+    chipsAtRoundStart: [],
+    chipsBeforeSettlement: [],
+    potDistribution: [],
+  };
 }
 
 function countActions(
@@ -800,6 +847,99 @@ describe('GTO Preflop Engine', () => {
       expect(positionLabelFor(0, 6)).toBe('BTN');
       expect(positionLabelFor(1, 6)).toBe('SB');
       expect(positionLabelFor(2, 6)).toBe('BB');
+    });
+  });
+
+  describe('筹码深度分层（低深度下加注降级为全下）', () => {
+    it('preflopStackBand 按有效筹码 bb 分档', () => {
+      expect(preflopStackBand(10)).toBe('push');
+      expect(preflopStackBand(15)).toBe('push');
+      expect(preflopStackBand(16)).toBe('short');
+      expect(preflopStackBand(25)).toBe('short');
+      expect(preflopStackBand(26)).toBe('medium');
+      expect(preflopStackBand(40)).toBe('medium');
+      expect(preflopStackBand(41)).toBe('deep');
+      expect(preflopStackBand(Infinity)).toBe('deep');
+      expect(preflopStackBand(0)).toBe('deep');
+    });
+
+    it('≤15bb 开池直接全下，不给小尺度', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'BTN', 'rfi', undefined, 5, undefined, undefined,
+        { chips: 140, toCall: 0, totalPot: 15, bet: 0 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBe(true);
+      expect(rec.sizingBB).toBe(14);
+    });
+
+    it('16–25bb 面对开池的 3bet 直接全下', () => {
+      const aks = [card('♠', 'A'), card('♠', 'K')];
+      const rec = getGtoPreflopRecommendation(
+        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 25,
+        { chips: 200, toCall: 15, totalPot: 35, bet: 10 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBe(true);
+    });
+
+    it('26–40bb 面对 3bet 的 4bet 直接全下', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
+        { chips: 350, toCall: 55, totalPot: 120, bet: 25 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBe(true);
+    });
+
+    it('>40bb 面对 3bet 仍是定尺 4bet', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(
+        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
+        { chips: 600, toCall: 55, totalPot: 120, bet: 25 },
+      );
+      expect(rec.action).toBe('R');
+      expect(rec.isAllIn).toBeUndefined();
+    });
+
+    it('没有筹码信息时保持原有定尺行为（无回归）', () => {
+      const aa = [card('♠', 'A'), card('♥', 'A')];
+      const rec = getGtoPreflopRecommendation(aa, 'BTN', 'rfi', undefined, 5);
+      expect(rec.action).toBe('R');
+      expect(rec.sizingBB).toBe(2.0);
+      expect(rec.isAllIn).toBeUndefined();
+    });
+
+    it('机器人：≤15bb 开池也直接全下', () => {
+      const hero = mkBotPlayer(1, 140, 0);
+      hero.hand = [card('♠', 'A'), card('♥', 'A')];
+      const state = mkBotState(
+        [hero, mkBotPlayer(2, 900, 10), mkBotPlayer(3, 900, 5)],
+        1 as PlayerId,
+        0,
+        5,
+      );
+      const decision = decidePreflopGTO(
+        hero,
+        state,
+        {
+          canCheckResult: true,
+          canCallResult: false,
+          canRaiseResult: true,
+          canFoldResult: true,
+          canAllInResult: true,
+        },
+        {
+          toCall: 0, totalPot: 15, potOdds: 0, position: 0, totalPlayers: 3,
+          numOpponents: 2, isHeadsUp: false, isLatePosition: true, isButton: true,
+          isCutoff: false, isHijack: false, isMiddlePosition: false,
+          isEarlyPosition: false, isBlind: false, hasLimpers: false,
+        },
+        { callPenalty: 0, raiseBonus: 0, foldPenalty: 0 },
+      );
+      expect(decision.action).toBe('allin');
     });
   });
 });
