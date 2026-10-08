@@ -30,6 +30,7 @@ import {
   type RangeCategory,
 } from '../utils/gtoMath';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
+import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
 
 interface HandAnalysisProps {
@@ -62,32 +63,7 @@ interface HandAnalysisProps {
 
 // 建议逻辑：仅基于胜率（0–1 概率）+ 赔率
 // Monte Carlo 胜率已包含听牌概率，不再单独叠加
-function getRecommendation(
-  equity: number,
-  potOdds: number,
-  phase: GamePhase,
-): string {
-  const { rec } = translations.handAnalysis;
-  if (potOdds <= 0) {
-    // 无注可跟：明显领先就下注，否则过牌
-    return equity >= 0.6 ? rec.raise : rec.check;
-  }
-  if (phase === 'preflop') {
-    // 翻前多路底池的权益会被稀释（AA 对 8 人随机牌也只有约 33%），
-    // 因此用相对赔率的阈值，而非绝对胜率阈值。
-    if (equity >= potOdds + 0.35) return rec.raise;
-    if (equity >= potOdds + 0.15) return rec.callRaise;
-    if (equity >= potOdds) return rec.call;
-    if (potOdds < 0.1) return rec.callCheap;
-    return rec.fold;
-  }
-  if (equity >= 0.7) return rec.raise;
-  if (equity >= 0.55) return rec.callRaise;
-  if (equity >= potOdds + 0.05) return rec.call;
-  if (potOdds < 0.1) return rec.callCheap;
-  return rec.fold;
-}
-
+// 判据本体已抽到 utils/panelRecommendation（纯函数、可单测）
 function drawLabel(type: string): string {
   const { draws } = translations.handAnalysis;
   const map: Record<string, string> = {
@@ -630,7 +606,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
 
   const recommendation = useMemo(() => {
     if (decisionEquity === null) return '';
-    return getRecommendation(decisionEquity, potOdds, phase);
+    return getPanelRecommendation(decisionEquity, potOdds, phase);
   }, [decisionEquity, potOdds, phase]);
 
   // 翻后 GTO 建议（面板「Board 牌面 / Action / Reasoning」三行）。
