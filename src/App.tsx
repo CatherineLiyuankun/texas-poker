@@ -4,6 +4,7 @@ import { StartPage } from './components/StartPage';
 import { GameBoard } from './components/GameBoard';
 import { clearGameProgress } from './utils/gamePersistence';
 import type { SavedProgress } from './utils/gamePersistence';
+import type { GameScenario } from './utils/gtoConfig';
 
 function App() {
   const [gameStarted, setGameStarted] = useState(false);
@@ -15,6 +16,7 @@ function App() {
   const [savedChips, setSavedChips] = useState<number[] | undefined>(undefined);
   const [savedBuyInCounts, setSavedBuyInCounts] = useState<number[] | undefined>(undefined);
   const [savedGtoEnabled, setSavedGtoEnabled] = useState<boolean | undefined>(undefined);
+  const [savedScenario, setSavedScenario] = useState<GameScenario | undefined>(undefined);
 
   const handleStartGame = (
     realPlayerCount: number,
@@ -25,6 +27,7 @@ function App() {
     setSavedChips(undefined);
     setSavedBuyInCounts(undefined);
     setSavedGtoEnabled(undefined);
+    setSavedScenario(undefined);
     setPlayerConfig({
       realPlayers: realPlayerCount,
       botPlayers: botPlayerCount,
@@ -42,6 +45,7 @@ function App() {
     setSavedChips(progress.chips);
     setSavedBuyInCounts(progress.buyInCounts);
     setSavedGtoEnabled(progress.gtoEnabled);
+    setSavedScenario(progress.scenario);
     setGameStarted(true);
   };
 
@@ -50,6 +54,7 @@ function App() {
     setSavedChips(undefined);
     setSavedBuyInCounts(undefined);
     setSavedGtoEnabled(undefined);
+    setSavedScenario(undefined);
   };
 
   if (!gameStarted) {
@@ -63,7 +68,7 @@ function App() {
 
   return (
     <>
-      <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} savedGtoEnabled={savedGtoEnabled} onBackToMenu={handleBackToMenu} />
+      <GameBoard playerConfig={playerConfig} savedChips={savedChips} savedBuyInCounts={savedBuyInCounts} savedGtoEnabled={savedGtoEnabled} savedScenario={savedScenario} onBackToMenu={handleBackToMenu} />
       <Analytics />
     </>
   );

@@ -7,6 +7,7 @@ import { translations } from '../utils/translations';
 import { SMALL_BLIND } from '../utils/constant';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { GameScenario } from '../utils/gtoConfig';
 
 interface PlayerAreaProps {
   player: Player;
@@ -40,6 +41,8 @@ interface PlayerAreaProps {
   adminRevealAll?: boolean;
   /** 完整对局状态，透传给 HandAnalysis 用于推断对手范围 */
   gameState?: GameState;
+  /** 赛制（现金局 / 锦标赛），透传给 HandAnalysis 用于口径标注 */
+  scenario?: GameScenario;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({
@@ -68,6 +71,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   smallBlind = SMALL_BLIND,
   adminRevealAll = false,
   gameState,
+  scenario,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -249,6 +253,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           positionLabel={positionLabel}
           gameState={gameState}
           heroPlayer={player}
+          scenario={scenario}
         />
       )}
     </div>

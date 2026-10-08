@@ -140,6 +140,12 @@ export const translations = {
     on: 'ON',
     off: 'OFF',
   },
+  // 赛制开关：与 GTO 开关是**正交**的两个轴（引擎 × 赛制）。
+  scenario: {
+    toggle: '赛制',
+    cash: '现金局',
+    tournament: '锦标赛',
+  },
   gtoPostflop: {
     board: 'Board 牌面',
     veryDry: 'Very Dry 极干',
@@ -179,6 +185,7 @@ export const translations = {
       multiway: (n: number) => `多人(${n})未调整`,
       noOpponent: '无对手',
       noIcm: '未计 ICM',
+      icm: '计 ICM（锦标赛）',
     },
     rangeCategories: {
       value: 'Value', // 价值牌

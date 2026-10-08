@@ -32,6 +32,7 @@ import {
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
+import type { GameScenario } from '../utils/gtoConfig';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -59,6 +60,8 @@ interface HandAnalysisProps {
   gameState?: GameState;
   /** 当前面板所属的真人玩家对象 */
   heroPlayer?: Player;
+  /** 赛制。`'tournament'` 时口径标注改为「计 ICM（锦标赛）」。缺省按现金局。 */
+  scenario?: GameScenario;
 }
 
 // 建议逻辑：仅基于胜率（0–1 概率）+ 赔率
@@ -463,6 +466,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   positionLabel,
   gameState,
   heroPlayer,
+  scenario,
 }) => {
   const [randomEquity, setRandomEquity] = useState<number | null>(null);
   const [rangeEquity, setRangeEquity] = useState<number | null>(null);
@@ -761,8 +765,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 显式标出来，避免把近似值误读成完整 GTO 解。
   const gtoMathCaveat = useMemo(() => {
     const street = translations.gtoMath.caveat.street[phase];
-    return [street, opponentsCaveat(numOpponents), translations.gtoMath.caveat.noIcm].join(' · ');
-  }, [phase, numOpponents]);
+    // ICM 口径随赛制变：现金局不叠加 ICM，锦标赛叠加。
+    const icm =
+      scenario === 'tournament'
+        ? translations.gtoMath.caveat.icm
+        : translations.gtoMath.caveat.noIcm;
+    return [street, opponentsCaveat(numOpponents), icm].join(' · ');
+  }, [phase, numOpponents, scenario]);
 
   // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
   // 没有跟注额（可以免费过牌）时无意义，显示为 —。

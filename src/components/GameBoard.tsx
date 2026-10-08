@@ -7,7 +7,8 @@ import { ActionButtons } from './ActionButtons';
 import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
-import { getBotAction, setGtoStrategy } from '../utils/botAI';
+import { getBotAction } from '../utils/botAI';
+import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
 import {
   getGtoPreflopRecommendation,
   getRfiPositionForDisplay,
@@ -38,6 +39,7 @@ interface GameBoardProps {
   savedChips?: number[];
   savedBuyInCounts?: number[];
   savedGtoEnabled?: boolean;
+  savedScenario?: GameScenario;
   onBackToMenu: () => void;
 }
 
@@ -46,6 +48,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   savedChips,
   savedBuyInCounts,
   savedGtoEnabled,
+  savedScenario,
   onBackToMenu,
 }) => {
   const {
@@ -65,16 +68,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handCounterRef = useRef(0);
   const handKeyRef = useRef<string>('');
   const [gtoEnabled, setGtoEnabled] = useState(savedGtoEnabled ?? false);
+  const [scenario, setScenario] = useState<GameScenario>(savedScenario ?? 'cash');
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
   const [gameScale, setGameScale] = useState(1);
   const [chipSummaryOpen, setChipSummaryOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // 引擎轴：把 UI 状态**双向**同步进全局配置。
+  //
+  // 旧实现只在 `savedGtoEnabled` 为真时写一次（`if (savedGtoEnabled) setGtoStrategy(true)`），
+  // 于是「GTO 开 → 返回菜单 → 新开一局」会留下陈旧全局态：UI 显示 OFF，
+  // 模块里却还是 GTO。改成按当前值无条件同步，顺带修掉这个 bug。
   useEffect(() => {
-    if (savedGtoEnabled) {
-      setGtoStrategy(true);
-    }
-  }, [savedGtoEnabled]);
+    setGtoConfig({ engine: gtoEnabled ? 'gto' : 'heuristic' });
+  }, [gtoEnabled]);
+
+  // 赛制轴：与引擎轴正交，两个 effect 各写自己那个字段（`setGtoConfig` 是合并语义，
+  // 不会互相覆盖）。
+  useEffect(() => {
+    setGtoConfig({ scenario });
+  }, [scenario]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -174,9 +187,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         dealer: state.dealer,
         savedAt: Date.now(),
         gtoEnabled,
+        scenario,
       });
     }
-  }, [roundSettled, state.players, state.smallBlind, state.dealer, gtoEnabled]);
+  }, [roundSettled, state.players, state.smallBlind, state.dealer, gtoEnabled, scenario]);
 
   const handleBackToMenu = () => {
     if (state.players.length > 0 && state.players[0].hand.length > 0) {
@@ -190,6 +204,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         dealer: state.dealer,
         savedAt: Date.now(),
         gtoEnabled,
+        scenario,
       });
     }
     onBackToMenu();
@@ -430,12 +445,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
+            {/* 引擎轴：GTO / 启发式。全局配置的同步交给上面的 effect，这里只改 UI 状态。 */}
             <button
-              onClick={() => {
-                const next = !gtoEnabled;
-                setGtoEnabled(next);
-                setGtoStrategy(next);
-              }}
+              onClick={() => setGtoEnabled(!gtoEnabled)}
               className={`px-2 py-1 text-xs rounded font-bold ${
                 gtoEnabled
                   ? 'bg-green-700/60 text-green-300 hover:bg-green-600/70'
@@ -443,6 +455,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               }`}
             >
               {translations.gtoStrategy.toggle} {gtoEnabled ? translations.gtoStrategy.on : translations.gtoStrategy.off}
+            </button>
+            {/* 赛制轴：现金局 / 锦标赛。与引擎轴正交，两个开关互不影响。 */}
+            <button
+              onClick={() => setScenario(scenario === 'cash' ? 'tournament' : 'cash')}
+              className={`px-2 py-1 text-xs rounded font-bold ${
+                scenario === 'tournament'
+                  ? 'bg-amber-700/60 text-amber-200 hover:bg-amber-600/70'
+                  : 'bg-gray-800/40 text-white/50 hover:text-white/70'
+              }`}
+            >
+              {translations.scenario.toggle} {scenario === 'tournament' ? translations.scenario.tournament : translations.scenario.cash}
             </button>
             <div className="text-white/60 text-xs sm:text-sm whitespace-nowrap">
               {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
@@ -651,6 +674,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         smallBlind={state.smallBlind}
                         adminRevealAll={adminRevealAll}
                         gameState={state}
+                        scenario={scenario}
                         currentPot={potOddsInfo.totalPot}
                         betToCall={potOddsInfo.toCall}
                         potOdds={potOddsInfo.callPotOdds}

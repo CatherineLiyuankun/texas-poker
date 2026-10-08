@@ -27,10 +27,8 @@ import {
   getNodelockRecommendation,
   isSampleSufficient,
 } from './gtoNodelock';
-
-let useGtoStrategy = false;
-export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
-export function getGtoStrategy(): boolean { return useGtoStrategy; }
+// 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
+import { isGtoEngine } from './gtoConfig';
 
 export interface BotDecision {
   action: Action;
@@ -1066,16 +1064,16 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
 
   switch (state.phase) {
     case 'preflop':
-      return useGtoStrategy
+      return isGtoEngine()
         ? decidePreflopGTO(player, state, flags, ctx, adj)
         : decidePreflop(player, state, flags, ctx, adj);
     case 'flop':
     case 'turn':
-      return useGtoStrategy
+      return isGtoEngine()
         ? decidePostflopGTO(player, state, flags, ctx, adj)
         : decidePostflop(player, state, flags, ctx, adj);
     case 'river':
-      return useGtoStrategy
+      return isGtoEngine()
         ? decideRiverGTO(player, state, flags, ctx, adj)
         : decideRiver(player, state, flags, ctx, adj);
     default:
