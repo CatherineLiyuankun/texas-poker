@@ -315,6 +315,56 @@ describe('GTO Math Functions', () => {
       // 差额恰为 equity · toCall · callPct
       expect(naive - fixed).toBeCloseTo(0.6 * 50 * (1 - foldPct), 10);
     });
+
+    it('raise-to 未超过当前注时不返回 EV（跟注 / 非法额都没有弃牌收益）', () => {
+      // 截图回归：含注底池 50、我方已投 10、跟注 25 → 当前注 = 10 + 25 = 35。
+      // raise-to 25 连跟注都不到，旧口径会凭「弃牌收益」算出 ≈+14.4 并打 ✅。
+      const belowCall = raiseEVFromContext({
+        equity: 0.36,
+        totalPot: 50,
+        heroBet: 10,
+        raiseTo: 25,
+        toCall: 25,
+      });
+      expect(belowCall.heroIncrement).toBe(15);
+      expect(belowCall.toCall).toBe(25);
+      expect(belowCall.raiseEV).toBeNull();
+
+      // raise-to 恰好追平当前注 = 跟注，同样不算加注
+      const exactlyCall = raiseEVFromContext({
+        equity: 0.36,
+        totalPot: 50,
+        heroBet: 10,
+        raiseTo: 35,
+        toCall: 25,
+      });
+      expect(exactlyCall.heroIncrement).toBe(25);
+      expect(exactlyCall.raiseEV).toBeNull();
+    });
+
+    it('raise-to 严格超过当前注即视为真加注，照常给 EV', () => {
+      const genuine = raiseEVFromContext({
+        equity: 0.36,
+        totalPot: 50,
+        heroBet: 10,
+        raiseTo: 36, // 当前注 35 → 只多 1
+        toCall: 25,
+      });
+      expect(genuine.heroIncrement).toBe(26);
+      expect(genuine.raiseEV).not.toBeNull();
+      expect(genuine.raiseEV!).toBeGreaterThan(0);
+    });
+
+    it('主动下注（无注可跟，toCall = 0）仍是真加注', () => {
+      const bet = raiseEVFromContext({
+        equity: 0.5,
+        totalPot: 100,
+        heroBet: 0,
+        raiseTo: 100,
+        toCall: 0,
+      });
+      expect(bet.raiseEV).not.toBeNull();
+    });
   });
 
   describe('calculateBluffFrequency', () => {
