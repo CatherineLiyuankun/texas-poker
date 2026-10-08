@@ -6,6 +6,7 @@ import {
   positionLabelFor,
   preflopStackBand,
   decidePreflopGTO,
+  detectPreflopScenario,
 } from '../gtoPreflop';
 import type { Card, Player, GameState, PlayerId } from '../../types/poker';
 
@@ -941,5 +942,120 @@ describe('GTO Preflop Engine', () => {
       );
       expect(decision.action).toBe('allin');
     });
+  });
+});
+
+/**
+ * `detectPreflopScenario` 是机器人与面板**唯一**的翻前场景判定。
+ *
+ * 面板（GameBoard 的 gtoRecommendation IIFE）原先把 `facing_3bet` 简化成
+ * `player.bet > sb*2 && lastBet > player.bet`，漏掉 `player.bet === lastRaiseBet`，
+ * 于是「我加注过、对手又加注到我之上、但最后加注者不是我」的局面上会误报
+ * 4bet 场景、查错范围表。这里把四条分支与那条回归用例一起钉住。
+ */
+describe('detectPreflopScenario 场景判定（机器人与面板共用）', () => {
+  const SB = 5;
+
+  function mkScenario(
+    heroBet: number,
+    lastBet: number,
+    lastRaiseBet: number,
+    opponentBets: number[] = [],
+  ) {
+    const hero = mkBotPlayer(1, 1000, heroBet);
+    const players = [
+      hero,
+      ...opponentBets.map((b, i) => mkBotPlayer((i + 2) as PlayerId, 1000, b)),
+    ];
+    const state: GameState = {
+      ...mkBotState(players, 1 as PlayerId, lastBet, SB),
+      lastRaiseBet,
+    };
+    return { state, hero };
+  }
+
+  it('无人加注 → rfi', () => {
+    const { state, hero } = mkScenario(10, 10, 10);
+    expect(detectPreflopScenario(state, hero)).toBe('rfi');
+  });
+
+  it('面对单个开池 → facing_open', () => {
+    const { state, hero } = mkScenario(10, 30, 30, [30]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('我加注后被加注，且我恰是最后加注者 → facing_3bet', () => {
+    // hero 加到 30，对手加注到 40（增量 30 = hero 本轮投入）→ 满足
+    // `player.bet === state.lastRaiseBet`
+    const { state, hero } = mkScenario(30, 40, 30, [40]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_3bet');
+  });
+
+  it('回归：我加注后对手 3bet 到 60（增量 50 ≠ 我投入 30）→ 仍是 facing_open', () => {
+    // 面板旧逻辑只看 `player.bet > sb*2 && lastBet > player.bet`，
+    // 这里会误判成 facing_3bet；共享判定要求 `player.bet === lastRaiseBet`。
+    const { state, hero } = mkScenario(30, 60, 50, [60]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('未投入筹码且面对两个不同注额的加注 → cold_3bet', () => {
+    const { state, hero } = mkScenario(0, 90, 80, [30, 90]);
+    expect(detectPreflopScenario(state, hero)).toBe('cold_3bet');
+  });
+
+  it('两个对手注额相同不构成 cold_3bet → facing_open', () => {
+    const { state, hero } = mkScenario(0, 30, 30, [30, 30]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('只有一个人加注不构成 cold_3bet → facing_open', () => {
+    const { state, hero } = mkScenario(0, 30, 30, [30]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('已投入筹码时不会是 cold_3bet（cold 3bet 要求本轮未投入）', () => {
+    const { state, hero } = mkScenario(10, 90, 80, [30, 90]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('decidePreflopGTO 走同一判定：回归局面按 facing_open 处理而非 4bet 全下', () => {
+    // hero 本轮已投 20、对手加到 40（增量 30 ≠ hero 的 20）→ 共享判定是
+    // facing_open；面板旧逻辑会误判成 facing_3bet。
+    // 30bb（band=medium）下两者动作不同：
+    //   facing_3bet → jamInsteadOfSizing 为 true（band !== deep）→ allin
+    //   facing_open → jamInsteadOfSizing 为 false，且 SPR 2.0 / 目标 140
+    //                 未达 all-in 条件 → raise
+    const hero = mkBotPlayer(1, 300, 20);
+    hero.hand = [card('♠', 'A'), card('♥', 'A')];
+    const state: GameState = {
+      ...mkBotState(
+        [hero, mkBotPlayer(2, 700, 40), mkBotPlayer(3, 700, 0)],
+        1 as PlayerId,
+        40,
+        SB,
+      ),
+      lastRaiseBet: 30,
+    };
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+
+    const decision = decidePreflopGTO(
+      hero,
+      state,
+      {
+        canCheckResult: false,
+        canCallResult: true,
+        canRaiseResult: true,
+        canFoldResult: true,
+        canAllInResult: true,
+      },
+      {
+        toCall: 20, totalPot: 80, potOdds: 0.2, position: 0, totalPlayers: 3,
+        numOpponents: 2, isHeadsUp: false, isLatePosition: true, isButton: true,
+        isCutoff: false, isHijack: false, isMiddlePosition: false,
+        isEarlyPosition: false, isBlind: false, hasLimpers: false,
+      },
+      { callPenalty: 0, raiseBonus: 0, foldPenalty: 0 },
+    );
+    expect(decision.action).toBe('raise');
   });
 });

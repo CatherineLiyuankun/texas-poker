@@ -13,6 +13,7 @@ import {
   getRfiPositionForDisplay,
   getDefenderPositionForDisplay,
   getOpenerPosition,
+  detectPreflopScenario,
 } from '../utils/gtoPreflop';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
@@ -706,44 +707,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                                 ),
                             isBlind: pos === 1 || pos === 2,
                           };
-                          const toCall =
-                            state.lastBet - player.bet;
-                          const facingOpen = toCall > 0;
-                          const facing3bet =
-                            player.bet > state.smallBlind * 2 &&
-                            state.lastBet > player.bet;
-                          const cold3bet = (() => {
-                            if (player.bet > 0 || !facingOpen)
-                              return false;
-                            const raisers = state.players.filter(
-                              (p) =>
-                                p.id !== player.id &&
-                                !p.folded &&
-                                p.bet > state.smallBlind * 2,
-                            );
-                            if (raisers.length < 2) return false;
-                            const bets = new Set(
-                              raisers.map((p) => p.bet),
-                            );
-                            return bets.size >= 2;
-                          })();
                           const rfiPos =
                             getRfiPositionForDisplay(ctxForGto);
                           const defenderPos =
                             getDefenderPositionForDisplay(ctxForGto);
-                          const scenario:
-                            | 'rfi'
-                            | 'facing_open'
-                            | 'facing_3bet'
-                            | 'cold_3bet' = facing3bet
-                            ? 'facing_3bet'
-                            : cold3bet
-                              ? 'cold_3bet'
-                              : facingOpen
-                                ? 'facing_open'
-                                : 'rfi';
+                          // 场景判定与机器人 decidePreflopGTO 共用
+                          // detectPreflopScenario，面板不再自己近似一遍
+                          // （原先的 facing_3bet 漏了 `player.bet === lastRaiseBet`）。
+                          const scenario = detectPreflopScenario(
+                            state,
+                            player,
+                          );
                           const openerPos =
-                            facingOpen || facing3bet || cold3bet
+                            scenario !== 'rfi'
                               ? getOpenerPosition(state, player) ??
                                 undefined
                               : undefined;

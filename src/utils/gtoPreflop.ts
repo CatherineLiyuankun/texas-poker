@@ -806,6 +806,31 @@ function isCold3bet(state: GameState, player: Player): boolean {
   return distinctBets.size >= 2;
 }
 
+/** 翻前场景：无人加注 / 面对开池 / 面对 3bet / 冷 3bet。 */
+export type PreflopScenario = 'rfi' | 'facing_open' | 'facing_3bet' | 'cold_3bet';
+
+/**
+ * 判定当前处于哪种翻前场景 —— **机器人与面板的唯一判定口径**。
+ *
+ * 面板（`GameBoard` 的 `gtoRecommendation` IIFE）原先把 `facing_3bet` 简化成
+ * `player.bet > sb*2 && state.lastBet > player.bet`，漏掉了 `player.bet ===
+ * state.lastRaiseBet` 这一条，于是在「我加注过、对手又加注到我之上、但最后
+ * 加注者不是我」的局面上会把 `facing_open` 误报成 `facing_3bet`，从而查错范围表
+ * （4bet 表 vs 3bet 表）。现在两边都走这里。
+ *
+ * `facingOpen` 用 `state.lastBet > player.bet`，与机器人原来的
+ * `ctx.toCall > 0`（`toCall = max(0, lastBet - player.bet)`）等价。
+ */
+export function detectPreflopScenario(
+  state: GameState,
+  player: Player,
+): PreflopScenario {
+  if (isFacing3bet(state, player)) return 'facing_3bet';
+  const facingOpen = state.lastBet > player.bet;
+  if (facingOpen && isCold3bet(state, player)) return 'cold_3bet';
+  return facingOpen ? 'facing_open' : 'rfi';
+}
+
 // ─── 筹码深度分档 ────────────────────────────────────────────
 
 /**
@@ -865,9 +890,11 @@ export function decidePreflopGTO(
   const hand = player.hand;
   const bb = state.smallBlind * 2;
   const band = preflopStackBand(player.chips / bb);
-  const facingOpen = ctx.toCall > 0;
-  const facing3bet = isFacing3bet(state, player);
-  const cold3bet = !facing3bet && facingOpen && isCold3bet(state, player);
+  // 场景判定与面板共用 detectPreflopScenario，两边不会各自近似。
+  const scenario = detectPreflopScenario(state, player);
+  const facingOpen = scenario !== 'rfi';
+  const facing3bet = scenario === 'facing_3bet';
+  const cold3bet = scenario === 'cold_3bet';
 
   // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
