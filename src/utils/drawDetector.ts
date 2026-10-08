@@ -80,8 +80,8 @@ export function detectDraws(
 ): DrawInfo {
   // 河牌（cardsToCome = 0）已经没有牌可发：4 张同花、两头顺都只是「没中的听牌」，
   // 不存在补牌，必须返回空。否则下游会把 busted draw 当成 'draw' 处理 ——
-  // gtoPostflop / gtoDeepStack 的 classifyHandStrength 会据此跳过 air 分支
-  // （河牌诈唬尝试、以及 deep stack 的「semi-bluff with draw」都会走错）。
+  // gtoPostflop / gtoDeepStack 通过 handStrength.classifyPostflopHand 分档，
+  // 会据此跳过 air 分支（河牌诈唬尝试、以及 deep stack 的「semi-bluff with draw」都会走错）。
   if (cardsToCome <= 0) return { draws: [], totalOuts: 0, estimatedEquity: 0 };
 
   const allCards = [...holeCards, ...communityCards];

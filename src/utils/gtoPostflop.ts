@@ -18,6 +18,20 @@ import {
   getCategoryBetFreq,
   type HandStrengthCategory,
 } from './postflopFrequencies';
+import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
+
+/**
+ * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
+ * 这里只声明「本调用方用哪套规则」，避免三份实现再次漂移。
+ *
+ * - `promoteMadeHandsByRank: false` —— 复现既有行为：本模块原本的 `_handRank`
+ *   参数完全没被使用，成牌类别不参与分档。
+ * - `drawOutsThreshold: 8` —— 8 outs（OESD）及以上算听牌档。
+ */
+export const HAND_STRENGTH_RULES: HandStrengthRules = {
+  promoteMadeHandsByRank: false,
+  drawOutsThreshold: 8,
+};
 
 export interface GtoPostflopRecommendation {
   action: Action;
@@ -59,18 +73,6 @@ function shouldAllInBySPR(
   return spr < 2.0 || raiseTarget >= playerChips * 0.5;
 }
 
-function classifyHandStrength(
-  equity: number,
-  _handRank: HandRank | null,
-  draws: DrawInfo | null,
-): HandStrengthCategory {
-  if (equity >= 0.70) return 'strong';
-  if (equity >= 0.50) return 'medium';
-  if (draws && draws.totalOuts >= 8) return 'draw';
-  if (equity >= 0.35) return 'weak';
-  return 'air';
-}
-
 function getHandRankName(rank: HandRank | null): string {
   if (!rank) return 'High Card';
   const names: Record<HandRank, string> = {
@@ -102,7 +104,9 @@ export function decidePostflopGTO(
   const draws = detectDraws(player.hand, community,
     state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
   const evaluated = evaluateHand(player.hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank, draws);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+  );
   const ip = isIP(ctx);
   const street: 'flop' | 'turn' = state.phase === 'turn' ? 'turn' : 'flop';
   // SPR = 身后筹码 / 当前底池。低 SPR 下小尺度不成立，用它约束下注尺度。
@@ -298,7 +302,9 @@ export function getGtoPostflopRecommendation(params: {
 
   const ip = params.isButton || params.isCutoff || params.isHijack;
   const street: 'flop' | 'turn' = phase === 'turn' ? 'turn' : 'flop';
-  const strength = classifyHandStrength(equity, handRank, draws);
+  const strength = classifyPostflopHand(
+    equity, handRank, draws, HAND_STRENGTH_RULES,
+  );
   const facingBet = toCall > 0;
   const facingBigRaise = toCall > lastRaiseBet * 2;
 

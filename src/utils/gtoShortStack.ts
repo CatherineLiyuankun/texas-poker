@@ -1,9 +1,23 @@
-import type { Card, GameState, Player, HandRank } from '../types/poker';
-import { HAND_RANK_ORDER } from '../types/poker';
+import type { Card, GameState, Player } from '../types/poker';
 import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
+import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
+
+/**
+ * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
+ * 这里只声明「本调用方用哪套规则」。
+ *
+ * - `promoteMadeHandsByRank: true` —— 复现既有行为：两对及以上一律算 strong。
+ * - `drawOutsThreshold: 0` —— **不产出 `'draw'` 档**。短筹码（≤20bb）主要走
+ *   全下/弃牌，听牌的价值已经由权益本身体现，再单列一个半诈唬档没有意义；
+ *   这里保留既有行为（短筹码原本只有四档）。
+ */
+export const HAND_STRENGTH_RULES: HandStrengthRules = {
+  promoteMadeHandsByRank: true,
+  drawOutsThreshold: 0,
+};
 
 interface ShortStackConfig {
   effectiveStack: number;        // 有效筹码 (bb)
@@ -240,22 +254,6 @@ function getCommunityByPhase(state: GameState): Card[] {
   }
 }
 
-function classifyHandStrength(
-  equity: number,
-  handRank: HandRank | null,
-): 'strong' | 'medium' | 'weak' | 'air' {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
-    return 'strong';
-  }
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return 'strong';
-  }
-  if (equity >= 0.70) return 'strong';
-  if (equity >= 0.50) return 'medium';
-  if (equity >= 0.35) return 'weak';
-  return 'air';
-}
-
 export function getShortStackRecommendation(
   player: Player,
   state: GameState,
@@ -283,7 +281,9 @@ export function getShortStackRecommendation(
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
   const evaluated = evaluateHand(player.hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, null, HAND_STRENGTH_RULES,
+  );
 
   // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;

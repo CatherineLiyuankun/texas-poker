@@ -1,5 +1,5 @@
-import type { Card, GameState, Player, HandRank, Action } from '../types/poker';
-import { HAND_RANK_ORDER, RANK_ORDER } from '../types/poker';
+import type { Card, GameState, Player, Action } from '../types/poker';
+import { RANK_ORDER } from '../types/poker';
 import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
 import { analyzeBoardWithEquity } from './boardTexture';
@@ -7,7 +7,21 @@ import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import { detectDraws } from './drawDetector';
-import type { DrawInfo } from './drawDetector';
+import { classifyPostflopHand, type HandStrengthRules } from './handStrength';
+
+/**
+ * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
+ * 这里只声明「本调用方用哪套规则」。
+ *
+ * - `promoteMadeHandsByRank: true` —— 复现既有行为：两对及以上一律算 strong。
+ *   这条没有权益下限（4 花面上的底两对也会被判 strong），后续批次会换成
+ *   「有条件的向上修正」。
+ * - `drawOutsThreshold: 8` —— 8 outs 及以上算听牌档。
+ */
+export const HAND_STRENGTH_RULES: HandStrengthRules = {
+  promoteMadeHandsByRank: true,
+  drawOutsThreshold: 8,
+};
 
 interface DeepStackConfig {
   effectiveStack: number;        // 有效筹码 (bb)
@@ -147,24 +161,6 @@ function getCommunityByPhase(state: GameState): Card[] {
   }
 }
 
-function classifyHandStrength(
-  equity: number,
-  handRank: HandRank | null,
-  draws: DrawInfo | null,
-): 'strong' | 'medium' | 'draw' | 'weak' | 'air' {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
-    return 'strong';
-  }
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return 'strong';
-  }
-  if (equity >= 0.70) return 'strong';
-  if (equity >= 0.50) return 'medium';
-  if (draws && draws.totalOuts >= 8) return 'draw';
-  if (equity >= 0.35) return 'weak';
-  return 'air';
-}
-
 function calculateRaiseAmount(
   player: Player,
   state: GameState,
@@ -195,7 +191,9 @@ function handleDeepStackFacingBet(
   const draws = detectDraws(hand, community,
     state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
   const evaluated = evaluateHand(hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank, draws);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+  );
 
   if (sprDecision === 'commit') {
     if (strength === 'strong') {
@@ -382,7 +380,9 @@ function handleDeepStackNoBet(
   const draws = detectDraws(hand, community,
     state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
   const evaluated = evaluateHand(hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank, draws);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+  );
 
   if (sprDecision === 'commit') {
     if (strength === 'strong') {
