@@ -105,6 +105,8 @@ export function decidePostflopGTO(
   const strength = classifyHandStrength(equity, evaluated.rank, draws);
   const ip = isIP(ctx);
   const street: 'flop' | 'turn' = state.phase === 'turn' ? 'turn' : 'flop';
+  // SPR = 身后筹码 / 当前底池。低 SPR 下小尺度不成立，用它约束下注尺度。
+  const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;
 
   const facingBet = ctx.toCall > 0;
   const facingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
@@ -144,7 +146,7 @@ export function decidePostflopGTO(
 
     // River: not facing bet
     if (strength === 'strong') {
-      const sizing = getBetSizing(texture.classification);
+      const sizing = getBetSizing(texture.classification, spr);
       const target = Math.floor(ctx.totalPot * Math.max(sizing, 0.75));
       if (flags.canAllInResult && shouldAllInBySPR(
         player.chips, 0, ctx.totalPot, player.bet, target,
@@ -177,7 +179,7 @@ export function decidePostflopGTO(
 
     if (strength === 'strong') {
       if (flags.canRaiseResult && Math.random() < 0.40) {
-        const sizing = getBetSizing(texture.classification);
+        const sizing = getBetSizing(texture.classification, spr);
         const target = Math.floor(ctx.totalPot * sizing * 1.5);
         if (flags.canAllInResult && shouldAllInBySPR(
           player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
@@ -189,7 +191,7 @@ export function decidePostflopGTO(
 
     if (strength === 'draw') {
       if (flags.canRaiseResult && Math.random() < 0.25) {
-        const sizing = getBetSizing(texture.classification);
+        const sizing = getBetSizing(texture.classification, spr);
         const target = Math.floor(ctx.totalPot * sizing * 1.2);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
       }
@@ -215,7 +217,7 @@ export function decidePostflopGTO(
 
   // Flop/Turn: not facing bet (bet/check decision)
   const cbetFreq = getCbetFreq(street, ip, texture.classification);
-  const sizing = getBetSizing(texture.classification);
+  const sizing = getBetSizing(texture.classification, spr);
 
   if (strength === 'strong') {
     if (flags.canAllInResult && shouldAllInBySPR(
@@ -351,8 +353,8 @@ export function getGtoPostflopRecommendation(params: {
       return { ...baseRec, action: 'fold', reasoning: `Fold vs big raise: ${fmtEqOdds(equity, potOdds)}` };
     }
     if (strength === 'strong') {
-      const sizingPercent = Math.round(getBetSizing(boardTexture.classification) * 150);
-      const raiseAmountBB = Math.round(totalPot * getBetSizing(boardTexture.classification) * 1.5 / bb * 10) / 10;
+      const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 150);
+      const raiseAmountBB = Math.round(totalPot * getBetSizing(boardTexture.classification, spr) * 1.5 / bb * 10) / 10;
       const isAllIn = spr < 2.0 || raiseAmountBB >= chips / bb * 0.5;
       return {
         ...baseRec, action: 'raise', sizingPercent,
@@ -379,11 +381,11 @@ export function getGtoPostflopRecommendation(params: {
 
   // Flop/Turn: bet/check decision
   const cbetFreq = getCbetFreq(street, ip, boardTexture.classification);
-  const sizingPercent = Math.round(getBetSizing(boardTexture.classification) * 100);
+  const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 100);
 
   if (strength === 'strong') {
-    const sizingPercent = Math.round(getBetSizing(boardTexture.classification) * 100);
-    const sizingBB = Math.round(totalPot * getBetSizing(boardTexture.classification) / bb * 10) / 10;
+    const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 100);
+    const sizingBB = Math.round(totalPot * getBetSizing(boardTexture.classification, spr) / bb * 10) / 10;
     const isAllIn = spr < 2.0 || sizingBB >= chips / bb * 0.5;
     return {
       ...baseRec, action: 'raise',

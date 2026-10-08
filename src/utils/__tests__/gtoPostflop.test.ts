@@ -219,6 +219,32 @@ describe('GTO Postflop Engine', () => {
     });
   });
 
+  describe('SPR 约束下注尺度', () => {
+    it('低 SPR（<3）时干牌面不再用 33% 小尺度', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.80, handRank: 'flush' as HandRank,
+        spr: 2.0, chips: 200, totalPot: 100, toCall: 0,
+      }));
+      expect(rec.sizingPercent).toBe(66);
+    });
+
+    it('极低 SPR（<1.5）时按满池打', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.80, handRank: 'flush' as HandRank,
+        spr: 1.2, chips: 120, totalPot: 100, toCall: 0,
+      }));
+      expect(rec.sizingPercent).toBe(100);
+    });
+
+    it('高 SPR 时仍是纹理口径的 33%', () => {
+      const rec = getGtoPostflopRecommendation(makeParams({
+        equity: 0.80, handRank: 'flush' as HandRank,
+        spr: 8.0, chips: 800, totalPot: 100, toCall: 0,
+      }));
+      expect(rec.sizingPercent).toBe(33);
+    });
+  });
+
   describe('SPR All-in', () => {
     it('low SPR with strong hand: all-in', () => {
       const rec = getGtoPostflopRecommendation(makeParams({

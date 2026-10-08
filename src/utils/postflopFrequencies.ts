@@ -31,6 +31,15 @@ const BET_SIZING: Record<string, number> = {
 };
 
 /**
+ * 低 SPR 门槛：低于此值小尺度失去意义（打完一层还剩一堆筹码），
+ * 同时听牌的隐含赔率也不再支撑跟注。
+ */
+const LOW_SPR = 3;
+
+/** 极低 SPR 门槛：低于此值直接按满池打，等价于把筹码压进去。 */
+const VERY_LOW_SPR = 1.5;
+
+/**
  * Relative propensity of each hand category to fire a bet, expressed as a
  * multiplier on the range-level c-bet frequency.
  *
@@ -75,6 +84,20 @@ export function getRiverBarrelFreq(
   return getCbetFreq('turn', isIP, texture) * RIVER_BARREL_TIGHTENING;
 }
 
-export function getBetSizing(texture: BoardClassification): number {
-  return BET_SIZING[texture] ?? 0.50;
+/**
+ * 翻后下注尺度（相对底池）。
+ *
+ * 尺度由**牌面纹理**决定，再受 **SPR** 约束下限 —— 牌面只回答「该用多大」，
+ * 但低 SPR 下小尺度本身不成立：一层 33% 打不完筹码，等于白送对手一个便宜看牌。
+ * 不传 `spr`（或传入非正数）时退回纯纹理口径，保持既有调用方行为不变。
+ */
+export function getBetSizing(
+  texture: BoardClassification,
+  spr?: number,
+): number {
+  const base = BET_SIZING[texture] ?? 0.50;
+  if (spr === undefined || !Number.isFinite(spr) || spr <= 0) return base;
+  if (spr < VERY_LOW_SPR) return 1.0;
+  if (spr < LOW_SPR) return Math.max(base, 0.66);
+  return base;
 }
