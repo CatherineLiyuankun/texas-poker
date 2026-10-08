@@ -14,6 +14,10 @@ import {
   analyzeBoardWithEquity,
   type GtoPostflopRecommendation,
 } from '../utils/gtoPostflop';
+import {
+  getGtoRiverRecommendation,
+  type GtoRiverRecommendation,
+} from '../utils/gtoRiver';
 import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
 import { SMALL_BLIND } from '../utils/constant';
 import {
@@ -640,7 +644,12 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   //
   // 权益还在算（effect 有 50ms 防抖）时返回 null，整块延后渲染，
   // 避免短暂的「建议已更新、权益还是上一手」的同屏矛盾。
-  const postflopRecommendation = useMemo<GtoPostflopRecommendation | null>(() => {
+  //
+  // 河牌改走 `getGtoRiverRecommendation` —— 它与机器人 `decideRiverGTO` 共用
+  // 同一个 `getRiverStrategy`，面板与机器人不会再各自实现河牌逻辑而漂移。
+  const postflopRecommendation = useMemo<
+    GtoPostflopRecommendation | GtoRiverRecommendation | null
+  >(() => {
     if (phase === 'preflop' || phase === 'showdown' || phase === 'ended')
       return null;
     if (community.length < 3 || holeCards.length < 2) return null;
@@ -651,6 +660,22 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const position = gameState
       ? (heroPlayer.id - gameState.dealer + totalPlayers) % totalPlayers
       : 0;
+
+    if (phase === 'river') {
+      return getGtoRiverRecommendation({
+        hand: holeCards,
+        communityCards: community,
+        equity: decisionEquity,
+        potOdds,
+        numOpponents,
+        position,
+        totalPlayers,
+        handRank: currentHandRank,
+        toCall: betToCall ?? 0,
+        totalPot: currentPot ?? 0,
+        smallBlind: gameState?.smallBlind ?? SMALL_BLIND,
+      });
+    }
 
     return getGtoPostflopRecommendation({
       hand: holeCards,
