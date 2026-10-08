@@ -905,6 +905,12 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             color={getEquityTextColor(rangeEquity)}
           />
 
+          {/* 随机权益的口径标注：对手全部按随机牌建模，翻前会系统性高估。
+              放在权益两行之后独占整行（col-span-2），不打乱 2 列配对。 */}
+          <div className="col-span-2 text-[9px] leading-tight text-gray-400">
+            {translations.handAnalysis.equityVsRandom}
+          </div>
+
           {/* 底池赔率：恒为跟注赔率，与机器人决策同口径 */}
           <GridRow
             label={translations.handAnalysis.potOdds}
@@ -1026,6 +1032,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                   value={
                     <span className="text-[9px] text-white/50">
                       {postflopRecommendation.reasoning}
+                      {/* Reasoning 里的 Equity 就是 decisionEquity：范围推断失败时
+                          它是随机权益，必须就地标注，否则和上面那行一样会被误读。 */}
+                      {decisionBasis === 'random' && (
+                        <span className="text-gray-400">
+                          {' · '}
+                          {translations.handAnalysis.equityVsRandomTag}
+                        </span>
+                      )}
                     </span>
                   }
                 />

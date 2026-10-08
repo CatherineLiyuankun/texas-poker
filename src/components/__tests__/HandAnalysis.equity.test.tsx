@@ -224,6 +224,114 @@ describe('HandAnalysis 权益面板（随机权益 + 范围权益）', () => {
   });
 });
 
+describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  // 翻后用例共用的干燥牌面（K♠7♦2♣ → very_dry）
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+  it('翻前显式标注「vs 随机牌」，独占整行且与权益两行同网格', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'K')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'Q'), card('♣', 'Q')], totalBet: 20 });
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    // 文案必须真的写出「vs 随机牌」，否则这行标注没有意义
+    expect(translations.handAnalysis.equityVsRandom).toContain('vs 随机牌');
+
+    const note = screen.getByText(translations.handAnalysis.equityVsRandom);
+    // 独占整行：挤进某一列会打乱「随机权益 | 范围权益」的配对
+    expect(note.className).toContain('col-span-2');
+
+    // 与它标注的两行处在同一个 2 列网格里
+    const grid = note.parentElement as HTMLElement;
+    expect(grid.contains(screen.getByText(translations.handAnalysis.equity))).toBe(true);
+    expect(grid.contains(screen.getByText(translations.handAnalysis.rangeEquity))).toBe(true);
+  });
+
+  it('翻后同样标注（范围推断失败时会静默回退到随机权益）', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♥', 'K'), card('♥', 'K')],
+      totalBet: 60,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'Q'), card('♣', 'J')], totalBet: 60 });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    expect(screen.getByText(translations.handAnalysis.equityVsRandom)).toBeTruthy();
+  });
+
+  it('口径文案不并进权益行（列宽约 96px，标签一长就换行）', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    // 行标签保持短标签，口径写在独立的整行里
+    const labelSpan = screen.getByText(translations.handAnalysis.equity);
+    expect(labelSpan.textContent).toBe(translations.handAnalysis.equity);
+    expect(labelSpan.textContent).not.toContain('vs 随机牌');
+    // 也不能塞进权益行的 value 里
+    expect(rowOf(translations.handAnalysis.equity).textContent).not.toContain('vs 随机牌');
+  });
+
+  it('范围推断失败时，翻后 Reasoning 就地标注「vs 随机牌」', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♥', 'K'), card('♥', 'K')],
+      totalBet: 60,
+    });
+    // 对手手牌不完整 → estimateOpponentCombos 返回 null → 决策回退随机权益
+    const opp = mkPlayer({ id: 2, hand: [], totalBet: 60 });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    // 前提自检：这一轮确实回退到了随机权益（否则下面的断言测不到东西）
+    expect(rowOf(translations.handAnalysis.equity).className).toContain(BASIS_HIGHLIGHT);
+
+    // Reasoning 里的 "Equity x%" 就是 decisionEquity，必须同行标注口径
+    const reasoning = rowOf(translations.gtoPostflop.reasoning).textContent ?? '';
+    expect(reasoning).toContain(translations.handAnalysis.equityVsRandomTag);
+  });
+
+  it('范围推断成功时，翻后 Reasoning 不加「vs 随机牌」标注', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♥', 'K'), card('♥', 'K')],
+      totalBet: 60,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'Q'), card('♣', 'J')], totalBet: 60 });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    // 前提自检：这一轮用的是范围权益
+    expect(rowOf(translations.handAnalysis.rangeEquity).className).toContain(BASIS_HIGHLIGHT);
+
+    const reasoning = rowOf(translations.gtoPostflop.reasoning).textContent ?? '';
+    expect(reasoning).not.toContain(translations.handAnalysis.equityVsRandomTag);
+  });
+});
+
 describe('HandAnalysis 赔率口径', () => {
   beforeEach(() => {
     resetOpponentStats();

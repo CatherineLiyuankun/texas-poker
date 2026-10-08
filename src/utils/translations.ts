@@ -84,6 +84,14 @@ export const translations = {
     preflop: '手牌强度', // 翻牌前preflopStrength Chen Formula 
     equity: '随机权益 Equity', //  Equity vs random hands（对随机牌）
     rangeEquity: '范围权益 Equity', //  Equity vs estimated continuing range（对推断范围）
+    // 随机权益一行的口径标注。对手全部按随机牌建模 → 翻前会系统性高估
+    // （真实对手的跟注范围远强于随机牌），必须显式写出来。
+    // 放在独立的整行里而不是并进 equity 标签：面板列宽只有约 96px，
+    // 标签一长就会换行，挤掉右侧的权益条。
+    equityVsRandom: 'vs 随机牌（对手全部按随机牌建模）',
+    // 行内短标注：翻后 Reasoning 里那串 "Equity x%" 用的是 decisionEquity，
+    // 范围推断失败时它就是随机权益，必须在同一行就地说明，否则同样会被误读成真实胜率。
+    equityVsRandomTag: 'vs 随机牌',
     rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
