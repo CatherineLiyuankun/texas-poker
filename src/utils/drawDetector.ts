@@ -13,6 +13,14 @@ const RANK_VAL: Record<string, number> = {
   '9': 9, '10': 10, J: 11, Q: 12, K: 13, A: 14,
 };
 
+/**
+ * 顺子窗口低端的最小合法点数。下面的 `extended` 会把 Ace 记为 1
+ * （wheel A-2-3-4-5 的低端），所以合法下界是 1，而不是最小牌面点数 2。
+ * 写成 2 会把 window=[2,3,4,5] 的 low 端（也就是 A）判成不存在，
+ * 使这手牌从 8 outs 的两端顺子退化成 4 outs 的卡顺。
+ */
+const ACE_LOW = 1;
+
 function hasFlushDraw(cards: Card[]): boolean {
   const suitCounts = new Map<string, number>();
   cards.forEach((c) => suitCounts.set(c.suit, (suitCounts.get(c.suit) || 0) + 1));
@@ -50,7 +58,7 @@ function getStraightDrawInfo(cards: Card[]): StraightDrawResult {
     const span = window[3] - window[0];
 
     if (span === 3) {
-      const low = window[0] - 1 >= 2 ? window[0] - 1 : null;
+      const low = window[0] - 1 >= ACE_LOW ? window[0] - 1 : null;
       const high = window[3] + 1 <= 14 ? window[3] + 1 : null;
       if (low !== null) missing.add(low);
       if (high !== null) missing.add(high);

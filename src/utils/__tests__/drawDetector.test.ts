@@ -40,6 +40,32 @@ describe('Draw Detector', () => {
       ).toBe(8);
     });
 
+    it('低端为 Ace: 2-3-4-5 的 A 端也算补牌 (8 outs)', () => {
+      // 5♥4♠ + 2♠K♣3♠：持有 2-3-4-5，A 补成 wheel、6 补成 2-3-4-5-6，
+      // 两端各 4 张 = 8 outs，不能被当成只有 6 能补的卡顺。
+      const result = detectDraws(
+        [card('♥', '5'), card('♠', '4')],
+        [card('♠', '2'), card('♣', 'K'), card('♠', '3')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(true);
+      expect(
+        result.draws.find((d) => d.type === 'open_ended_straight')?.outs,
+      ).toBe(8);
+      expect(result.draws.some((d) => d.type === 'gutshot')).toBe(false);
+      expect(result.totalOuts).toBe(8);
+    });
+
+    it('低端为 Ace: 2-3-4-5 换一组持牌同样识别 (8 outs)', () => {
+      const result = detectDraws(
+        [card('♥', '2'), card('♠', '3')],
+        [card('♣', '4'), card('♦', '5'), card('♥', 'K')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(true);
+      expect(result.totalOuts).toBe(8);
+    });
+
     it('已成顺子不检测为听牌', () => {
       const result = detectDraws(
         [card('♠', '5'), card('♥', '6')],
