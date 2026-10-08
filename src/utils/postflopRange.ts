@@ -210,8 +210,8 @@ function classifyUncached(
       return 'weak';
     }
     default: {
-      // `detectDraws` reports draw potential regardless of street, but on the
-      // river there are no cards to come — a no-pair hand is simply air.
+      // 河牌（cardsToCome = 0）没有牌可发，`detectDraws` 本身也已返回空，
+      // 这里短路一次省掉调用，同时让「无牌可发 = 没有听牌，只能是 air」就地可见。
       if (cardsToCome > 0) {
         const draws = detectDraws(combo, board, cardsToCome);
         if (draws.totalOuts >= 8) return 'draw';

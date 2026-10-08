@@ -1,5 +1,6 @@
 import { getGtoPostflopRecommendation } from '../gtoPostflop';
 import { analyzeBoard } from '../boardTexture';
+import { detectDraws } from '../drawDetector';
 import type { Card, HandRank } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -139,6 +140,30 @@ describe('GTO Postflop Engine', () => {
         toCall: 50,
       }));
       expect(rec.action).toBe('fold');
+    });
+
+    it('河牌 busted draw 按 air 处理，不再被当成听牌', () => {
+      // 4 张黑桃但河牌没中同花：没有补牌，属于 air，应与上面
+      // 「air on river IP: bluff bet」走同一条分支，而不是被 'draw' 挡成 check。
+      const communityCards = [
+        card('♠', 'K'), card('♠', '7'), card('♣', '2'),
+        card('♦', '9'), card('♥', '3'),
+      ];
+      const hand = [card('♠', 'A'), card('♠', '4')];
+      const draws = detectDraws(hand, communityCards, 0);
+
+      const rec = getGtoPostflopRecommendation(makeParams({
+        hand, communityCards, phase: 'river' as const,
+        boardTexture: analyzeBoard(communityCards),
+        equity: 0.10, potOdds: 0.25, handRank: 'high_card' as HandRank,
+        isButton: true, numOpponents: 1, toCall: 0,
+        draws,
+      }));
+
+      expect(draws.totalOuts).toBe(0);
+      expect(rec.action).toBe('raise');
+      expect(rec.freq?.bet).toBe(30);
+      expect(rec.reasoning).toContain('River bluff attempt');
     });
   });
 

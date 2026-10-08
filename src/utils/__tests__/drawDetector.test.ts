@@ -176,4 +176,35 @@ describe('Draw Detector', () => {
       expect(result.totalOuts).toBe(0);
     });
   });
+
+  describe('河牌无牌可发', () => {
+    const flushDrawHand = [card('♠', 'A'), card('♠', '4')];
+    const flushDrawBoard = [
+      card('♠', 'K'), card('♠', '7'), card('♣', '2'),
+      card('♦', '9'), card('♥', '3'),
+    ];
+    const oesdHand = [card('♠', '5'), card('♥', '6')];
+    const oesdBoard = [
+      card('♣', '7'), card('♦', '8'), card('♥', 'K'),
+      card('♦', '2'), card('♣', '3'),
+    ];
+
+    it('同一副牌在翻牌有听牌、到河牌就不再报', () => {
+      // 翻牌口径：4 张黑桃确实有补牌，2-3-4-5 的两头顺也确实有 8 outs。
+      const flop = detectDraws(flushDrawHand, flushDrawBoard.slice(0, 3), 2);
+      expect(flop.draws.some((d) => d.type === 'flush_draw')).toBe(true);
+      const flopOesd = detectDraws(oesdHand, oesdBoard.slice(0, 3), 2);
+      expect(flopOesd.totalOuts).toBe(8);
+
+      // 河牌口径：牌已发完，同样这几张牌不再有任何补牌。
+      const river = detectDraws(flushDrawHand, flushDrawBoard, 0);
+      expect(river.draws).toEqual([]);
+      expect(river.totalOuts).toBe(0);
+      expect(river.estimatedEquity).toBe(0);
+
+      const riverOesd = detectDraws(oesdHand, oesdBoard, 0);
+      expect(riverOesd.draws).toEqual([]);
+      expect(riverOesd.totalOuts).toBe(0);
+    });
+  });
 });

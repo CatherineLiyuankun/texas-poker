@@ -321,5 +321,35 @@ describe('gtoDeepStack', () => {
       expect(typeof recommendation.reasoning).toBe('string');
       expect(recommendation.reasoning.length).toBeGreaterThan(0);
     });
+
+    it('河牌 busted draw 不再走 draw 半诈唬', () => {
+      // 4 张黑桃但河牌没中同花：牌已发完，没有补牌，不能算听牌。
+      // chips 1000 / pot 200 ⇒ SPR 5 ⇒ control 分支，该分支正好有
+      // 「semi-bluff with draw」，修复前这里会误加注。
+      const player = createMockPlayer({
+        chips: 1000,
+        hand: [createCard('A', '♠'), createCard('4', '♠')],
+      });
+      const state = createMockGameState({
+        phase: 'river',
+        communityCards: [
+          createCard('K', '♠'),
+          createCard('7', '♠'),
+          createCard('2', '♣'),
+          createCard('9', '♦'),
+          createCard('3', '♥'),
+        ],
+      });
+      const flags = createMockActionFlags();
+      const ctx = createMockContext({ toCall: 0, totalPot: 200 });
+      const adj = createMockOpponentAdjustments();
+
+      const recommendation = getDeepStackRecommendation(player, state, flags, ctx, adj);
+
+      expect(recommendation.sprDecision).toBe('control');
+      expect(recommendation.reasoning).not.toContain('semi-bluff');
+      expect(recommendation.action).toBe('check');
+      expect(recommendation.reasoning).toContain('checking');
+    });
   });
 });
