@@ -20,6 +20,10 @@ import {
 } from '../utils/gtoRiver';
 import { getNodelockForOpponent, type LeakType } from '../utils/gtoNodelock';
 import { SMALL_BLIND } from '../utils/constant';
+// 蒙特卡洛迭代次数的唯一来源。面板以前自带一张表、还按对手数降到下限 120，
+// 而机器人那边又是另一串字面量（翻牌 200 / 河牌 500），于是**同一手牌面板显示的
+// 胜率和机器人据以决策的胜率不是同一个数** —— 用户没法用面板解释机器人的行为。
+import { equityIterations } from '../utils/equityIterations';
 import {
   calculateValueBluffRatio,
   calculateCallEV,
@@ -379,21 +383,6 @@ function opponentsCaveat(numOpponents: number): string {
   return multiway(numOpponents);
 }
 
-// 蒙特卡洛迭代次数：翻前要模拟 5 张公共牌，成本最高；单次模拟成本随对手数
-// 近似线性增长，因此多人底池自动下调迭代数，保证面板不卡顿。
-const EQUITY_ITERATIONS: Record<string, number> = {
-  preflop: 400,
-  flop: 350,
-  turn: 300,
-  river: 300,
-};
-
-function equityIterations(phase: GamePhase, numOpponents: number): number {
-  const base = EQUITY_ITERATIONS[phase] ?? 300;
-  const trimmed = Math.round(base * (2 / Math.max(2, numOpponents)));
-  return Math.min(base, Math.max(120, trimmed));
-}
-
 function StrengthBar({ value, color }: { value: number; color: string }) {
   return (
     <div className="w-10 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
@@ -559,7 +548,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       return;
     }
 
-    const iterations = equityIterations(phase, numOpponents);
+    const iterations = equityIterations(phase);
     const timer = setTimeout(() => {
       // 随机权益：所有对手都按随机牌建模
       const random = calculateEquity(

@@ -12,6 +12,8 @@ import {
 import { effectiveStackBB, stackBand } from './stackDepth';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { random } from './random';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
+import { equityIterations } from './equityIterations';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -301,7 +303,7 @@ export function getShortStackRecommendation(
 
   const community = getCommunityByPhase(state);
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
-    state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
+    equityIterations(state.phase));
   const evaluated = evaluateHand(player.hand, community);
   const strength = classifyPostflopHand(
     equity, evaluated.rank, null, HAND_STRENGTH_RULES,

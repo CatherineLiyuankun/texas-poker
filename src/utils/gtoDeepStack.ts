@@ -17,6 +17,8 @@ import {
 import { drawCallEquityThreshold } from './gtoMath';
 // 筹码深度的唯一来源：bb 换算从 stackDepth 取（本文件曾硬编码 `/10`）。
 import { effectiveStackBB } from './stackDepth';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
+import { equityIterations } from './equityIterations';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -578,7 +580,7 @@ export function getDeepStackRecommendation(
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
-    state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
+    equityIterations(state.phase));
 
   const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;

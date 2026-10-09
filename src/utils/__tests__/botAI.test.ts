@@ -1,6 +1,8 @@
 import { getBotAction, getBotName } from '../botAI';
+import * as equityCalculator from '../equityCalculator';
+import { equityIterations } from '../equityIterations';
 import { resetRandomSource, setRandomSeed, setRandomSource } from '../random';
-import type { Player, GameState, PlayerId } from '../../types/poker';
+import type { Player, GameState, PlayerId, Card } from '../../types/poker';
 
 function createPlayer(
   id: PlayerId,
@@ -486,6 +488,57 @@ describe('Bot AI 决策', () => {
       expect(second).toEqual(first);
       // 30 次里两种决策都出现过 → 证明这条路径真的在掷随机，而不是常量分支
       expect(new Set(first).size).toBeGreaterThan(1);
+    });
+  });
+
+  describe('权益迭代次数与面板同源（P2-e）', () => {
+    const AKs = [
+      { suit: '♠', rank: 'A' },
+      { suit: '♠', rank: 'K' },
+    ];
+    const flopCards: Card[] = [
+      { suit: '♥', rank: '2' },
+      { suit: '♦', rank: '7' },
+      { suit: '♣', rank: 'J' },
+    ];
+    const riverCards: Card[] = [
+      ...flopCards,
+      { suit: '♠', rank: '9' },
+      { suit: '♦', rank: '3' },
+    ];
+
+    // `calculateRangeAwareEquity` 最终落到 `calculateEquity`，把 `iterations` 透传下去。
+    // 用 spy 截住它，就能直接看到「这次决策实际用了多少次迭代」。
+    // （ts-jest 输出 CommonJS，`rangeEquity` 是 `mod.calculateEquity(...)` 属性访问，
+    //  所以 spyOn 能截住。）
+    const iterationsUsed = (state: GameState): number[] => {
+      const spy = jest.spyOn(equityCalculator, 'calculateEquity');
+      try {
+        getBotAction(createPlayer(2, 1000, AKs, false), state);
+        // calculateEquity(holeCards, community, numOpponents, iterations, options?) → 下标 3
+        return spy.mock.calls.map((c) => c[3] as number);
+      } finally {
+        spy.mockRestore();
+      }
+    };
+
+    it('翻牌用 350（旧代码写死 200）', () => {
+      const used = iterationsUsed(createGameState({
+        phase: 'flop', communityCards: flopCards, lastBet: 10, mainPot: 100,
+      }));
+      expect(used.length).toBeGreaterThan(0);
+      // 这次决策里的每一次权益计算都必须用同一个数
+      for (const it of used) expect(it).toBe(equityIterations('flop'));
+      expect(used[0]).toBe(350);
+    });
+
+    it('河牌用 300（旧代码写死 500）', () => {
+      const used = iterationsUsed(createGameState({
+        phase: 'river', communityCards: riverCards, lastBet: 10, mainPot: 100,
+      }));
+      expect(used.length).toBeGreaterThan(0);
+      for (const it of used) expect(it).toBe(equityIterations('river'));
+      expect(used[0]).toBe(300);
     });
   });
 });

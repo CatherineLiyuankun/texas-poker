@@ -23,6 +23,8 @@ import { getShortStackRecommendation } from './gtoShortStack';
 import { effectiveStackBB, stackBand } from './stackDepth';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { random } from './random';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数，否则同一手牌两边胜率不同。
+import { equityIterations } from './equityIterations';
 import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
 import { computePotOddsFor } from './potOdds';
 // 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
@@ -760,7 +762,7 @@ function decidePostflop(
 
   const community = getCommunityCardsByPhase(state);
 
-  const iterations = state.phase === 'flop' ? 200 : 300;
+  const iterations = equityIterations(state.phase);
   const equity = calculateRangeAwareEquity(
     player, state, community, ctx.numOpponents, iterations,
   );
@@ -884,7 +886,7 @@ function decideRiver(
 
   const community = getCommunityCardsByPhase(state);
   const equity = calculateRangeAwareEquity(
-    player, state, community, ctx.numOpponents, 500,
+    player, state, community, ctx.numOpponents, equityIterations(state.phase),
   );
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;

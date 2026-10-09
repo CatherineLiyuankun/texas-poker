@@ -8,6 +8,8 @@ import type {
 import { calculateRangeAwareEquity } from './rangeEquity';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { random } from './random';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
+import { equityIterations } from './equityIterations';
 import { evaluateHand } from './handEvaluator';
 import { detectDraws, type DrawInfo } from './drawDetector';
 import {
@@ -111,7 +113,7 @@ export function decidePostflopGTO(
   const texture = analyzeBoardWithEquity(community);
   const equity = calculateRangeAwareEquity(
     player, state, community, ctx.numOpponents,
-    state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
+    equityIterations(state.phase),
   );
   const draws = detectDraws(player.hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(player.hand, community);
