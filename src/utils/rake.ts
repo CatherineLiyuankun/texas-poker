@@ -5,8 +5,8 @@
  *
  * 现金局里牌室从每个底池里抽走一块佣金。它和 ICM 是**替代关系、不是叠加关系**：
  * 锦标赛不逐手抽水（主办方在报名时一次性抽手续费），它让边际决策变亏的手段是
- * 奖金结构的非线性 —— 那就是 `gtoICM` 的风险溢价。所以本模块在
- * `isTournamentScenario()` 为真时**恒返回不抽水**，否则边际会被罚两次。
+ * 奖金结构的非线性 —— 那就是 `gtoICM` 的风险溢价。所以本模块在赛制为锦标赛时
+ * **恒返回不抽水**，否则边际会被罚两次。
  *
  * ## 口径：抽水折成有效赔率
  *
@@ -49,7 +49,7 @@
  * 看起来像环的依赖 —— 现在依赖只有一个方向：`rake.ts` → `gtoConfig`。
  */
 
-import { isTournamentScenario } from './gtoConfig';
+import { getGtoConfig, type GameScenario } from './gtoConfig';
 
 /** 抽水模式。 */
 export type RakeMode = 'none' | 'percent' | 'bb';
@@ -126,16 +126,36 @@ export function callThresholdFor(
 }
 
 /**
- * 当前**生效**的抽水配置：锦标赛恒为不抽水（与 ICM 互斥，见文件头）。
+ * 指定赛制下**生效**的抽水配置：锦标赛恒为不抽水（与 ICM 互斥，见文件头）。
  *
- * 调用方一律用这个，不要直接读 `getRakeConfig()` —— 否则锦标赛下会漏掉赛制门。
+ * 这是「赛制门」的**唯一**实现。调用方有两种喂法：
+ *
+ * - 手上只有全局态（决策层，如 `botAI`）→ 用 `effectiveRakeConfig()`；
+ * - 手上已有赛制值（渲染层，如 `HandAnalysis` 拿的是 `scenario` prop）→ 用本函数，
+ *   **不要**再去读全局态。面板的 ICM 标注一直用的是 prop，抽水标注若读全局态就会
+ *   和它分叉：`GameBoard` 把赛制同步进 `gtoConfig` 是在 `useEffect` 里，赛制刚切换
+ *   的那一帧 prop 已变、全局态还没变。
  */
-export function effectiveRakeConfig(): Readonly<RakeConfig> {
-  return isTournamentScenario() ? NO_RAKE : config;
+export function effectiveRakeConfigFor(
+  scenario: GameScenario | undefined,
+): Readonly<RakeConfig> {
+  return scenario === 'tournament' ? NO_RAKE : config;
 }
 
 /**
- * 当前生效配置下的跟注门槛。这是决策层唯一该调的入口。
+ * 当前**生效**的抽水配置（按全局赛制）。调用方一律用这个或
+ * `effectiveRakeConfigFor`，不要直接读 `getRakeConfig()` —— 否则锦标赛下会漏掉赛制门。
+ */
+export function effectiveRakeConfig(): Readonly<RakeConfig> {
+  return effectiveRakeConfigFor(getGtoConfig().scenario);
+}
+
+/**
+ * 当前生效配置下的跟注门槛。这是**决策层**（手上只有全局态）该调的入口。
+ *
+ * 渲染层若已持有赛制值，请改用
+ * `callThresholdFor(toCall, totalPot, bigBlind, effectiveRakeConfigFor(scenario))`，
+ * 理由见 `effectiveRakeConfigFor`。
  *
  * `bigBlind` 由调用方传入（本应用里是 `state.smallBlind * 2`），
  * 因为本模块不该知道 `GameState` 的形状。

@@ -207,6 +207,8 @@ export const translations = {
       noOpponent: '无对手',
       noIcm: '未计 ICM',
       icm: '计 ICM（锦标赛）',
+      noRake: '未计抽水',
+      rake: '已计抽水',
     },
     rangeCategories: {
       value: 'Value', // 价值牌

@@ -171,6 +171,41 @@ describe('GTO Math Functions', () => {
     it('should return 0 when no bet to call', () => {
       expect(calculateCallEV(0.6, 100, 0)).toBe(0);
     });
+
+    // B3-b：抽水只从**赢**的那一侧扣（赢家实收 = 最终底池 − 抽水）。
+    describe('抽水参数（默认 0 → 逐位等于旧实现）', () => {
+      it('不传抽水时与显式传 0 完全相同', () => {
+        for (const [e, p, b] of [[0.6, 100, 50], [0.3, 100, 50], [1 / 3, 100, 50]]) {
+          expect(calculateCallEV(e, p, b)).toBe(calculateCallEV(e, p, b, 0));
+        }
+      });
+
+      it('抽水把 EV 拉低（赢的那一侧少拿 rake）', () => {
+        // e·(100 − 10) − (1−e)·50 = 0.6·90 − 0.4·50 = 54 − 20 = 34
+        expect(calculateCallEV(0.6, 100, 50, 10)).toBeCloseTo(34, 10);
+        expect(calculateCallEV(0.6, 100, 50, 10)).toBeLessThan(
+          calculateCallEV(0.6, 100, 50),
+        );
+      });
+
+      it('盈亏平衡点抬到 betToCall / (potSize + betToCall − rake)', () => {
+        // 盈亏平衡 e = 50 / (100 + 50 − 10) = 50 / 140
+        const e = 50 / 140;
+        expect(calculateCallEV(e, 100, 50, 10)).toBeCloseTo(0, 10);
+        // 而**原始**赔率 50/150 在抽水下已经是负 EV
+        expect(calculateCallEV(50 / 150, 100, 50, 10)).toBeLessThan(0);
+      });
+
+      it('抽水超过底池时兜底为「赢也拿不到东西」，不会算出倒贴', () => {
+        // winnable 夹到 0 → EV = −(1−e)·betToCall，恒 ≤ 0
+        expect(calculateCallEV(0.9, 100, 50, 999)).toBeCloseTo(-5, 10);
+      });
+
+      it('抽水为 0 或负数时与不抽水一致（负数不会变成奖励）', () => {
+        expect(calculateCallEV(0.6, 100, 50, 0)).toBe(calculateCallEV(0.6, 100, 50));
+        expect(calculateCallEV(0.6, 100, 50, -10)).toBe(calculateCallEV(0.6, 100, 50));
+      });
+    });
   });
 
   describe('drawCallEquityThreshold（听牌跟注门槛 = 赔率 − 隐含赔率额度）', () => {

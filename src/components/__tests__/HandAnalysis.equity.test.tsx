@@ -5,6 +5,8 @@ import { getMDFReferenceTable } from '../../utils/gtoMath';
 import { startNewHand, recordAction, resetOpponentStats } from '../../utils/opponentModel';
 import { evaluateHand } from '../../utils/handEvaluator';
 import { getCommunityByPhase } from '../../utils/communityByPhase';
+import { resetGtoConfig } from '../../utils/gtoConfig';
+import { resetRakeConfig, setRakeConfig } from '../../utils/rake';
 import type { Card, GamePhase, GameState, Player, PlayerId } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -82,6 +84,7 @@ async function renderPanel(
     currentPot: number;
     betToCall: number;
     playerRaiseAmount: number | null;
+    scenario: 'cash' | 'tournament';
   }> = {},
 ) {
   render(
@@ -98,6 +101,7 @@ async function renderPanel(
       gameState={state}
       heroPlayer={hero}
       positionLabel="BTN"
+      scenario={overrides.scenario}
     />,
   );
 
@@ -844,5 +848,133 @@ describe('HandAnalysis 加注 EV 口径（只对真加注给 EV）', () => {
     });
 
     expect(screen.getByText(translations.gtoMath.raiseEV)).toBeTruthy();
+  });
+});
+
+describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
+  // 口径标注是纯文本，直接断言页面上出现了哪一句话 —— 比按 class 找元素稳。
+  const caveat = () => document.body.textContent ?? '';
+
+  beforeEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  const aaHero = () =>
+    mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 20,
+    });
+  const kkOpp = () =>
+    mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+
+  const renderAA = async (scenario?: 'cash' | 'tournament') => {
+    const hero = aaHero();
+    const opp = kkOpp();
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], { scenario });
+  };
+
+  it('现金局 + 未设抽水：标注「未计抽水」+「未计 ICM」', async () => {
+    await renderAA();
+    expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
+    expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
+  });
+
+  it('现金局 + 设了抽水：标注改为「已计抽水」，ICM 仍未计', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    await renderAA();
+    expect(caveat()).toContain(translations.gtoMath.caveat.rake);
+    expect(caveat()).not.toContain(translations.gtoMath.caveat.noRake);
+    expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
+  });
+
+  it('锦标赛 + 设了抽水：抽水标注回到「未计抽水」，ICM 变「计 ICM（锦标赛）」', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    await renderAA('tournament');
+    expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
+    expect(caveat()).not.toContain(translations.gtoMath.caveat.rake);
+    expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+  });
+});
+
+describe('面板翻后建议用抽水后价格（B3-b）', () => {
+  // 面板的翻后/河牌建议曾经直接吃 `potOdds` prop（**原始赔率**），而机器人吃的是
+  // `ctx.potOdds`（现金局已折进抽水）—— 两边会给出不同建议，用户没法用面板解释机器人。
+  // 现在两边都走 `callThresholdFor`。
+  //
+  // 判据用 Reasoning 行里的 `vs Pot Odds X%`：`getRiverStrategy` 的**每个**分支都会
+  // 把它格式化进理由，所以这条断言与手牌强度、权益大小都无关，完全稳定。
+  const caveat = () => document.body.textContent ?? '';
+
+  beforeEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  // 小盲 10 → 大盲 20；toCall 20 / totalPot 60。
+  // 原始赔率 = 20 / (60 + 20) = 25.0%。
+  // 5% 抽水（封顶 3BB = 60，未触顶）→ rake = 4 → 20 / 76 = 26.3157…% → 26.3%。
+  const RIVER_BOARD = [
+    card('♠', 'K'),
+    card('♦', '7'),
+    card('♣', '2'),
+    card('♥', 'J'),
+    card('♦', '4'),
+  ];
+
+  const renderRiver = async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♠', 'Q')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    await renderPanel(hero, mkState([hero, opp], 'river', RIVER_BOARD), 1, 'river', RIVER_BOARD, {
+      scenario: 'cash',
+    });
+  };
+
+  it('未设抽水：建议里的价格就是原始赔率 25.0%（对照组，证明断言不空转）', async () => {
+    await renderRiver();
+    expect(caveat()).toContain('Pot Odds 25.0%');
+  });
+
+  it('设了 5% 抽水：建议里的价格被抬到 26.3%，不再是原始赔率', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    await renderRiver();
+    expect(caveat()).toContain('Pot Odds 26.3%');
+    expect(caveat()).not.toContain('Pot Odds 25.0%');
+  });
+
+  it('锦标赛下即便设了抽水，建议仍用原始赔率 25.0%（与 ICM 互斥）', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♠', 'Q')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    await renderPanel(hero, mkState([hero, opp], 'river', RIVER_BOARD), 1, 'river', RIVER_BOARD, {
+      scenario: 'tournament',
+    });
+    expect(caveat()).toContain('Pot Odds 25.0%');
   });
 });

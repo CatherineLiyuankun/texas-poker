@@ -105,13 +105,32 @@ export function calculateValueBluffRatio(
   return { valuePct, bluffPct, ratio: formatValueBluffRatio(valuePct, bluffPct) };
 }
 
+/**
+ * 跟注 EV。
+ *
+ * ```text
+ * 赢：+potSize（拿走当前底池，自己的跟注额退回来）  输：−betToCall
+ * EV = e·potSize − (1−e)·betToCall   ⇒  盈亏平衡 e = betToCall / (potSize + betToCall)
+ * ```
+ * 那个盈亏平衡点正是 `potOdds.callPotOdds`。
+ *
+ * `rake` 是这一手要交的抽水（筹码量，默认 0 = 不抽水）。现金局里赢家实收的是
+ * **最终底池减抽水**，所以赢的那一侧变成 `potSize − rake`（推导见 `rake.ts` 文件头），
+ * 盈亏平衡点随之抬高到 `betToCall / (potSize + betToCall − rake)` —— 与
+ * `rake.callThresholdFor` 同一个口径。抽水只从**赢**的那一侧扣，输的那一侧不变。
+ *
+ * 默认 0 时逐位等于旧实现（不抽水的行为完全不变）。
+ */
 export function calculateCallEV(
   equity: number,
   potSize: number,
   betToCall: number,
+  rake = 0,
 ): number {
   if (betToCall <= 0) return 0;
-  return equity * potSize - (1 - equity) * betToCall;
+  // 负数抽水不该变成奖励；抽水超过底池也不该让「赢」变成倒贴 —— 两头都夹住。
+  const winnable = Math.max(0, potSize - Math.max(0, rake));
+  return equity * winnable - (1 - equity) * betToCall;
 }
 
 /**

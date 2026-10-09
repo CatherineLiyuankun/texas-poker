@@ -37,6 +37,12 @@ import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
 import type { GameScenario } from '../utils/gtoConfig';
+import {
+  callThresholdFor,
+  effectiveRakeConfigFor,
+  isRakeEnabled,
+  rakeAmountFor,
+} from '../utils/rake';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -630,10 +636,34 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     );
   }, [gameState, heroPlayer, opponentProfile, decisionEquity, phase]);
 
+  // 生效的抽水配置：**按 `scenario` prop** 推导，与下面 ICM 标注同源。
+  //
+  // 这里刻意不用 `effectiveRakeConfig()`（它读全局 `gtoConfig`）：`GameBoard` 是把
+  // 赛制同步进 `gtoConfig` 的（`useEffect`），赛制刚切换的那一帧 prop 已变、全局态
+  // 还没变，读全局态会让「ICM 标注」与「抽水标注」短暂打架。规则本身仍只有一处
+  // ——`effectiveRakeConfigFor`。
+  const rakeConfig = useMemo(() => effectiveRakeConfigFor(scenario), [scenario]);
+
+  // 面板建议用的「跟注价格」：现金局叠加抽水，与机器人 `ctx.potOdds` 同口径
+  // （机器人在 `botAI.getBotAction` 里算一次，见 `ContextInfo.potOdds`）。
+  //
+  // 显示行「赔率 Pot Odds」仍然显示**原始赔率**（`potOdds` prop）—— 那是「不计抽水」
+  // 的赔率；两个口径的差异由下方 GTO Math 的标注说明，不在这里偷改显示值。
+  const callThreshold = useMemo(
+    () =>
+      callThresholdFor(
+        betToCall ?? 0,
+        currentPot ?? 0,
+        (gameState?.smallBlind ?? 0) * 2,
+        rakeConfig,
+      ),
+    [betToCall, currentPot, gameState?.smallBlind, rakeConfig],
+  );
+
   const recommendation = useMemo(() => {
     if (decisionEquity === null) return '';
-    return getPanelRecommendation(decisionEquity, potOdds, phase);
-  }, [decisionEquity, potOdds, phase]);
+    return getPanelRecommendation(decisionEquity, callThreshold, phase);
+  }, [decisionEquity, callThreshold, phase]);
 
   // 翻后 GTO 建议（面板「Board 牌面 / Action / Reasoning」三行）。
   //
@@ -668,7 +698,9 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         hand: holeCards,
         communityCards: community,
         equity: decisionEquity,
-        potOdds,
+        // 用**抽水后**的跟注价格，与机器人 `ctx.potOdds` 同口径（见上方 `callThreshold`）。
+        // 显示行「赔率 Pot Odds」仍显示原始赔率，差异由 GTO Math 口径标注说明。
+        potOdds: callThreshold,
         numOpponents,
         position,
         totalPlayers,
@@ -684,7 +716,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       communityCards: community,
       phase,
       equity: decisionEquity,
-      potOdds,
+      potOdds: callThreshold,
       // 与面板 SPR 行同口径：有效筹码 / 底池
       spr: spr ?? 999,
       position,
@@ -704,7 +736,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       lastRaiseBet: gameState?.lastRaiseBet ?? 0,
     });
   }, [
-    phase, community, holeCards, boardTexture, decisionEquity, potOdds, spr,
+    phase, community, holeCards, boardTexture, decisionEquity, callThreshold, spr,
     numOpponents, currentHandRank, drawInfo, betToCall, currentPot, gameState,
     heroPlayer,
   ]);
@@ -750,7 +782,16 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       : null;
 
     // EV calculations
-    const callEV = bet > 0 ? calculateCallEV(eq, pot, bet) : null;
+    //
+    // 跟注 EV 要按**抽水后**的底池算，否则会与上面的建议行打架：抽水把盈亏平衡点
+    // 抬高后，建议行可能说「弃牌」，而用原始底池算出来的 Call EV 还是正的、标着
+    // 「✅call」。抽水从最终底池（含跟注额）里扣，与 `rake.callThresholdFor` 同口径。
+    const rakeOnCall = rakeAmountFor(
+      pot + bet,
+      (gameState?.smallBlind ?? 0) * 2,
+      rakeConfig,
+    );
+    const callEV = bet > 0 ? calculateCallEV(eq, pot, bet, rakeOnCall) : null;
 
     // Raise EV：弃牌率由「1 − MDF」推出（GTO 对手按 MDF 防守），
     // 不再手写 `0.3 + (尺度 − 50) × 0.005` 的线性模型。
@@ -781,10 +822,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       : null;
 
     return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
-  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer]);
+  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer, rakeConfig, gameState?.smallBlind]);
 
-  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导，未计抽水与 ICM。
-  // 显式标出来，避免把近似值误读成完整 GTO 解。
+  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导。抽水与 ICM 各自是否
+  // 计入随「用户设置 / 赛制」变，所以这里把两段都显式标出来，避免把近似值误读成
+  // 完整 GTO 解。
   const gtoMathCaveat = useMemo(() => {
     const street = translations.gtoMath.caveat.street[phase];
     // ICM 口径随赛制变：现金局不叠加 ICM，锦标赛叠加。
@@ -792,10 +834,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       scenario === 'tournament'
         ? translations.gtoMath.caveat.icm
         : translations.gtoMath.caveat.noIcm;
-    return [street, opponentsCaveat(numOpponents), icm].join(' · ');
-  }, [phase, numOpponents, scenario]);
+    // 抽水口径：现金局且用户在 StartPage 设了抽水时才算进去；锦标赛恒不抽水
+    // （与 ICM 互斥，所以这两段标注在锦标赛下必然是一个「计」+ 一个「未计」）。
+    const rake = isRakeEnabled(rakeConfig)
+      ? translations.gtoMath.caveat.rake
+      : translations.gtoMath.caveat.noRake;
+    return [street, opponentsCaveat(numOpponents), icm, rake].join(' · ');
+  }, [phase, numOpponents, scenario, rakeConfig]);
 
-  // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
+  // 底池赔率行显示的是**原始赔率**（`potOdds` prop，`computePotOddsFor` 的口径）。
+  // 而建议（`recommendation`）与机器人 `ctx.potOdds` 用的是**叠加抽水后**的价格
+  // （`callThreshold`）—— 两者在现金局设了抽水时**不相等**，差异由上方口径标注说明。
   // 没有跟注额（可以免费过牌）时无意义，显示为 —。
   const callPotOdds = potOdds > 0 ? potOdds : null;
 
@@ -942,7 +991,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             {translations.handAnalysis.equityVsRandom}
           </div>
 
-          {/* 底池赔率：恒为跟注赔率，与机器人决策同口径 */}
+          {/* 底池赔率：显示**原始赔率**（不含抽水）。机器人与面板建议用的是
+              `callThreshold`（现金局已折进抽水），差异由口径标注说明。 */}
           <GridRow
             label={translations.handAnalysis.potOdds}
             value={callPotOdds !== null ? `${(callPotOdds * 100).toFixed(0)}%` : '—'}
@@ -1164,7 +1214,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
         </div>
 
-        {/* 口径说明：本区块是单街闭式 + 单挑推导，且未计抽水 / ICM */}
+        {/* 口径说明：本区块是单街闭式 + 单挑推导；抽水与 ICM 是否计入随
+            「用户设置 / 赛制」变，由 `gtoMathCaveat` 逐段标出。 */}
         <div className="text-[9px] leading-tight text-white/40 mt-1">
           {gtoMathCaveat}
         </div>

@@ -2,6 +2,7 @@ import type { GameState, Player, Card, Rank, Suit } from '../../types/poker';
 import type { ActionFlags, ContextInfo } from '../botAI';
 import type { OpponentAdjustments } from '../opponentModel';
 import { decideRiverGTO } from '../gtoRiver';
+import * as rangeEquity from '../rangeEquity';
 
 function createCard(rank: Rank, suit: Suit): Card {
   return { rank, suit };
@@ -191,5 +192,57 @@ describe('decideRiverGTO', () => {
     const decision = decideRiverGTO(player, state, flags, ctx, adj);
 
     expect(['call', 'fold', 'raise']).toContain(decision.action);
+  });
+});
+
+/**
+ * 河牌曾经用 `callPotOddsFrom(ctx.toCall, ctx.totalPot)` **自己重算**原始赔率，
+ * 而不是读 `ctx.potOdds` —— 于是现金局设了抽水后，河牌门槛仍是原始赔率
+ * （B3-b 的缺口：其它引擎都读 `ctx.potOdds`，只有河牌绕过去了）。
+ *
+ * 这里把 `ctx.potOdds` 设成与「重算值」**不同**的数，断言决策跟着 `ctx.potOdds` 走。
+ * 原始赔率 = 50 / (150 + 50) = 0.25，故意给 0.55 / 0.65。
+ *
+ * 判据只断言 `action`，不断言 `reasoning`：`decideRiverGTO` 经 `resolveAction`
+ * 返回的决策**不带**理由（只有加注分支经 `createRaiseAction` 才带），
+ * 所以理由是拿不到的。
+ */
+describe('decideRiverGTO 用 ctx.potOdds 作跟注价格（不重算原始赔率）', () => {
+  let equitySpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    // 必须在 beforeEach 里建：`restoreAllMocks` 会在每条用例后把 spy 还原，
+    // 放在 describe 体里只有第一条用例有效。
+    equitySpy = jest.spyOn(rangeEquity, 'calculateRangeAwareEquity');
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const decide = (potOdds: number, equity: number) => {
+    equitySpy.mockReturnValue(equity);
+    const ctx = createMockContext({ toCall: 50, totalPot: 150, potOdds });
+    return decideRiverGTO(
+      createMockPlayer(),
+      createMockGameState(),
+      createMockActionFlags(),
+      ctx,
+      createMockOpponentAdjustments(),
+    );
+  };
+
+  it('同一权益下门槛跟着 ctx.potOdds 走：低赔率跟注、高赔率弃牌', () => {
+    // 默认手牌 A♥K♥ + 默认牌面（A K Q J 10）→ 公共牌顺子 → STRONG 档，
+    // 判据是 `equity >= potOdds + 0.05`。取权益 0.60：
+    //   potOdds 0.50 → 0.60 >= 0.55 → 跟注
+    //   potOdds 0.60 → 0.60 >= 0.65 → 弃牌
+    // （刻意不取 0.55：`0.55 + 0.05 === 0.6000000000000001`，会踩到浮点边界。）
+    expect(decide(0.5, 0.6).action).toBe('call');
+    expect(decide(0.6, 0.6).action).toBe('fold');
+
+    // 对照：原始赔率（50 / 200 = 0.25）下是跟注 —— 所以上面那条「0.60 弃牌」
+    // 只可能来自 `ctx.potOdds`，不可能是重算值。这才是真正的判别断言。
+    expect(decide(0.25, 0.6).action).toBe('call');
   });
 });

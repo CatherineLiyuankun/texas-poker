@@ -3,6 +3,7 @@ import {
   callThresholdFor,
   callThresholdWithRake,
   effectiveRakeConfig,
+  effectiveRakeConfigFor,
   getRakeConfig,
   isRakeEnabled,
   rakeAmountFor,
@@ -11,6 +12,7 @@ import {
   type RakeConfig,
 } from '../rake';
 import { callPotOddsFrom } from '../potOdds';
+import { calculateCallEV } from '../gtoMath';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
 
 /** 6 人桌 20 大盲桌的小盲取 10 → 大盲 20。 */
@@ -143,6 +145,29 @@ describe('抽水后的跟注门槛', () => {
     const c = cfg({ mode: 'percent', value: 200 });
     expect(callThresholdFor(50, 150, BB, c)).toBe(1);
   });
+
+  // 面板建议行用的是 `callThresholdFor`，而 GTO Math 的 Call EV 用的是
+  // `calculateCallEV(equity, pot, toCall, rake)`。两者必须是**同一个盈亏平衡点**，
+  // 否则会出现「建议行说弃牌、Call EV 却是正的并标 ✅call」这种自相矛盾。
+  test('抽水后的门槛正是 calculateCallEV(…, rake) 的盈亏平衡点（EV = 0）', () => {
+    for (const c of [
+      cfg({ mode: 'percent', value: 5, capBB: 3 }),
+      cfg({ mode: 'percent', value: 5 }),
+      cfg({ mode: 'bb', value: 2 }),
+    ]) {
+      for (const [toCall, totalPot] of [[50, 150], [200, 300], [10, 40]] as const) {
+        const threshold = callThresholdFor(toCall, totalPot, BB, c);
+        const rake = rakeAmountFor(totalPot + toCall, BB, c);
+        expect(calculateCallEV(threshold, totalPot, toCall, rake)).toBeCloseTo(0, 10);
+        // 而**原始**赔率在抽水下已经是负 EV（否则这条断言是空转的）
+        if (isRakeEnabled(c)) {
+          expect(
+            calculateCallEV(callPotOddsFrom(toCall, totalPot), totalPot, toCall, rake),
+          ).toBeLessThan(0);
+        }
+      }
+    }
+  });
 });
 
 describe('赛制门：锦标赛恒不抽水（与 ICM 互斥）', () => {
@@ -169,6 +194,30 @@ describe('赛制门：锦标赛恒不抽水（与 ICM 互斥）', () => {
     setGtoConfig({ scenario: 'tournament' });
     setGtoConfig({ scenario: 'cash' });
     expect(callThresholdWithRake(50, 150, BB)).toBeGreaterThan(callPotOddsFrom(50, 150));
+  });
+
+  // 渲染层（HandAnalysis）拿的是 `scenario` prop，不是全局态。若它去读全局态，
+  // 就会在「赛制刚切换、`GameBoard` 的同步 effect 还没跑」的那一帧与 ICM 标注分叉。
+  describe('effectiveRakeConfigFor：按显式赛制推导（渲染层路径）', () => {
+    test('显式传入 tournament 时恒不抽水，**即使全局态仍是现金局**', () => {
+      setRakeConfig(cfg({ mode: 'percent', value: 5, capBB: 3 }));
+      setGtoConfig({ scenario: 'cash' }); // 全局态故意与之相左
+      expect(effectiveRakeConfigFor('tournament')).toEqual(NO_RAKE);
+      expect(effectiveRakeConfigFor('cash')).toEqual(cfg({ mode: 'percent', value: 5, capBB: 3 }));
+    });
+
+    test('未传赛制（prop 缺省）按现金局处理 —— 与面板默认一致', () => {
+      setRakeConfig(cfg({ mode: 'percent', value: 5, capBB: 3 }));
+      expect(effectiveRakeConfigFor(undefined)).toEqual(cfg({ mode: 'percent', value: 5, capBB: 3 }));
+    });
+
+    test('与全局态一致时，两条路径给出同一个配置', () => {
+      setRakeConfig(cfg({ mode: 'bb', value: 2 }));
+      setGtoConfig({ scenario: 'cash' });
+      expect(effectiveRakeConfigFor('cash')).toEqual(effectiveRakeConfig());
+      setGtoConfig({ scenario: 'tournament' });
+      expect(effectiveRakeConfigFor('tournament')).toEqual(effectiveRakeConfig());
+    });
   });
 });
 

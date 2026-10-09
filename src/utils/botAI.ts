@@ -33,6 +33,7 @@ import {
   type Position,
 } from './gtoICM';
 import { computePotOddsFor } from './potOdds';
+import { callThresholdWithRake } from './rake';
 // 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
 import { isGtoEngine } from './gtoConfig';
 
@@ -53,6 +54,17 @@ export interface ActionFlags {
 export interface ContextInfo {
   toCall: number;
   totalPot: number;
+  /**
+   * **跟注价格**（跟注所需的权益），不是「原始赔率」。
+   *
+   * 现金局里已经叠加了抽水（见 `rake.ts`）：赢家实收的是底池减抽水，所以盈亏平衡点
+   * 比 `toCall / (totalPot + toCall)` 更高。锦标赛下 `rake` 恒为 0，于是这里就等于
+   * 原始赔率 —— 与 ICM 溢价**互斥**，不会叠加。
+   *
+   * 下游所有模块（`gtoPostflop` / `gtoDeepStack` / `gtoRiver` / `gtoShortStack` /
+   * `gtoICM`）都把这个字段当「跟注价格」用，所以「口径统一」只需要在
+   * `getBotAction` 里算一次，不必去改二十多处比较点。
+   */
   potOdds: number;
   position: number;
   totalPlayers: number;
@@ -1014,7 +1026,10 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     state.players.length,
   );
   const totalPot = potOddsInfo.totalPot;
-  const potOdds = potOddsInfo.callPotOdds;
+  // 跟注价格：现金局把抽水折进分母（`callThresholdWithRake`），锦标赛恒等于原始赔率。
+  // 这里**刻意**替换掉 `potOddsInfo.callPotOdds` —— 下游拿 `ctx.potOdds` 当门槛用，
+  // 换这一处就等于全链路生效（详见 `ContextInfo.potOdds` 的注释）。
+  const potOdds = callThresholdWithRake(toCall, totalPot, state.smallBlind * 2);
   const numOpponents = activePlayers.length;
 
   const ctx: ContextInfo = {

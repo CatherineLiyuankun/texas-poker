@@ -2,7 +2,15 @@ import { getBotAction, getBotName } from '../botAI';
 import * as equityCalculator from '../equityCalculator';
 import { equityIterations } from '../equityIterations';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
-import { resetRandomSource, setRandomSeed, setRandomSource } from '../random';
+import { mulberry32, resetRandomSource, setRandomSeed, setRandomSource } from '../random';
+import * as rake from '../rake';
+import {
+  callThresholdFor,
+  callThresholdWithRake,
+  effectiveRakeConfigFor,
+  resetRakeConfig,
+  setRakeConfig,
+} from '../rake';
 import type { Player, GameState, PlayerId, Card } from '../../types/poker';
 
 function createPlayer(
@@ -584,6 +592,84 @@ describe('Bot AI 决策', () => {
       // 72o 档位 6（代表权益 0.30）远够不到「跟注赔率 + 风险溢价」→ 弃牌，且理由来自 ICM
       expect(decision.reasoning ?? '').toContain('ICM调整');
       expect(decision.action).toBe('fold');
+    });
+  });
+
+  describe('现金局抽水接入跟注价格（B3-b）', () => {
+    // 探针实测选出的确定性局面：72o 面对「5 跟 100」的极好赔率，策略随机源固定在 0.99
+    // 时不会落进加注 / 诈唬分支，于是走到**只看赔率、不碰权益**的
+    // `ctx.potOdds < 0.25 → 跟注` 分支 —— 整条决策因此完全确定。
+    //
+    // 抽水把它从 4.76%（5 / 105）抬到 95%（5 / 5.25）后，同一个分支不再命中 → 弃牌。
+    // 这里刻意用极端抽水值把「接线是否生效」钉死；**边际值**的行为由 `rake.test.ts` 覆盖。
+    const WEAK = [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '7' }];
+    const cheapSpot = () => createGameState({ lastBet: 5, mainPot: 100, smallBlind: 5 });
+    const hero = () => createPlayer(2, 990, WEAK, false);
+    const EXTREME_RAKE = { mode: 'percent' as const, value: 95, capBB: 0 };
+
+    beforeEach(() => {
+      // 策略随机源固定 → 不落进加注 / 诈唬分支。
+      setRandomSource(() => 0.99);
+      // 蒙特卡洛权益也固定，免得它成为两个断言之间的隐藏变量。
+      jest.spyOn(Math, 'random').mockImplementation(mulberry32(2026));
+    });
+
+    afterEach(() => {
+      resetRakeConfig();
+      resetGtoConfig();
+      resetRandomSource();
+      jest.restoreAllMocks();
+    });
+
+    it('不抽水时，极好赔率下的薄跟注会发生', () => {
+      resetRakeConfig();
+      expect(getBotAction(hero(), cheapSpot()).action).toBe('call');
+    });
+
+    it('设了抽水后同一局面被门槛挡掉（行为变更）', () => {
+      setRakeConfig(EXTREME_RAKE);
+      expect(getBotAction(hero(), cheapSpot()).action).toBe('fold');
+    });
+
+    it('锦标赛下抽水失效、改由 ICM 接管（两者互斥，不叠加）', () => {
+      setRakeConfig(EXTREME_RAKE);
+      setGtoConfig({ scenario: 'tournament' });
+
+      // 实测：**2 人桌均势筹码也会触发 ICM**（风险溢价 42.3% —— 单挑的奖金结构
+      // 让 bubble factor 很高）。所以这里观察到的收紧来自 ICM，而不是抽水。
+      const decision = getBotAction(hero(), cheapSpot());
+      expect(decision.reasoning ?? '').toContain('ICM调整');
+      expect(decision.action).toBe('fold');
+
+      // 关键：那个极端抽水值**没有**渗进锦标赛的门槛 —— 仍是原始赔率。
+      expect(callThresholdWithRake(5, 100, 10)).toBeCloseTo(5 / 105, 12);
+    });
+
+    it('跟注价格来自 callThresholdWithRake，大盲 = 小盲 × 2', () => {
+      const spy = jest.spyOn(rake, 'callThresholdWithRake');
+      getBotAction(hero(), cheapSpot());
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      // toCall = lastBet 5 − hero.bet 0；totalPot = mainPot 100；大盲 = 小盲 5 × 2
+      expect(spy.mock.calls[0]).toEqual([5, 100, 10]);
+    });
+
+    it('面板与机器人共用同一条口径：同一局面两边算出同一个跟注价格', () => {
+      setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+      // 面板侧（HandAnalysis）算的是
+      //   callThresholdFor(betToCall, currentPot, 大盲, effectiveRakeConfigFor(scenario))
+      // —— 现金局下与机器人 `getBotAction` 里那一次调用等价，这里直接断言两者相等。
+      const panelSide = callThresholdFor(
+        5,
+        100,
+        10,
+        effectiveRakeConfigFor('cash'),
+      );
+      const spy = jest.spyOn(rake, 'callThresholdWithRake');
+      getBotAction(hero(), cheapSpot());
+      expect(spy.mock.results[0].value).toBe(panelSide);
+      // 且确实高于原始赔率（否则这条断言是空的）
+      expect(panelSide).toBeGreaterThan(5 / 105);
     });
   });
 });

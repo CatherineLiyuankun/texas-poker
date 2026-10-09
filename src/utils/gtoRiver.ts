@@ -10,7 +10,6 @@ import { calculateRangeAwareEquity } from './rangeEquity';
 import { random } from './random';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
 import { equityIterations } from './equityIterations';
-import { callPotOddsFrom } from './potOdds';
 import { calculateBluffFrequency } from './gtoMath';
 
 export const HandStrength = {
@@ -522,7 +521,11 @@ export function decideRiverGTO(
     texture,
     isIP: isIP(ctx),
     isMultiway: ctx.numOpponents > 1,
-    potOdds: callPotOddsFrom(ctx.toCall, ctx.totalPot),
+    // 跟注价格直接用 `ctx.potOdds` —— **不要**在这里用 `callPotOddsFrom(ctx.toCall,
+    // ctx.totalPot)` 重算：那个式子只给「原始赔率」，会把现金局的抽水丢掉。
+    // `ctx.potOdds` 由 `botAI.getBotAction` 统一算好（抽水折进分母，锦标赛恒等于原始
+    // 赔率），下游所有引擎共用这一个口径 —— 见 `ContextInfo.potOdds` 的注释。
+    potOdds: ctx.potOdds,
     toCall: ctx.toCall,
     totalPot: ctx.totalPot,
     hand: player.hand,
