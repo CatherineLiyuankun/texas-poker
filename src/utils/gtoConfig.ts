@@ -33,7 +33,8 @@ export interface GtoConfig {
  * 默认配置：启发式引擎 + 现金局。
  *
  * 与配置化之前的行为逐位一致：那时是 `let useGtoStrategy = false`，且没有赛制概念
- * （ICM 分支由 `isTournamentBubble` 触发，6 人桌永远为假 —— 等于始终按现金局跑）。
+ * （ICM 分支当时由 `isTournamentBubble` 触发，而它要求 >6 人，6 人桌永远为假
+ * —— 等于始终按现金局跑。现在 ICM 改由本开关 + `gtoICM.riskPremiumFor` 的显著阈值触发）。
  */
 export const DEFAULT_GTO_CONFIG: Readonly<GtoConfig> = {
   engine: 'heuristic',

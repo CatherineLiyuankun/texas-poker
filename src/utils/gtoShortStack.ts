@@ -14,6 +14,12 @@ import { effectiveStackBB, stackBand } from './stackDepth';
 import { random } from './random';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
 import { equityIterations } from './equityIterations';
+// 赛制开关的单一真相（现金局 / 锦标赛）。
+import { isTournamentScenario } from './gtoConfig';
+// ICM 风险溢价与泡沫判定的单一来源 —— 与 `botAI` 的 ICM 分支同源。
+import { BUBBLE_PREMIUM_THRESHOLD, riskPremiumFor } from './gtoICM';
+// 翻前分档的唯一来源（泡沫期收紧范围时按档位卡）。
+import { getPreflopTier } from './preflopHandStrength';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -39,9 +45,18 @@ interface ShortStackConfig {
   position: Position;
   numOpponents: number;
   action: 'rfi' | 'facing_open' | 'facing_3bet';
+  /** 赛制：锦标赛才叠加 ICM 风险溢价与泡沫期收紧。 */
   isTournament: boolean;
+  /** 是否处在 ICM 意义上的泡沫期（见 `gtoICM.isIcmBubble`）。 */
   isBubble: boolean;
 }
+
+/**
+ * 泡沫期允许推注 / 防守的**最差档位**（档位来自 `preflopHandStrength.getPreflopTier`，
+ * 1 最好、6 最差）。泡沫期只用 tier ≤ 3 的牌（99+, Axs, KTs+, ATo+, KQo 这一档）
+ * 去冒险，边缘牌一律放弃。
+ */
+const BUBBLE_MAX_TIER = 3;
 
 type Position = 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
 
@@ -287,15 +302,30 @@ export function getShortStackRecommendation(
 ): ShortStackRecommendation {
   const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const position = getPositionName(ctx.position, state.players.length);
-  
+
+  // 锦标赛 ICM 风险溢价（现金局恒为 0）—— 与 `botAI` 的 ICM 分支**同源**，
+  // 都出自 `gtoICM.riskPremiumFor`。泡沫期 = 溢价超过显著阈值。
+  const riskPremium = riskPremiumFor(state, player);
+  const isBubble = riskPremium > BUBBLE_PREMIUM_THRESHOLD;
+
   const config: ShortStackConfig = {
     effectiveStack,
     position,
     numOpponents: ctx.numOpponents,
     action: 'rfi',
-    isTournament: true,
-    isBubble: false,
+    // 这两个字段以前写死 `true` / `false` 且**从未被读过** —— 等于没有。现在接上
+    // `gtoConfig` 的赛制开关与 `gtoICM` 的泡沫判定，并真正参与下面的决策。
+    isTournament: isTournamentScenario(),
+    isBubble,
   };
+
+  // 泡沫期把推注 / 防守范围整体收紧（现金局不做这个收紧）：
+  // 泡沫期用筹码换名次的代价最高，边缘牌不值得为一个小底池冒淘汰风险。
+  //
+  // 注意 `isBubble` 用的是**有符号**的溢价 —— 只有溢价为正（筹码高于桌均）才收紧。
+  // 筹码低于桌均时溢价为负，短筹码该多赌而不是收紧，那时 `bubbleTighten` 为假。
+  const bubbleTighten = config.isTournament && config.isBubble;
+  const bubbleAllows = !bubbleTighten || getPreflopTier(player.hand) <= BUBBLE_MAX_TIER;
 
   if (ctx.toCall > 0) {
     config.action = 'facing_open';
@@ -321,7 +351,7 @@ export function getShortStackRecommendation(
 
   if (band === 'push' || band === 'short') {
     if (config.action === 'rfi') {
-      if (shouldPush(player.hand, effectiveStack, position)) {
+      if (shouldPush(player.hand, effectiveStack, position) && bubbleAllows) {
         const sizing = getShortStackSizing(effectiveStack);
         // 对手弃牌率高时，加注偷盲概率提升
         if (flags.canAllInResult && random() < (1.0 + stealBoost)) {
@@ -354,6 +384,7 @@ export function getShortStackRecommendation(
     if (config.action === 'facing_open') {
       // 对手激进时收紧防守范围，对手被动时放宽
       const shouldDefendAdjusted = shouldDefend(player.hand, effectiveStack, position) &&
+        bubbleAllows &&
         random() >= defendTighten;
 
       if (shouldDefendAdjusted) {
@@ -403,7 +434,9 @@ export function getShortStackRecommendation(
   }
 
   if (strength === 'medium') {
-    if (equity >= ctx.potOdds && flags.canCallResult) {
+    // 锦标赛泡沫期：跟注的**有效**赔率更差 → 门槛抬高一个风险溢价
+    // （现金局 `riskPremiumFor` 恒为 0，所以这里与以前逐位一致）。
+    if (equity >= ctx.potOdds + riskPremium && flags.canCallResult) {
       return {
         action: 'call',
         reasoning: `Short stack call with medium hand: ${effectiveStack}bb`,

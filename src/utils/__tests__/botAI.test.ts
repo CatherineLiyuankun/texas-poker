@@ -1,6 +1,7 @@
 import { getBotAction, getBotName } from '../botAI';
 import * as equityCalculator from '../equityCalculator';
 import { equityIterations } from '../equityIterations';
+import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
 import { resetRandomSource, setRandomSeed, setRandomSource } from '../random';
 import type { Player, GameState, PlayerId, Card } from '../../types/poker';
 
@@ -539,6 +540,50 @@ describe('Bot AI 决策', () => {
       expect(used.length).toBeGreaterThan(0);
       for (const it of used) expect(it).toBe(equityIterations('river'));
       expect(used[0]).toBe(300);
+    });
+  });
+
+  describe('锦标赛 ICM 接管（B2）', () => {
+    afterEach(() => {
+      resetGtoConfig();
+      resetRandomSource();
+    });
+
+    const WEAK = [{ suit: '♣', rank: '2' }, { suit: '♦', rank: '7' }];
+
+    // 6 人桌、筹码均势、主角 1 号位面对一个开池。
+    const sixMaxState = () => createGameState({
+      players: Array.from({ length: 6 }, (_, i) =>
+        createPlayer(
+          (i + 1) as PlayerId,
+          1000,
+          i === 0 ? WEAK : [{ suit: '♠', rank: '2' }, { suit: '♥', rank: '3' }],
+          false,
+          false,
+          i === 0 ? 0 : 10,
+        ),
+      ),
+      currentPlayer: 1 as PlayerId,
+      dealer: 1 as PlayerId,
+      lastBet: 20,
+      lastRaiseBet: 10,
+      realPlayerCount: 6,
+      botPlayerCount: 0,
+    });
+
+    it('现金局（默认）：不出现 ICM 调整', () => {
+      resetGtoConfig();
+      const decision = getBotAction(createPlayer(1, 1000, WEAK), sixMaxState());
+      expect(decision.reasoning ?? '').not.toContain('ICM调整');
+    });
+
+    it('锦标赛 6 人桌：ICM 真的接管（旧 isTournamentBubble 在 6 人桌永远为假）', () => {
+      setGtoConfig({ scenario: 'tournament' });
+      const decision = getBotAction(createPlayer(1, 1000, WEAK), sixMaxState());
+
+      // 72o 档位 6（代表权益 0.30）远够不到「跟注赔率 + 风险溢价」→ 弃牌，且理由来自 ICM
+      expect(decision.reasoning ?? '').toContain('ICM调整');
+      expect(decision.action).toBe('fold');
     });
   });
 });

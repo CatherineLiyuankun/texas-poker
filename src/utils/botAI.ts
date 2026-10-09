@@ -25,7 +25,13 @@ import { effectiveStackBB, stackBand } from './stackDepth';
 import { random } from './random';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数，否则同一手牌两边胜率不同。
 import { equityIterations } from './equityIterations';
-import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
+import {
+  getICMRecommendation,
+  getICMConfig,
+  riskPremiumFor,
+  BUBBLE_PREMIUM_THRESHOLD,
+  type Position,
+} from './gtoICM';
 import { computePotOddsFor } from './potOdds';
 // 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
 import { isGtoEngine } from './gtoConfig';
@@ -126,23 +132,27 @@ function decidePreflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  // 检测是否为锦标赛泡沫期
-  if (isTournamentBubble(state)) {
-    const icmConfig = getICMConfig(state);
+  // 锦标赛 ICM：风险溢价显著时由 ICM 接管翻前决策。
+  //
+  // 触发条件以前是 `isTournamentBubble(state)` —— 它要求 `players.length > 6`，
+  // 而本应用是单张 6 人桌，**永远为假**，于是整段 ICM 是死代码。现在改成看
+  // **赛制开关**（`gtoConfig` 是单一真相）叠加「溢价是否显著」：
+  // `riskPremiumFor` 在现金局恒为 0，所以现金局行为与以前逐位一致（无溢价）。
+  const riskPremium = riskPremiumFor(state, player);
+  if (riskPremium > BUBBLE_PREMIUM_THRESHOLD) {
+    const icmConfig = getICMConfig(state, player);
     const position = getPositionName(ctx.position, state.players.length);
     const action = ctx.toCall > 0 ? (ctx.toCall > state.lastRaiseBet * 2 ? 'facing_3bet' : 'facing_open') : 'rfi';
-    const icmRec = getICMRecommendation(icmConfig, player.hand, position, action);
+    const icmRec = getICMRecommendation(icmConfig, player.hand, position, action, ctx.potOdds);
 
-    if (icmRec.riskPremium > 0.10) {
-      if (icmRec.action === 'fold' && flags.canFoldResult) {
-        return { action: 'fold', reasoning: icmRec.reasoning };
-      }
-      if (icmRec.action === 'raise' && flags.canRaiseResult) {
-        return { action: 'raise', amount: icmRec.sizing, reasoning: icmRec.reasoning };
-      }
-      if (icmRec.action === 'call' && flags.canCallResult) {
-        return { action: 'call', reasoning: icmRec.reasoning };
-      }
+    if (icmRec.action === 'fold' && flags.canFoldResult) {
+      return { action: 'fold', reasoning: icmRec.reasoning };
+    }
+    if (icmRec.action === 'raise' && flags.canRaiseResult) {
+      return { action: 'raise', amount: icmRec.sizing, reasoning: icmRec.reasoning };
+    }
+    if (icmRec.action === 'call' && flags.canCallResult) {
+      return { action: 'call', reasoning: icmRec.reasoning };
     }
   }
 
