@@ -8,6 +8,8 @@ import {
   MADE_HAND_FLOORS,
   type HandStrengthRules,
 } from './handStrength';
+// 筹码深度的唯一来源：bb 换算与分档都从 stackDepth 取，本文件不再自己写。
+import { effectiveStackBB, stackBand } from './stackDepth';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -193,6 +195,14 @@ function isHandHigher(hand1: string, hand2: string): boolean {
   return false;
 }
 
+/**
+ * 取推注范围。
+ *
+ * **深度被夹到 `[10, 20]`**：本模块只维护 10 / 12 / 15 / 20bb 四张表，
+ * 没有 25bb 的表。调用方（`botAI`）在 `push` / `short` 两档（≤25bb）都会进来，
+ * 21–25bb 因此复用 20bb 的表 —— 方向上偏松一点，但好过臆造一张没有依据的表。
+ * 要改的话应该先补真实的 25bb 推注范围，而不是在这里线性外推。
+ */
 function getPushRange(
   effectiveStack: number,
   position: Position,
@@ -208,6 +218,7 @@ function getPushRange(
   return PUSH_RANGES[20]?.[position] || '';
 }
 
+/** 同上，深度同样夹到 `[10, 20]`。 */
 function getDefendRange(
   effectiveStack: number,
   heroPosition: Position,
@@ -270,7 +281,7 @@ export function getShortStackRecommendation(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): ShortStackRecommendation {
-  const effectiveStack = player.chips / 10;
+  const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const position = getPositionName(ctx.position, state.players.length);
   
   const config: ShortStackConfig = {
@@ -298,7 +309,13 @@ export function getShortStackRecommendation(
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
   const defendTighten = adj.callPenalty > 0 ? 0.05 : 0;
 
-  if (effectiveStack <= 20) {
+  // 推注 / 弃牌只适用于 push、short 两档（≤25bb）。档位来自 stackDepth，与
+  // `botAI` 的路由阈值同源 —— 以前这里写死 `<= 20`，而调用方已按 ≤25bb 路由，
+  // 21–25bb 于是被送进来却又跳过这段逻辑，落到下面「按牌力」的分支
+  // （那本是翻后的成牌逻辑，用在翻前并不合适）。
+  const band = stackBand(effectiveStack);
+
+  if (band === 'push' || band === 'short') {
     if (config.action === 'rfi') {
       if (shouldPush(player.hand, effectiveStack, position)) {
         const sizing = getShortStackSizing(effectiveStack);
@@ -407,10 +424,6 @@ export function getShortStackRecommendation(
     action: flags.canCallResult ? 'call' : 'fold',
     reasoning: `Short stack fallback: ${effectiveStack}bb`,
   };
-}
-
-export function isShortStack(effectiveStack: number): boolean {
-  return effectiveStack <= 20;
 }
 
 export function getShortStackPushRange(

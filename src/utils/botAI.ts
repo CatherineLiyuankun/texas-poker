@@ -17,8 +17,10 @@ import { translations } from './translations';
 import { decidePreflopGTO } from './gtoPreflop';
 import { decidePostflopGTO } from './gtoPostflop';
 import { decideRiverGTO } from './gtoRiver';
-import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
-import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
+import { getDeepStackRecommendation } from './gtoDeepStack';
+import { getShortStackRecommendation } from './gtoShortStack';
+// 筹码深度的**唯一**来源：换算与分档都在这里，本文件不再自己写阈值。
+import { effectiveStackBB, stackBand } from './stackDepth';
 import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
 import { computePotOddsFor } from './potOdds';
 // 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
@@ -140,9 +142,12 @@ function decidePreflop(
     }
   }
 
-  // 检测是否为短筹码 (≤20bb)
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
-  if (isShortStack(effectiveStack)) {
+  // 短筹码（push / short 档：≤25bb）走全下/弃牌策略。
+  // 深度统一由 stackDepth 分档 —— 以前这里是 `isShortStack(≤20bb)`，与 GTO 路径的
+  // `preflopStackBand`（≤25bb 判 short）不一致，21–25bb 因此落进默认引擎。
+  const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
+  const band = stackBand(effectiveStack);
+  if (band === 'push' || band === 'short') {
     // 使用短筹码策略
     const shortStackRec = getShortStackRecommendation(player, state, flags, ctx, adj);
     return {
@@ -740,9 +745,8 @@ function decidePostflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  // 检测是否为深筹码 (>150bb)
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
-  if (isDeepStack(effectiveStack)) {
+  // 深筹码（veryDeep 档：>150bb）走深筹码策略；阈值同样来自 stackDepth，不再自己写。
+  if (stackBand(effectiveStackBB(player.chips, state.smallBlind)) === 'veryDeep') {
     // 使用深筹码策略
     const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
     return {
@@ -865,9 +869,8 @@ function decideRiver(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  // 检测是否为深筹码 (>150bb)
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
-  if (isDeepStack(effectiveStack)) {
+  // 深筹码（veryDeep 档：>150bb）走深筹码策略；阈值同样来自 stackDepth，不再自己写。
+  if (stackBand(effectiveStackBB(player.chips, state.smallBlind)) === 'veryDeep') {
     // 使用深筹码策略
     const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
     return {

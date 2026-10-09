@@ -1,4 +1,5 @@
 import type { Card, Player, GameState, Action } from '../types/poker';
+import { effectiveStackBB, stackBand, type StackBand } from './stackDepth';
 
 export interface BotDecision {
   action: Action;
@@ -834,21 +835,12 @@ export function detectPreflopScenario(
 // ─── 筹码深度分档 ────────────────────────────────────────────
 
 /**
- * 翻前筹码深度分档。
+ * 筹码深度分档在 `stackDepth.ts`（唯一来源）—— 这里只是把它读进来用。
  *
  * GTO 的开池 / 3bet / 4bet 范围本身就按有效筹码深度分层（100 / 60 / 40 / 25 / 15bb
  * 各一套），但本模块只维护一套 ≈100bb 现金局口径的表。因此在低深度下把「定尺加注」
  * 降级为全下 —— 这是方向上正确、且不需要臆造新范围数据的最小修正。
  */
-export type PreflopStackBand = 'push' | 'short' | 'medium' | 'deep';
-
-export function preflopStackBand(effectiveStackBB: number): PreflopStackBand {
-  if (!Number.isFinite(effectiveStackBB) || effectiveStackBB <= 0) return 'deep';
-  if (effectiveStackBB <= 15) return 'push';
-  if (effectiveStackBB <= 25) return 'short';
-  if (effectiveStackBB <= 40) return 'medium';
-  return 'deep';
-}
 
 /**
  * 该场景下「范围表给出的加注」是否应该直接全下，而不是给一个定尺。
@@ -858,7 +850,7 @@ export function preflopStackBand(effectiveStackBB: number): PreflopStackBand {
  * - 4bet（`facing_3bet`）：≤40bb 直接全下，专业上不存在「小尺度 4bet」
  */
 function jamInsteadOfSizing(
-  band: PreflopStackBand,
+  band: StackBand,
   scenario: 'rfi' | 'facing_open' | 'facing_3bet' | 'cold_3bet',
 ): boolean {
   switch (scenario) {
@@ -868,7 +860,8 @@ function jamInsteadOfSizing(
     case 'cold_3bet':
       return band === 'push' || band === 'short';
     case 'facing_3bet':
-      return band !== 'deep';
+      // ≤40bb（push / short / medium）都直接全下
+      return band !== 'standard' && band !== 'veryDeep';
   }
 }
 
@@ -888,8 +881,7 @@ export function decidePreflopGTO(
     return { action: 'fold' };
   }
   const hand = player.hand;
-  const bb = state.smallBlind * 2;
-  const band = preflopStackBand(player.chips / bb);
+  const band = stackBand(effectiveStackBB(player.chips, state.smallBlind));
   // 场景判定与面板共用 detectPreflopScenario，两边不会各自近似。
   const scenario = detectPreflopScenario(state, player);
   const facingOpen = scenario !== 'rfi';
@@ -1083,17 +1075,17 @@ export function getGtoPreflopRecommendation(
     );
   };
 
-  // 没有筹码信息时视作深筹码（band = 'deep'），保持原有的定尺行为，
+  // 没有筹码信息时视作最深的一档（band = 'veryDeep'），保持原有的定尺行为，
   // 这样既有的、不传 stackContext 的调用方输出完全不变。
-  const effectiveStackBB = stackContext ? stackContext.chips / bb : Infinity;
-  const band = preflopStackBand(effectiveStackBB);
+  const stackBB = stackContext ? stackContext.chips / bb : Infinity;
+  const band = stackBand(stackBB);
 
   if (scenario === 'rfi') {
     const code = lookup(RFI_TABLES[rfiPosition], hand);
     if (code === 'R') {
       const freq = getFreq('rfi', rfiPosition, hand, 'R');
       if (jamInsteadOfSizing(band, 'rfi')) {
-        return { action: 'R', sizingBB: roundBB(effectiveStackBB), freq, isAllIn: true };
+        return { action: 'R', sizingBB: roundBB(stackBB), freq, isAllIn: true };
       }
       return {
         action: 'R',
@@ -1107,7 +1099,7 @@ export function getGtoPreflopRecommendation(
         if (jamInsteadOfSizing(band, 'rfi')) {
           return {
             action: 'R',
-            sizingBB: roundBB(effectiveStackBB),
+            sizingBB: roundBB(stackBB),
             freq: { r: 1, c: 0, f: 0 },
             isAllIn: true,
           };
@@ -1129,7 +1121,7 @@ export function getGtoPreflopRecommendation(
     if (code === 'R') {
       const freq = getFreq('facing_3bet', rfiPosition, hand, 'R');
       if (jamInsteadOfSizing(band, 'facing_3bet')) {
-        return { action: 'R', sizingBB: roundBB(effectiveStackBB), freq, isAllIn: true };
+        return { action: 'R', sizingBB: roundBB(stackBB), freq, isAllIn: true };
       }
       const threeBetBB = currentBet ? currentBet / bb : 10;
       const oop = rfiPosition === 'SB' || rfiPosition === 'UTG' || rfiPosition === 'BB';
@@ -1157,7 +1149,7 @@ export function getGtoPreflopRecommendation(
       if (jamInsteadOfSizing(band, 'cold_3bet')) {
         return {
           action: 'R',
-          sizingBB: roundBB(effectiveStackBB),
+          sizingBB: roundBB(stackBB),
           freq: { r: 1, c: 0, f: 0 },
           isAllIn: true,
         };
@@ -1188,7 +1180,7 @@ export function getGtoPreflopRecommendation(
   if (code === 'R') {
     const freq = getFreq('facing_open', freqPos, hand, 'R');
     if (jamInsteadOfSizing(band, 'facing_open')) {
-      return { action: 'R', sizingBB: roundBB(effectiveStackBB), freq, isAllIn: true };
+      return { action: 'R', sizingBB: roundBB(stackBB), freq, isAllIn: true };
     }
     const oop = dPos === 'SB' || dPos === 'BB';
     const actualOpenBB = currentBet

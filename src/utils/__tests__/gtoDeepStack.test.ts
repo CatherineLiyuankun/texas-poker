@@ -1,7 +1,7 @@
 import type { GameState, Player, Card, Rank, Suit } from '../../types/poker';
 import type { ActionFlags, ContextInfo } from '../botAI';
 import type { OpponentAdjustments } from '../opponentModel';
-import { getDeepStackRecommendation, isDeepStack, getDeepStackAdjustments } from '../gtoDeepStack';
+import { getDeepStackRecommendation, getDeepStackAdjustments } from '../gtoDeepStack';
 
 function createCard(rank: Rank, suit: Suit): Card {
   return { rank, suit };
@@ -101,20 +101,6 @@ function createMockOpponentAdjustments(overrides?: Partial<OpponentAdjustments>)
 }
 
 describe('gtoDeepStack', () => {
-  describe('isDeepStack', () => {
-    it('should return true for stacks > 150bb', () => {
-      expect(isDeepStack(160)).toBe(true);
-      expect(isDeepStack(200)).toBe(true);
-      expect(isDeepStack(300)).toBe(true);
-    });
-
-    it('should return false for stacks <= 150bb', () => {
-      expect(isDeepStack(150)).toBe(false);
-      expect(isDeepStack(100)).toBe(false);
-      expect(isDeepStack(50)).toBe(false);
-    });
-  });
-
   describe('getDeepStackAdjustments', () => {
     it('should upgrade small pairs (22-55)', () => {
       const hand = [createCard('2', '♥'), createCard('2', '♦')];

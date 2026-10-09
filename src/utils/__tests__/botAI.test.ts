@@ -396,4 +396,50 @@ describe('Bot AI 决策', () => {
       expect(['fold', 'call', 'raise']).toContain(decision.action);
     });
   });
+
+  describe('筹码深度分档（stackDepth 唯一来源）', () => {
+    const AKs = [
+      { suit: '♠', rank: 'A' },
+      { suit: '♠', rank: 'K' },
+    ];
+
+    it('21–25bb 归入 short 档，走短筹码引擎', () => {
+      // 220 筹码 / (5 × 2) = 22bb。旧代码用 `isShortStack(≤20bb)` 判断，
+      // 21–25bb 会被漏掉、落进默认引擎（与 gtoPreflop 的 ≤25bb 分档矛盾）。
+      const player = createPlayer(2, 220, AKs, false);
+      const state = createGameState({ smallBlind: 5, dealer: 1, currentPlayer: 2 });
+      const decision = getBotAction(player, state);
+      expect(decision.reasoning ?? '').toContain('Short stack');
+    });
+
+    it('26bb 及以上不再走短筹码引擎', () => {
+      const player = createPlayer(2, 260, AKs, false); // 26bb → medium 档
+      const state = createGameState({ smallBlind: 5, dealer: 1, currentPlayer: 2 });
+      const decision = getBotAction(player, state);
+      expect(decision.reasoning ?? '').not.toContain('Short stack');
+    });
+
+    it('深筹码引擎只在 >150bb 启用，且 bb 换算用真实小盲', () => {
+      const flopState = (smallBlind: number) => createGameState({
+        phase: 'flop',
+        smallBlind,
+        communityCards: [
+          { suit: '♥', rank: '2' },
+          { suit: '♦', rank: '7' },
+          { suit: '♣', rank: 'J' },
+        ],
+        lastBet: 10,
+        mainPot: 100,
+      });
+
+      // smallBlind = 5 → bb = 10；2000 筹码 = 200bb → veryDeep → 深筹码引擎
+      const deep = getBotAction(createPlayer(2, 2000, AKs, false), flopState(5));
+      expect(deep.reasoning ?? '').toContain('Deep stack');
+
+      // smallBlind = 10 → bb = 20；2000 筹码 = 100bb → standard 档。
+      // 旧代码把筹码换算硬编码成 `chips / 10`，会把它读成 200bb 而误入深筹码引擎。
+      const notDeep = getBotAction(createPlayer(2, 2000, AKs, false), flopState(10));
+      expect(notDeep.reasoning ?? '').not.toContain('Deep stack');
+    });
+  });
 });

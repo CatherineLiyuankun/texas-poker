@@ -15,6 +15,8 @@ import {
   type HandStrengthRules,
 } from './handStrength';
 import { drawCallEquityThreshold } from './gtoMath';
+// 筹码深度的唯一来源：bb 换算从 stackDepth 取（本文件曾硬编码 `/10`）。
+import { effectiveStackBB } from './stackDepth';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -120,8 +122,15 @@ function isSuitedGapper(hand: Card[]): boolean {
   return diff >= 2 && diff <= 3;
 }
 
+/**
+ * 深筹码才做手牌调整：小对子 / 同花连张等听牌型手牌升值，非同花大牌降值。
+ *
+ * 阈值是 **150bb**，与「什么时候启用深筹码引擎」同源（`stackDepth.stackBand`
+ * 的 `veryDeep` 档）。以前这里写的是 100bb，而引擎只在 >150bb 被调用，
+ * 100–150bb 那段判断永远走不到 —— 两个数字自相矛盾，现已对齐。
+ */
 function getHandAdjustment(hand: Card[], effectiveStack: number): HandAdjustment {
-  if (effectiveStack <= 100) return 'neutral';
+  if (effectiveStack <= 150) return 'neutral';
 
   if (isSmallPair(hand)) return 'upgrade';
   if (isSuitedConnector(hand)) return 'upgrade';
@@ -571,7 +580,7 @@ export function getDeepStackRecommendation(
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
     state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
 
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
+  const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;
 
   const handAdjustment = getHandAdjustment(player.hand, effectiveStack);
@@ -628,10 +637,6 @@ export function getDeepStackRecommendation(
   }
 
   return result;
-}
-
-export function isDeepStack(effectiveStack: number): boolean {
-  return effectiveStack > 150;
 }
 
 export function getDeepStackAdjustments(

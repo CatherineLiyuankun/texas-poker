@@ -3,7 +3,6 @@ import type { ActionFlags, ContextInfo } from '../botAI';
 import type { OpponentAdjustments } from '../opponentModel';
 import { 
   getShortStackRecommendation, 
-  isShortStack, 
   getShortStackPushRange, 
   getShortStackDefendRange 
 } from '../gtoShortStack';
@@ -102,22 +101,6 @@ function createMockOpponentAdjustments(overrides?: Partial<OpponentAdjustments>)
 }
 
 describe('gtoShortStack', () => {
-  describe('isShortStack', () => {
-    it('should return true for stacks <= 20bb', () => {
-      expect(isShortStack(20)).toBe(true);
-      expect(isShortStack(15)).toBe(true);
-      expect(isShortStack(10)).toBe(true);
-      expect(isShortStack(5)).toBe(true);
-    });
-
-    it('should return false for stacks > 20bb', () => {
-      expect(isShortStack(21)).toBe(false);
-      expect(isShortStack(30)).toBe(false);
-      expect(isShortStack(50)).toBe(false);
-      expect(isShortStack(100)).toBe(false);
-    });
-  });
-
   describe('getShortStackPushRange', () => {
     it('should return push range for 10bb BTN', () => {
       const range = getShortStackPushRange(10, 'BTN');

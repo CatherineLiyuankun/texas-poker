@@ -4,7 +4,6 @@ import {
   getOpenerPosition,
   getPreflopRangeClasses,
   positionLabelFor,
-  preflopStackBand,
   decidePreflopGTO,
   detectPreflopScenario,
 } from '../gtoPreflop';
@@ -852,18 +851,6 @@ describe('GTO Preflop Engine', () => {
   });
 
   describe('筹码深度分层（低深度下加注降级为全下）', () => {
-    it('preflopStackBand 按有效筹码 bb 分档', () => {
-      expect(preflopStackBand(10)).toBe('push');
-      expect(preflopStackBand(15)).toBe('push');
-      expect(preflopStackBand(16)).toBe('short');
-      expect(preflopStackBand(25)).toBe('short');
-      expect(preflopStackBand(26)).toBe('medium');
-      expect(preflopStackBand(40)).toBe('medium');
-      expect(preflopStackBand(41)).toBe('deep');
-      expect(preflopStackBand(Infinity)).toBe('deep');
-      expect(preflopStackBand(0)).toBe('deep');
-    });
-
     it('≤15bb 开池直接全下，不给小尺度', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
       const rec = getGtoPreflopRecommendation(
