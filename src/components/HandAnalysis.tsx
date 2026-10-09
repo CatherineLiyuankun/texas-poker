@@ -839,7 +839,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     const rake = isRakeEnabled(rakeConfig)
       ? translations.gtoMath.caveat.rake
       : translations.gtoMath.caveat.noRake;
-    return [street, opponentsCaveat(numOpponents), icm, rake].join(' · ');
+    const clauses = [street, opponentsCaveat(numOpponents), icm, rake];
+    // 锦标赛下翻前的范围表是从现金局表收紧派生的（见 `gtoPreflop`）—— 只在翻前
+    // 标出来，翻后的建议不查范围表。
+    if (scenario === 'tournament' && phase === 'preflop') {
+      clauses.push(translations.gtoMath.caveat.rangeTightened);
+    }
+    return clauses.join(' · ');
   }, [phase, numOpponents, scenario, rakeConfig]);
 
   // 底池赔率行显示的是**原始赔率**（`potOdds` prop，`computePotOddsFor` 的口径）。

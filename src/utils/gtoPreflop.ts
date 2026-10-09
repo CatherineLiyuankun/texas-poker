@@ -2,6 +2,9 @@ import type { Card, Player, GameState, Action } from '../types/poker';
 import { effectiveStackBB, stackBand, type StackBand } from './stackDepth';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { random } from './random';
+// 强度序的两个权威（档位网格 + Chen 分）—— 锦标赛范围收紧按它们排序。
+import { getPreflopStrength, getPreflopTier } from './preflopHandStrength';
+import { getGtoConfig, type GameScenario } from './gtoConfig';
 
 export interface BotDecision {
   action: Action;
@@ -536,13 +539,17 @@ export interface PreflopRangeQuery {
 }
 
 export function getPreflopRangeClasses(query: PreflopRangeQuery): string[] {
+  // 对手范围估计走**全局赛制**（决策层语义）：锦标赛下对手的范围本身就更紧，
+  // 所以 `rangeEquity` 算出来的「权益 vs 范围」也跟着收紧 —— 否则会出现
+  // 「按收紧范围开池、却按现金局宽范围算权益」的口径分叉。
+  const tables = rangeTablesFor(getGtoConfig().scenario);
   if (query.role === 'opener') {
-    const table = RFI_TABLES[query.position] ?? RFI_TABLES.UTG;
+    const table = tables.rfi[query.position] ?? tables.rfi.UTG;
     return getRangeHandClasses(table, ['R']);
   }
   const opener = query.openerPosition ?? 'UTG';
   const defender = query.defenderType ?? 'IP';
-  const byDefender = FACING_OPEN_TABLES[opener] ?? FACING_OPEN_TABLES.UTG;
+  const byDefender = tables.facingOpen[opener] ?? tables.facingOpen.UTG;
   const table = byDefender[defender] ?? byDefender.IP;
   const include: GtoAction[] = query.role === 'threebettor' ? ['R'] : ['R', 'C'];
   return getRangeHandClasses(table, include);
@@ -633,6 +640,176 @@ const COLD_3BET_TABLES: Record<string, GtoAction[][]> = {
   BTN: IP_COLD_3BET,
   IP: IP_COLD_3BET,
 };
+
+// ─── 锦标赛范围：从现金局表派生 ───────────────────────────────
+//
+// 锦标赛的翻前范围应比现金局紧（ICM：输掉的筹码比赢到的更值钱，而且没有 rebuy）。
+// 但**不新增一套手编表**：本文件已有的 37 张 13×13 表（7 个 RFI + 21 个防守
+// + 6 个 4bet + 3 个冷 3bet）本身就是手编近似，再抄一份更紧的只是把「手编」
+// 做两遍，而且以后修 `getPreflopTier` 得改两处 —— 上一批刚把翻前分档收敛成
+// 单一来源（`41f5c24`），不能在这里又开一个真相。
+//
+// 改成**派生**：把每张表按强度序裁掉尾部，只留前若干比例（加注与跟注用两个
+// 不同的比例，见下方 `TOURNAMENT_*_KEEP` 的说明）。强度序 = 档位升序 → Chen
+// 降序（两个权威都在 `preflopHandStrength`）。由此得到三条可证明的性质，也是
+// 这一批的安全网：
+//   1. 锦标赛范围 ⊂ 现金局范围（构造上必然）
+//   2. 每张非空表的宽度严格下降
+//   3. 现金局**逐位不变**（默认仍用原来的表对象，连一次拷贝都没有）
+//
+// 为什么不按档位一刀切（例如「锦标赛丢掉 T5/T6」）：实测会把 BTN 开池从
+// 49.6% 砍到 23.7%、BB 对 BTN 防守从 96.4% 砍到 22.5% —— 过度收紧。按比例裁
+// 则宽范围按比例收窄，范围的形状保持。
+
+/** `RN` 下标 → `preflopHandStrength` 认的 rank 字符串（那边用 '10'，本文件用 'T'）。 */
+const RANK_FOR_INDEX: string[] = [
+  'A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2',
+];
+
+/** 格子在强度序里的键：档位升序 → Chen 降序，压成一个整数便于排序。 */
+function cellStrengthKey(i: number, j: number): number {
+  const suited = i < j;
+  const hand: Card[] = [
+    { rank: RANK_FOR_INDEX[i] as Card['rank'], suit: '♠' },
+    { rank: RANK_FOR_INDEX[j] as Card['rank'], suit: suited ? '♠' : '♥' },
+  ];
+  return getPreflopTier(hand) * 100 - getPreflopStrength(hand);
+}
+
+/** 格子代表的组合数：对子 6 / 同花 4 / 非同花 12。 */
+function cellCombos(i: number, j: number): number {
+  if (i === j) return 6;
+  return i < j ? 4 : 12;
+}
+
+/**
+ * 取表里某个 action 在强度序里**最前 `keep` 比例**（按组合数累计）的格子。
+ *
+ * 累计到 `target` 就停，所以留下的一定是这一档里最强的那些；`sort` 是稳定的
+ * （ES2019），键相同的格子保持 (i,j) 遍历序，结果完全可复现、可断言。
+ */
+function tightenCells(
+  table: GtoAction[][],
+  action: GtoAction,
+  keep: number,
+): { i: number; j: number }[] {
+  const ratio = Math.min(1, Math.max(0.01, keep));
+  const cells: { i: number; j: number; combos: number; key: number }[] = [];
+  for (let i = 0; i < 13; i++) {
+    for (let j = 0; j < 13; j++) {
+      if (table[i][j] !== action) continue;
+      cells.push({ i, j, combos: cellCombos(i, j), key: cellStrengthKey(i, j) });
+    }
+  }
+  if (cells.length === 0) return [];
+
+  cells.sort((a, b) => a.key - b.key);
+  const total = cells.reduce((sum, c) => sum + c.combos, 0);
+  const target = ratio * total;
+
+  const kept: { i: number; j: number }[] = [];
+  let acc = 0;
+  for (const c of cells) {
+    if (acc >= target) break;
+    kept.push({ i: c.i, j: c.j });
+    acc += c.combos;
+  }
+  return kept;
+}
+
+/**
+ * 把一张表收紧成锦标赛版本。
+ *
+ * 加注与跟注用**两个不同的比例**（见 `TOURNAMENT_RAISE_KEEP` /
+ * `TOURNAMENT_CALL_KEEP`）—— 单一比例会把所有 A5s–A2s 的加注诈唬尾巴一起裁掉，
+ * 让 3bet / 4bet 只剩纯价值，那比「收紧」更激进也更不平衡。
+ */
+function tightenTable(table: GtoAction[][]): GtoAction[][] {
+  const out: GtoAction[][] = Array.from({ length: 13 }, () =>
+    Array<GtoAction>(13).fill('F'),
+  );
+  for (const action of ['R', 'C'] as const) {
+    const keep =
+      action === 'R' ? TOURNAMENT_RAISE_KEEP : TOURNAMENT_CALL_KEEP;
+    for (const { i, j } of tightenCells(table, action, keep)) out[i][j] = action;
+  }
+  return out;
+}
+
+function tightenTableSet<K extends string>(
+  set: Record<K, GtoAction[][]>,
+): Record<K, GtoAction[][]> {
+  const out = {} as Record<K, GtoAction[][]>;
+  for (const k of Object.keys(set) as K[]) out[k] = tightenTable(set[k]);
+  return out;
+}
+
+/**
+ * 锦标赛范围保留比例 —— **两个数**，因为 ICM 对跟注的惩罚远大于对加注：
+ * 加注可以靠对手弃牌直接赢下底池（不必摊牌），跟注则必须摊牌才算赢；而锦标赛里
+ * 输掉的筹码比赢到的更值钱，且没有 rebuy。所以：
+ * - **加注**（开池 / 3bet / 4bet）只小幅收紧
+ * - **跟注**（面对开池的平跟、面对 3bet 的平跟）收紧得多得多
+ *
+ * 单一比例做不到这件事：实测它会把 A5s–A2s 这类「轮子 A 诈唬」从每张表的加注
+ * 范围里一起裁掉，让 3bet / 4bet 变成纯价值 —— 那不是收紧，是把范围的结构改掉了。
+ */
+const TOURNAMENT_RAISE_KEEP = 0.8;
+const TOURNAMENT_CALL_KEEP = 0.6;
+
+const RFI_TABLES_TOURNAMENT = tightenTableSet(RFI_TABLES);
+const RFI_BB_LIMP_TOURNAMENT = tightenTable(RFI_BB_LIMP);
+const VS_3BET_TABLES_TOURNAMENT = tightenTableSet(VS_3BET_TABLES);
+const COLD_3BET_TABLES_TOURNAMENT = tightenTableSet(COLD_3BET_TABLES);
+
+const FACING_OPEN_TABLES_TOURNAMENT: Record<
+  string,
+  Record<string, GtoAction[][]>
+> = {};
+for (const opener of Object.keys(FACING_OPEN_TABLES)) {
+  FACING_OPEN_TABLES_TOURNAMENT[opener] = tightenTableSet(
+    FACING_OPEN_TABLES[opener],
+  );
+}
+
+/** 一套范围表（现金局 / 锦标赛两个版本）。 */
+interface RangeTableSet {
+  rfi: Record<Position, GtoAction[][]>;
+  rfiBbLimp: GtoAction[][];
+  facingOpen: Record<string, Record<string, GtoAction[][]>>;
+  vs3bet: Record<string, GtoAction[][]>;
+  cold3bet: Record<string, GtoAction[][]>;
+}
+
+const CASH_RANGE_TABLES: RangeTableSet = {
+  rfi: RFI_TABLES,
+  rfiBbLimp: RFI_BB_LIMP,
+  facingOpen: FACING_OPEN_TABLES,
+  vs3bet: VS_3BET_TABLES,
+  cold3bet: COLD_3BET_TABLES,
+};
+
+const TOURNAMENT_RANGE_TABLES: RangeTableSet = {
+  rfi: RFI_TABLES_TOURNAMENT,
+  rfiBbLimp: RFI_BB_LIMP_TOURNAMENT,
+  facingOpen: FACING_OPEN_TABLES_TOURNAMENT,
+  vs3bet: VS_3BET_TABLES_TOURNAMENT,
+  cold3bet: COLD_3BET_TABLES_TOURNAMENT,
+};
+
+/**
+ * 该赛制用哪一套范围表。
+ *
+ * **决策层**（`decidePreflopGTO`、`getPreflopRangeClasses`）读全局配置；
+ * **渲染层**（`getGtoPreflopRecommendation` 的调用方）传自己手上的赛制值。
+ * 与 `rake.effectiveRakeConfigFor` 同约定 —— `GameBoard` 把赛制写进全局是在
+ * `useEffect` 里，切换的那一帧 prop 已经变了、全局态还没变。
+ *
+ * `undefined` 视作现金局（渲染层总是知道自己是什么赛制）。
+ */
+function rangeTablesFor(scenario: GameScenario | undefined): RangeTableSet {
+  return scenario === 'tournament' ? TOURNAMENT_RANGE_TABLES : CASH_RANGE_TABLES;
+}
 
 // ─── Mixed Frequency Data ────────────────────────────────────
 const RN = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
@@ -785,10 +962,12 @@ function getDefenderType(pos: Position): DefenderType {
 function getFacingOpenTable(
   openerPos: Position | null,
   defenderPos: Position,
+  scenario: GameScenario,
 ): GtoAction[][] {
+  const tables = rangeTablesFor(scenario);
   const oPos = openerPos || 'UTG';
   const dType = getDefenderType(defenderPos);
-  return FACING_OPEN_TABLES[oPos]?.[dType] ?? FACING_OPEN_TABLES['UTG']['IP'];
+  return tables.facingOpen[oPos]?.[dType] ?? tables.facingOpen['UTG']['IP'];
 }
 
 
@@ -890,13 +1069,17 @@ export function decidePreflopGTO(
   const facing3bet = scenario === 'facing_3bet';
   const cold3bet = scenario === 'cold_3bet';
 
+  // 范围表按赛制选：决策层读全局配置（渲染层走 prop，见 rangeTablesFor）。
+  const gameScenario = getGtoConfig().scenario;
+  const tables = rangeTablesFor(gameScenario);
+
   // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
   const callTighten = adj.callPenalty > 0 ? 0.05 : 0;
 
   if (facing3bet) {
     const pos = getRfiPosition(ctx);
-    const table3bet = VS_3BET_TABLES[pos] ?? VS_3BET_TABLES['CO'];
+    const table3bet = tables.vs3bet[pos] ?? tables.vs3bet['CO'];
     const code = lookup(table3bet, hand);
 
     if (code === 'R') {
@@ -927,7 +1110,7 @@ export function decidePreflopGTO(
   if (cold3bet) {
     const defenderPos = getDefenderPosition(ctx);
     const dType = getDefenderType(defenderPos);
-    const table = COLD_3BET_TABLES[dType] ?? COLD_3BET_TABLES['IP'];
+    const table = tables.cold3bet[dType] ?? tables.cold3bet['IP'];
     const code = lookup(table, hand);
 
     if (code === 'R') {
@@ -963,7 +1146,7 @@ export function decidePreflopGTO(
   if (facingOpen) {
     const openerPos = getOpenerPosition(state, player);
     const defenderPos = getDefenderPosition(ctx);
-    const table = getFacingOpenTable(openerPos, defenderPos);
+    const table = getFacingOpenTable(openerPos, defenderPos, gameScenario);
     const code = lookup(table, hand);
 
     if (code === 'R') {
@@ -1001,7 +1184,7 @@ export function decidePreflopGTO(
   const pos = getRfiPosition(ctx);
 
   if (pos === 'BB') {
-    const bbRange = ctx.hasLimpers ? RFI_BB_LIMP : RFI_TABLES['UTG'];
+    const bbRange = ctx.hasLimpers ? tables.rfiBbLimp : tables.rfi['UTG'];
     const bbCode = lookup(bbRange, hand);
     if (bbCode === 'R') {
       if (flags.canAllInResult && jamInsteadOfSizing(band, 'rfi')) {
@@ -1021,7 +1204,7 @@ export function decidePreflopGTO(
     return { action: 'call' };
   }
 
-  const table = RFI_TABLES[pos];
+  const table = tables.rfi[pos];
   const code = lookup(table, hand);
 
   if (code === 'R') {
@@ -1056,6 +1239,17 @@ export function decidePreflopGTO(
 
 // ─── AI Analysis Lookup ──────────────────────────────────────
 
+/**
+ * 面板侧的翻前建议。
+ *
+ * `gameScenario` 决定用现金局还是锦标赛范围表 —— **由调用方传**（`GameBoard` 传
+ * 自己那个 `scenario` state），而不是在这里读全局：赛制写进全局是在 `useEffect`
+ * 里，切换的那一帧 prop 已变、全局态还没变，读全局会让面板短暂用错范围表
+ * （与 `rake.effectiveRakeConfigFor` 同一个理由）。缺省视作现金局。
+ *
+ * 注：参数已经有 9 个了。这里不再加，是因为改成 options 对象要动几十个测试调用点；
+ * 已记在待清理清单里。
+ */
 export function getGtoPreflopRecommendation(
   hand: Card[],
   rfiPosition: Position,
@@ -1065,9 +1259,11 @@ export function getGtoPreflopRecommendation(
   defenderPosition?: Position,
   currentBet?: number,
   stackContext?: { chips: number; toCall: number; totalPot: number; bet: number },
+  gameScenario?: GameScenario,
 ): GtoRecommendation {
   const sb = smallBlind || 5;
   const bb = sb * 2;
+  const tables = rangeTablesFor(gameScenario);
 
   const isAllInBySPR = (sizingChips: number): boolean => {
     if (!stackContext) return false;
@@ -1083,7 +1279,7 @@ export function getGtoPreflopRecommendation(
   const band = stackBand(stackBB);
 
   if (scenario === 'rfi') {
-    const code = lookup(RFI_TABLES[rfiPosition], hand);
+    const code = lookup(tables.rfi[rfiPosition], hand);
     if (code === 'R') {
       const freq = getFreq('rfi', rfiPosition, hand, 'R');
       if (jamInsteadOfSizing(band, 'rfi')) {
@@ -1096,7 +1292,7 @@ export function getGtoPreflopRecommendation(
       };
     }
     if (rfiPosition === 'BB') {
-      const bbCode = lookup(RFI_TABLES['UTG'], hand);
+      const bbCode = lookup(tables.rfi['UTG'], hand);
       if (bbCode === 'R') {
         if (jamInsteadOfSizing(band, 'rfi')) {
           return {
@@ -1118,7 +1314,7 @@ export function getGtoPreflopRecommendation(
   }
 
   if (scenario === 'facing_3bet') {
-    const table3bet = VS_3BET_TABLES[rfiPosition] ?? VS_3BET_TABLES['CO'];
+    const table3bet = tables.vs3bet[rfiPosition] ?? tables.vs3bet['CO'];
     const code = lookup(table3bet, hand);
     if (code === 'R') {
       const freq = getFreq('facing_3bet', rfiPosition, hand, 'R');
@@ -1145,7 +1341,7 @@ export function getGtoPreflopRecommendation(
   if (scenario === 'cold_3bet') {
     const dPos = defenderPosition || 'BB';
     const dType = getDefenderType(dPos);
-    const table = COLD_3BET_TABLES[dType] ?? COLD_3BET_TABLES['IP'];
+    const table = tables.cold3bet[dType] ?? tables.cold3bet['IP'];
     const code = lookup(table, hand);
     if (code === 'R') {
       if (jamInsteadOfSizing(band, 'cold_3bet')) {
@@ -1176,7 +1372,7 @@ export function getGtoPreflopRecommendation(
   const oPos = openerPosition || 'UTG';
   const dPos = defenderPosition || 'BB';
   const dType = getDefenderType(dPos);
-  const table = FACING_OPEN_TABLES[oPos]?.[dType] ?? FACING_OPEN_TABLES['UTG']['IP'];
+  const table = tables.facingOpen[oPos]?.[dType] ?? tables.facingOpen['UTG']['IP'];
   const code = lookup(table, hand);
   const freqPos = `${oPos}:${dType}`;
   if (code === 'R') {

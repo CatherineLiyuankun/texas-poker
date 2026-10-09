@@ -770,19 +770,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           // 场景判定与机器人 decidePreflopGTO 共用
                           // detectPreflopScenario，面板不再自己近似一遍
                           // （原先的 facing_3bet 漏了 `player.bet === lastRaiseBet`）。
-                          const scenario = detectPreflopScenario(
+                          // 注意变量名带 `preflop` 前缀：外层的 `scenario` 是
+                          // 赛制（现金/锦标赛），别把两者搞混。
+                          const preflopScenario = detectPreflopScenario(
                             state,
                             player,
                           );
                           const openerPos =
-                            scenario !== 'rfi'
+                            preflopScenario !== 'rfi'
                               ? getOpenerPosition(state, player) ??
                                 undefined
                               : undefined;
                           return getGtoPreflopRecommendation(
                             player.hand,
                             rfiPos,
-                            scenario,
+                            preflopScenario,
                             openerPos,
                             state.smallBlind,
                             defenderPos,
@@ -793,6 +795,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               totalPot: potOddsInfo.totalPot,
                               bet: player.bet,
                             },
+                            // 赛制由渲染层传（不读全局）：见
+                            // getGtoPreflopRecommendation 的注释。
+                            scenario,
                           );
                         })()}
                         actionButtons={

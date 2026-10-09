@@ -209,6 +209,7 @@ export const translations = {
       icm: '计 ICM（锦标赛）',
       noRake: '未计抽水',
       rake: '已计抽水',
+      rangeTightened: '锦标赛范围收紧',
     },
     rangeCategories: {
       value: 'Value', // 价值牌

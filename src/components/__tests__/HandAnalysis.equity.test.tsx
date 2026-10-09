@@ -887,6 +887,10 @@ describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
     await renderAA();
     expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
     expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
+    // 现金局不收紧范围，所以没有这条标注。
+    expect(caveat()).not.toContain(
+      translations.gtoMath.caveat.rangeTightened,
+    );
   });
 
   it('现金局 + 设了抽水：标注改为「已计抽水」，ICM 仍未计', async () => {
@@ -897,12 +901,48 @@ describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
     expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
   });
 
-  it('锦标赛 + 设了抽水：抽水标注回到「未计抽水」，ICM 变「计 ICM（锦标赛）」', async () => {
+  it('锦标赛 + 设了抽水：抽水标注回到「未计抽水」，ICM 变「计 ICM（锦标赛）」，并标注范围收紧', async () => {
     setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
     await renderAA('tournament');
     expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
     expect(caveat()).not.toContain(translations.gtoMath.caveat.rake);
     expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+    // 翻前 + 锦标赛 → 范围收紧也标出来。
+    expect(caveat()).toContain(translations.gtoMath.caveat.rangeTightened);
+  });
+
+  it('锦标赛 + 翻后：不再标注范围收紧（翻后不查范围表）', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♠', 'Q')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({
+      id: 2,
+      hand: [card('♦', 'K'), card('♣', 'K')],
+      totalBet: 20,
+    });
+    const board = [
+      card('♠', 'K'),
+      card('♦', '7'),
+      card('♣', '2'),
+      card('♥', 'J'),
+      card('♦', '4'),
+    ];
+    await renderPanel(
+      hero,
+      mkState([hero, opp], 'river', board),
+      1,
+      'river',
+      board,
+      { scenario: 'tournament' },
+    );
+    // ICM 标注还在（与街无关），但范围收紧只属于翻前。
+    expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+    expect(caveat()).not.toContain(
+      translations.gtoMath.caveat.rangeTightened,
+    );
   });
 });
 
