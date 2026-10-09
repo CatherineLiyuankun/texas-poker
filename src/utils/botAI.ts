@@ -7,7 +7,6 @@ import {
   canFold,
 } from '../hooks/useGameState';
 import { getPreflopTier } from './preflopHandStrength';
-import { calculateEquity } from './equityCalculator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import {
   calculateOpponentProfile,
@@ -22,11 +21,6 @@ import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
 import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
 import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
 import { computePotOddsFor } from './potOdds';
-import {
-  buildNodelockProfile,
-  getNodelockRecommendation,
-  isSampleSufficient,
-} from './gtoNodelock';
 // 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
 import { isGtoEngine } from './gtoConfig';
 
@@ -1034,33 +1028,10 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   const oppProfile = calculateOpponentProfile(state.players, player.id);
   const adj = getOpponentAdjustments(oppProfile);
 
-  // Nodelock策略：当有足够对手数据时应用
-  if (oppProfile.botStats.length > 0) {
-    const firstOpponentStats = oppProfile.botStats[0];
-    if (firstOpponentStats && isSampleSufficient(buildNodelockProfile(firstOpponentStats))) {
-      const nodelockConfig = {
-        opponentProfile: buildNodelockProfile(firstOpponentStats),
-        street: state.phase as 'preflop' | 'flop' | 'turn' | 'river',
-        nodeType: (state.lastBet > 0 ? 'call' : 'bet') as 'call' | 'bet',
-        baseStrategy: {
-          action: 'check' as Action,
-          sizing: 0.5,
-        },
-        leakThreshold: 0.10,
-      };
-
-      const community = getCommunityCardsByPhase(state);
-      const equity = community.length >= 3
-        ? calculateEquity(player.hand, community, ctx.numOpponents, 200)
-        : 0.5;
-
-      getNodelockRecommendation(
-        nodelockConfig,
-        player.hand,
-        equity,
-      );
-    }
-  }
+  // 这里原本有一块 nodelock 计算：`getNodelockRecommendation(...)` 的返回值没有被
+  // 赋值、也没有被使用，属于空跑 —— 它还顺带为这次无用调用算了一遍 200 次迭代的
+  // 权益。真正需要展示给用户的 nodelock 已在面板侧计算（`HandAnalysis` 调用
+  // `getNodelockForOpponent`），机器人侧既没有消费它、也就不该在这里付这份成本。
 
   switch (state.phase) {
     case 'preflop':

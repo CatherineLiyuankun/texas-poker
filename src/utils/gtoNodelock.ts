@@ -1,5 +1,4 @@
-import type { Card, Player, GameState, Action } from '../types/poker';
-import type { BoardTexture } from './boardTexture';
+import type { Player, GameState, Action } from '../types/poker';
 import type { PlayerStats } from './opponentModelUtil';
 
 /**
@@ -16,16 +15,25 @@ export type LeakType =
 
 /**
  * 对手Nodelock画像
+ *
+ * **单位约定**：所有「率」都是 0–1 的比例，**不是** 0–100 的百分数；
+ * `aggression` 是 AF 比值，`sampleSize` 是手数。
+ * 上游 `PlayerStats`（`opponentModelUtil`）的单位并不统一 —— `vpip` / `pfr` 是比例，
+ * 而 `threeBet` / `cbet` / `foldToCbet` / `wtsd` 是百分数（`compute*FromEvents`
+ * 一律 `* 100` 后返回，面板表格也直接拼 `%` 渲染）。所以进入本画像前必须由
+ * `buildNodelockProfile` 把百分数折成比例：本模块内部（`evaluateLeak` 的 `0.60`、
+ * `calculateLeakMagnitude` 的基线 `0.45`、`generateReasoning` 的 `* 100`）
+ * 全部按比例处理，混用单位不会报错、只会静默判错。
  */
 export interface OpponentNodelockProfile {
-  // 基础统计
+  // 基础统计（所有「率」为 0–1 比例）
   vpip: number;                  // 入池率 (VPIP)
   pfr: number;                   // 加注率 (PFR)
   threeBet: number;              // 3-bet 率
   foldToThreeBet: number;        // 面对 3-bet 弃牌率
   cBet: number;                  // 持续下注率 (C-Bet)
   foldToCbet: number;            // 面对 c-bet 弃牌率
-  aggression: number;            // 攻击性指数 (AF)
+  aggression: number;            // 攻击性指数 (AF，比值)
   wtsd: number;                  // 摊牌率 (WtSD)
   msw: number;                   // 大底池获胜率 (W$SD)
   sampleSize: number;            // 样本量
@@ -64,27 +72,37 @@ export interface NodelockConfig {
 }
 
 /**
+ * 百分数 → 比例。`PlayerStats` 里 `threeBet` / `cbet` / `foldToCbet` / `wtsd`
+ * 是 0–100，而本模块内部一律按 0–1 处理（详见 `OpponentNodelockProfile` 的单位约定）。
+ * 漏掉这一步的后果不是抛错而是静默判错：65% 会被当成 65 读 → 恒判 overfold、
+ * 漏洞幅度恒为 1、reasoning 打印出 `4500%`。
+ */
+function percentToRate(value: number | null | undefined): number {
+  return (value ?? 0) / 100;
+}
+
+/**
  * 从PlayerStats构建Nodelock画像
  */
 export function buildNodelockProfile(stats: PlayerStats): OpponentNodelockProfile {
   const { vpip, pfr, threeBet, foldToCbet, cbet, af, wtsd, handsDealt } = stats;
 
-  // 评估漏洞
+  // 评估漏洞（注意：这里用的必须是折成比例后的值）
   const afValue = af ?? 0;
-  const foldToCbetValue = foldToCbet ?? 0;
-  const leakType = evaluateLeak(vpip, pfr, foldToCbetValue, afValue);
-  const leakMagnitude = calculateLeakMagnitude(leakType, foldToCbet ?? 0, pfr);
+  const foldToCbetRate = percentToRate(foldToCbet);
+  const leakType = evaluateLeak(vpip, pfr, foldToCbetRate, afValue);
+  const leakMagnitude = calculateLeakMagnitude(leakType, foldToCbetRate, pfr);
   const confidence = calculateConfidence(handsDealt);
 
   return {
     vpip,
     pfr,
-    threeBet: threeBet ?? 0,
+    threeBet: percentToRate(threeBet),
     foldToThreeBet: 0, // 默认值，需要从数据中计算
-    cBet: cbet ?? 0,
-    foldToCbet: foldToCbet ?? 0,
+    cBet: percentToRate(cbet),
+    foldToCbet: foldToCbetRate,
     aggression: af ?? 0,
-    wtsd: wtsd ?? 0,
+    wtsd: percentToRate(wtsd),
     msw: 0, // 默认值，需要从数据中计算
     sampleSize: handsDealt,
     leakType,
@@ -217,32 +235,39 @@ function generateReasoning(
     neutral: '无明显漏洞',
   };
 
-  const leakName = leakTypeNames[profile.leakType];
-  const adjustmentPercent = (adjustment * 100).toFixed(0);
-  const adjustmentDirection = adjustment > 0 ? '增加' : '减少';
-
   if (profile.leakType === 'neutral') {
     return '无明显漏洞，使用基础策略';
   }
 
-  return `对手${leakName}(${(profile.foldToCbet * 100).toFixed(0)}%)，${adjustmentDirection}调整${adjustmentPercent}%`;
+  const leakName = leakTypeNames[profile.leakType];
+  const adjustmentPercent = (adjustment * 100).toFixed(0);
+  const adjustmentDirection = adjustment > 0 ? '增加' : '减少';
+
+  // 括号里的数字必须与判据对应，否则会自相矛盾：`evaluateLeak` 判
+  // overfold / underfold 看的是面对 c-bet 的弃牌率，判 overaggressive / passive
+  // 看的是 PFR。旧实现一律打印 foldToCbet，于是「被动」被渲染成
+  // 「对手被动(0%)」—— 0% 是 F/CB，与「被动」毫无关系。
+  const basis =
+    profile.leakType === 'overfold' || profile.leakType === 'underfold'
+      ? `${(profile.foldToCbet * 100).toFixed(0)}%`
+      : `PFR ${(profile.pfr * 100).toFixed(0)}%`;
+
+  return `对手${leakName}(${basis})，${adjustmentDirection}调整${adjustmentPercent}%`;
 }
 
 /**
  * Nodelock主决策函数
+ *
+ * 入参只剩「配置 + 权益」：原来的 `hand` / `boardTexture` 两个形参在函数体内
+ * 从未被真正使用（只喂给一条 `console.warn`），而那条 warn 的判据
+ * `hand.length > 0 && !boardTexture` 在翻前必然成立（翻前本来就没有公共牌），
+ * 所以每次调用都会刷一条无意义的告警。两个死形参随告警一并删除。
  */
 export function getNodelockRecommendation(
   config: NodelockConfig,
-  hand: Card[],
   equity: number,
-  boardTexture?: BoardTexture,
 ): NodelockRecommendation {
   const { opponentProfile, baseStrategy, leakThreshold } = config;
-
-  // 验证手牌和牌面数据
-  if (hand.length > 0 && !boardTexture) {
-    console.warn('Nodelock: 提供了手牌但未提供牌面纹理');
-  }
 
   // 检查样本量是否足够
   if (!isSampleSufficient(opponentProfile)) {
@@ -347,4 +372,24 @@ export function getNodelockConfig(
     },
     leakThreshold: 0.10,
   };
+}
+
+/**
+ * 面板展示用的入口：给定「谁在决策」+「观察到的某个对手统计」+ 当前权益，
+ * 直接产出一条可展示的 nodelock 建议；样本量不足（< 100 手）时返回 `null`，
+ * 面板据此整块隐藏，而不是显示一个「样本量不足」的空壳。
+ *
+ * 之所以要这一层：`getNodelockConfig` + `getNodelockRecommendation` 两步调用
+ * 里的「样本是否够」判断是调用方容易漏掉的，收敛到一处就不会出现
+ * 「配置里判了一次、渲染时又判一次」的分叉。
+ */
+export function getNodelockForOpponent(
+  state: GameState,
+  player: Player,
+  stats: PlayerStats,
+  equity: number,
+): NodelockRecommendation | null {
+  const config = getNodelockConfig(state, player, stats);
+  if (!isSampleSufficient(config.opponentProfile)) return null;
+  return getNodelockRecommendation(config, equity);
 }

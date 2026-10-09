@@ -18,7 +18,7 @@ import {
   getGtoRiverRecommendation,
   type GtoRiverRecommendation,
 } from '../utils/gtoRiver';
-import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
+import { getNodelockForOpponent, type LeakType } from '../utils/gtoNodelock';
 import { SMALL_BLIND } from '../utils/constant';
 import {
   calculateValueBluffRatio,
@@ -50,7 +50,6 @@ interface HandAnalysisProps {
     freq?: { r: number; c: number; f: number };
     isAllIn?: boolean;
   } | null;
-  nodelockRecommendation?: NodelockRecommendation | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -458,7 +457,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   spr,
   playerRaiseAmount,
   gtoRecommendation,
-  nodelockRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -607,6 +605,41 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       : rangeFlags.applied
         ? 'range'
         : 'random';
+
+  // NodeLock（利用对手漏洞）建议。
+  //
+  // 以前这段计算在 `botAI.getBotAction` 里空跑（算完就丢），面板的 NodeLock 区块
+  // 永远收不到数据。现在改成在面板里算：面板本来就持有全部输入
+  // （`opponentProfile.botStats` 就是下面「玩家数据」表用的同一份统计）。
+  //
+  // 取「样本最多的那个对手」—— 样本越多，漏洞判定越可信；`getNodelockForOpponent`
+  // 内部用 `isSampleSufficient`（≥100 手）把关，不够就返回 null，整块隐藏。
+  //
+  // 权益只喂给建议里的 action 字段（区块不展示 action），所以权益还没算完时
+  // 用 0.5 占位不影响展示的四个字段（漏洞 / 置信度 / 调整幅度 / 依据）。
+  const nodelockRecommendation = useMemo(() => {
+    if (!gameState || !heroPlayer) return null;
+    if (
+      phase !== 'preflop' &&
+      phase !== 'flop' &&
+      phase !== 'turn' &&
+      phase !== 'river'
+    ) {
+      return null;
+    }
+    const botStats = opponentProfile?.botStats ?? [];
+    if (botStats.length === 0) return null;
+    const target = botStats.reduce(
+      (best, s) => (s.handsDealt > best.handsDealt ? s : best),
+      botStats[0],
+    );
+    return getNodelockForOpponent(
+      gameState,
+      heroPlayer,
+      target,
+      decisionEquity ?? 0.5,
+    );
+  }, [gameState, heroPlayer, opponentProfile, decisionEquity, phase]);
 
   const recommendation = useMemo(() => {
     if (decisionEquity === null) return '';
@@ -1148,7 +1181,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       </div>
       
-      {/* NodeLock Recommendation lyk TODO */}
+      {/* NodeLock 建议：利用对手漏洞的剥削方向。数据来自上方 useMemo，
+          样本 < 100 手（isSampleSufficient）或对手无显著漏洞（neutral）时整块隐藏。 */}
       {nodelockRecommendation && nodelockRecommendation.adjustmentType !== 'neutral' && (
         <div className="border-t border-white/10 pt-1 mt-1">
           <div className="text-white/50 font-medium text-center tracking-wide text-[12px] mb-1">
