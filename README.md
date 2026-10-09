@@ -35,11 +35,15 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Persistent Storage**: Data saved in localStorage, survives browser restarts
   - **Export/Import**: Backup stats to JSON file and restore later
   - **Stats Table**: Displayed in AI Analysis panel showing VPIP, PFR, and player type per real player
+- **Strategy Configuration**: two orthogonal axes, toggled on the table screen
+  - **Engine**: `GTO` (per-street GTO modules) or `heuristic` (the TAG/LAG hybrid above)
+  - **Scenario**: `cash` or `tournament`. Tournaments disable rake, add an ICM risk premium derived from the stack-relative bubble factor, and use preflop ranges tightened relative to the cash tables
+  - **Rake** (cash only, set on the start screen): off / percentage of the pot / fixed BBs, each with an optional BB cap
 - **Complete Game Flow**: Pre-flop → Flop → Turn → River → Showdown
 - **Hand Evaluation**: Recognizes all hand ranks from High Card to Royal Flush
 - **Accurate Pot Calculation**: Main pot and side pots with proper multi-level splitting
 - **Chip System**: Starting 1000 chips, with betting and pot tracking
-- **Blind Structure**: Small blind ($10) and Big blind ($20)
+- **Blind Structure**: Configurable small blind (default $5, big blind = 2×SB)
 - **All-in Support**: Full all-in mechanics with proper side pot creation
 - **Bilingual**: English and Chinese (auto-detected)
 - **Responsive UI**: Built with Tailwind CSS
@@ -73,7 +77,7 @@ The analysis panel shows two estimates side by side:
 
 | | Opponent model | Engine | Role |
 |---|---|---|---|
-| **Random equity** | N uniformly random hands | Monte Carlo (120–400 iterations); heads-up river uses exact enumeration of all C(45,2) villain hands | Baseline / sanity check |
+| **Random equity** | N uniformly random hands | Monte Carlo (300–400 iterations); heads-up river uses exact enumeration of all C(45,2) villain hands | Baseline / sanity check |
 | **Range equity** | One inferred continuing range (remaining opponents stay random) | Same Monte Carlo engine, with the primary opponent sampled from the weighted combos | Drives the recommendation and the EV figures |
 
 **Range inference** (`estimateOpponentCombos` in `src/utils/rangeEquity.ts`):
@@ -84,9 +88,9 @@ The analysis panel shows two estimates side by side:
 
 Weights multiply across streets and are floored per street, so a combo is never removed — the range degrades smoothly instead of collapsing. With no postflop history every weight is 1 and the result is identical to the preflop-only range. When the opponent's tracked aggression (AF / tendency) is available, bluff weights are scaled by it, which makes the figure an **exploitative** range rather than a purely GTO one — the panel labels this explicitly.
 
-Iteration counts scale with the street and opponent count (preflop 400, flop 350, turn/river 300, floored at 120) so multiway pots stay responsive.
+Iteration counts live in one shared table (`src/utils/equityIterations.ts`): preflop 400, flop 350, turn/river 300 — the **same numbers for the bot and the panel**, so a figure shown to the user is the figure the bot decided on. They no longer scale down with the opponent count.
 
-**Known limits**: only the primary opponent is range-modelled (multiway range equity reads high); the postflop line is reconstructed from recorded actions rather than solved, so it is a heuristic; river frequencies are derived from the turn row because the bot's river branch never used the c-bet table; side pots, unequal stacks and ICM are not modelled; the Monte Carlo estimate still carries a few points of variance.
+**Known limits**: only the primary opponent is range-modelled (multiway range equity reads high); the postflop line is reconstructed from recorded actions rather than solved, so it is a heuristic; river frequencies are derived from the turn row because the bot's river branch never used the c-bet table; side pots, unequal stacks and ICM are not modelled *inside the equity figure itself* (ICM does change the bot's decisions and thresholds — see Strategy Configuration); the Monte Carlo estimate still carries a few points of variance.
 
 ### Tech Stack
 
@@ -128,7 +132,7 @@ npm run build
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
 - **Component Tests**: `src/components/__tests__/` - UI, settlement, and equity panel tests
-- **Test Coverage**: 548 tests across 27 test suites (546 passed, 2 skipped)
+- **Test Coverage**: 912 tests across 47 test suites (910 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -143,7 +147,7 @@ npm run build
   - **翻前策略**: TAG-LAG 混合风格（VPIP ~28%, PFR ~20%），基于 169 种起手牌分级系统
   - **混合策略**: 随机化决策，防止被对手反推牌型
   - **位置打法**: 后位范围更宽、偷盲、轻 3-bet
-  - **翻后 AI**: Monte Carlo 胜率模拟（200-500 次迭代）+ 底池赔率比较
+  - **翻后 AI**: Monte Carlo 胜率模拟（300-400 次迭代）+ 底池赔率比较
   - **听牌检测**: 同花听牌、两头顺子、卡顺，基于 Outs 概率计算
   - **对手画像**: 自动识别激进/被动型对手，动态调整决策阈值
 - **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、听牌信息和行动建议
@@ -163,11 +167,15 @@ npm run build
   - **持久化存储**: 数据保存在 localStorage，浏览器重启后数据保留
   - **导出/导入**: 支持将统计数据备份为 JSON 文件并恢复
   - **统计表格**: 在 AI 分析面板中显示每位真人玩家的 VPIP、PFR 和玩家类型
+- **策略配置**: 牌桌上两个**正交**开关
+  - **引擎**: `GTO`（各街走 GTO 模块）或 `启发式`（上面那套 TAG/LAG 混合风格）
+  - **赛制**: `现金局` 或 `锦标赛`。锦标赛不抽水、叠加由「筹码相对泡沫因子」算出的 ICM 风险溢价，并使用相对现金局收紧的翻前范围
+  - **抽水**（仅现金局，在开始页设置）: 不抽水 / 按底池百分比 / 固定 nBB，三种都可选填「封顶几个 BB」
 - **完整游戏流程**: 翻牌前 → 翻牌 → 转牌 → 河牌 → 摊牌
 - **手牌评估**: 识别所有牌型，从高牌到皇家同花顺
 - **精确底池计算**: 主池和边池的多层级正确拆分
 - **筹码系统**: 初始 1000 筹码，支持下注和底池追踪
-- **盲注结构**: 小盲 ($10) 和大盲 ($20)
+- **盲注结构**: 小盲可调（默认 $5，大盲 = 2×小盲）
 - **全押支持**: 完整的全押机制，正确创建边池
 - **双语支持**: 中文和英文（自动检测）
 - **响应式 UI**: 使用 Tailwind CSS 构建
@@ -201,7 +209,7 @@ npm run build
 
 | | 对手模型 | 计算引擎 | 作用 |
 |---|---|---|---|
-| **随机权益** | N 手均匀随机牌 | Monte Carlo（120–400 次迭代）；单挑河牌走精确枚举（全部 C(45,2) 对手组合） | 基准值 / 交叉验证 |
+| **随机权益** | N 手均匀随机牌 | Monte Carlo（300–400 次迭代）；单挑河牌走精确枚举（全部 C(45,2) 对手组合） | 基准值 / 交叉验证 |
 | **范围权益** | 一个推断出的续玩范围（其余对手仍视为随机牌） | 同一 Monte Carlo 引擎，主要对手从估算组合中采样 | 驱动行动建议与 EV 数字 |
 
 **范围推断**（`src/utils/rangeEquity.ts` 的 `estimateOpponentCombos`）：
@@ -212,9 +220,9 @@ npm run build
 
 权重跨街道连乘，且每条街单独设下限，因此组合永不会被彻底剔除 —— 范围是平滑退化而非坍缩。没有翻后历史时所有权重均为 1，结果与纯翻前范围完全一致。当对手的历史激进度（AF / 倾向）可用时，诈唬权重会按其缩放，使该数字成为**剥削性**范围而非纯 GTO 范围 —— 面板对此有明确标注。
 
-迭代次数随街道与对手数缩放（翻前 400、翻牌 350、转牌/河牌 300，下限 120），保证多人底池仍能流畅响应。
+迭代次数集中在 `src/utils/equityIterations.ts` 一张表里（翻前 400、翻牌 350、转牌/河牌 300），**机器人与面板共用同一套数字** —— 面板显示给用户的胜率就是机器人据以决策的胜率。已不再按对手数降档。
 
-**已知局限**：只对主要对手建模范围（多人底池的范围权益偏高）；翻后行动线由记录的行动重建而非求解，属启发式；河牌频率由转牌行推导而来（bot 的河牌分支未使用 c-bet 表）；不含边池、不等筹码与 ICM；Monte Carlo 本身仍有几个百分点的方差。
+**已知局限**：只对主要对手建模范围（多人底池的范围权益偏高）；翻后行动线由记录的行动重建而非求解，属启发式；河牌频率由转牌行推导而来（bot 的河牌分支未使用 c-bet 表）；**权益数字本身**不含边池、不等筹码与 ICM（ICM 会改变机器人的决策与门槛，见「策略配置」）；Monte Carlo 本身仍有几个百分点的方差。
 
 ### 技术栈
 
@@ -255,4 +263,4 @@ npm run build
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
 - **组件测试**: `src/components/__tests__/` - UI、结算和权益面板测试
-- **测试覆盖**: 27 个测试套件，共 548 个测试用例（546 通过，2 跳过）
+- **测试覆盖**: 47 个测试套件，共 912 个测试用例（910 通过，2 跳过）—— 以 `npm test` 的实际输出为准
