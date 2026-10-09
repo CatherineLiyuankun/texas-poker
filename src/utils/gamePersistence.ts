@@ -1,4 +1,5 @@
 import type { GameScenario } from './gtoConfig';
+import type { RakeConfig } from './rake';
 
 export interface SavedProgress {
   version: 1;
@@ -12,6 +13,8 @@ export interface SavedProgress {
   gtoEnabled?: boolean;
   /** 赛制。老存档没有这个字段，读取方按 `'cash'` 兜底（与配置化前行为一致）。 */
   scenario?: GameScenario;
+  /** 抽水。老存档没有这个字段，读取方按「不抽水」兜底（与可配置前行为一致）。 */
+  rake?: RakeConfig;
 }
 
 const STORAGE_KEY = 'texas-poker-progress';

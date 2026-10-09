@@ -3,12 +3,19 @@ import { translations } from '../utils/translations';
 import { loadGameProgress, clearGameProgress } from '../utils/gamePersistence';
 import { resetLongTermStats, exportStats, importStats } from '../utils/longOpponentModel';
 import type { SavedProgress } from '../utils/gamePersistence';
+import { NO_RAKE, type RakeConfig, type RakeMode } from '../utils/rake';
+
+/** 抽水输入的上限，和输入框的 min/max 保持一致。 */
+const RAKE_PERCENT_MAX = 20;
+const RAKE_BB_MAX = 10;
+const RAKE_CAP_MAX = 20;
 
 interface StartPageProps {
   onStartGame: (
     realPlayerCount: number,
     botPlayerCount: number,
     smallBlind: number,
+    rake: RakeConfig,
   ) => void;
   onResumeGame: (progress: SavedProgress) => void;
 }
@@ -17,6 +24,10 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
   const [realPlayers, setRealPlayers] = useState(2);
   const [botPlayers, setBotPlayers] = useState(0);
   const [smallBlind, setSmallBlind] = useState(5);
+  // 抽水：模式 + 数值 + 封顶。三者分开存，切换模式时不清空用户已填的数值。
+  const [rakeMode, setRakeMode] = useState<RakeMode>(NO_RAKE.mode);
+  const [rakeValue, setRakeValue] = useState(NO_RAKE.value);
+  const [rakeCapBB, setRakeCapBB] = useState(NO_RAKE.capBB);
   const [savedProgress, setSavedProgress] = useState<SavedProgress | null>(
     () => loadGameProgress(),
   );
@@ -55,6 +66,24 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
   const totalPlayers = realPlayers + botPlayers;
   const isValid =
     totalPlayers >= 2 && totalPlayers <= 10 && smallBlind >= 1 && smallBlind <= 100;
+
+  const bigBlind = smallBlind * 2;
+  // 封顶只在「按百分比」下有意义：固定大盲模式的抽水本身就是固定值，
+  // 再封顶只是把它变成另一个更小的固定值。所以 bb 模式提交时把 capBB 归零。
+  const rake: RakeConfig = {
+    mode: rakeMode,
+    value: rakeValue,
+    capBB: rakeMode === 'percent' ? rakeCapBB : 0,
+  };
+  const rakeText = translations.startPage.rake;
+  // 摘要行：把 (模式, 数值, 封顶) 翻成一句人话，顺带把「几个大盲」换算成筹码。
+  const rakeSummary = (() => {
+    if (rakeMode === 'none' || rakeValue <= 0) return rakeText.none;
+    if (rakeMode === 'percent') {
+      return rakeText.percent(rakeValue, rakeCapBB, rakeCapBB * bigBlind);
+    }
+    return rakeText.bb(rakeValue);
+  })();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 flex flex-col items-center justify-center p-4">
@@ -157,10 +186,103 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
               </div>
             </div>
           </div>
+
+          <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-6">
+            <div className="flex-1 w-full">
+              {/* 一行放下「标签 + 模式」，下方只在需要时出现数值输入 —— 尽量紧凑。 */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <label className="text-white/80 text-sm whitespace-nowrap">
+                  {rakeText.label}
+                </label>
+                <div className="flex items-center gap-1">
+                  {(['none', 'percent', 'bb'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => {
+                        setRakeMode(m);
+                        // 两个模式的上限不同（比例 20 / 大盲 10）。数值是共享的，
+                        // 所以切模式时必须重新夹一次，否则会留下「显示 15 但上限 10」
+                        // 这种自相矛盾的状态，而且那个 15 会被当成 15BB 用。
+                        if (m === 'percent') {
+                          setRakeValue((v) => Math.min(RAKE_PERCENT_MAX, v));
+                        } else if (m === 'bb') {
+                          setRakeValue((v) => Math.min(RAKE_BB_MAX, v));
+                        }
+                      }}
+                      aria-pressed={rakeMode === m}
+                      className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
+                        rakeMode === m
+                          ? 'bg-yellow-500 text-black'
+                          : 'bg-green-900/50 text-white/60 hover:text-white'
+                      }`}
+                    >
+                      {m === 'none'
+                        ? rakeText.modeNone
+                        : m === 'percent'
+                          ? rakeText.modePercent
+                          : rakeText.modeBb}
+                    </button>
+                  ))}
+                </div>
+                {rakeMode !== 'none' && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <input
+                      type="number"
+                      aria-label={rakeText.valueAria}
+                      min={0}
+                      max={rakeMode === 'percent' ? RAKE_PERCENT_MAX : RAKE_BB_MAX}
+                      step={rakeMode === 'percent' ? 1 : 0.5}
+                      value={rakeValue}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        const max = rakeMode === 'percent' ? RAKE_PERCENT_MAX : RAKE_BB_MAX;
+                        setRakeValue(isNaN(val) ? 0 : Math.min(max, Math.max(0, val)));
+                      }}
+                      className="w-14 h-8 bg-green-900/50 border border-green-600 text-white text-base font-bold text-center rounded focus:outline-none focus:border-yellow-400"
+                    />
+                    <span className="text-white/60 text-xs whitespace-nowrap">
+                      {rakeMode === 'percent' ? rakeText.valuePercent : rakeText.valueBb}
+                    </span>
+                    {/* 封顶只在「按百分比」下有意义（固定大盲已是固定值）。 */}
+                    {rakeMode === 'percent' && (
+                      <>
+                        <input
+                          type="number"
+                          aria-label={rakeText.capAria}
+                          min={0}
+                          max={RAKE_CAP_MAX}
+                          step={1}
+                          value={rakeCapBB}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            setRakeCapBB(
+                              isNaN(val) ? 0 : Math.min(RAKE_CAP_MAX, Math.max(0, val)),
+                            );
+                          }}
+                          className="w-14 h-8 bg-green-900/50 border border-green-600 text-white text-base font-bold text-center rounded focus:outline-none focus:border-yellow-400"
+                        />
+                        <span className="text-white/60 text-xs whitespace-nowrap">
+                          {rakeText.capLabel}({rakeText.capUnit})
+                        </span>
+                        <span className="text-white/40 text-[10px] whitespace-nowrap">
+                          {rakeText.capHint}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="text-center py-1.5 px-3 bg-green-900/30 rounded-lg max-w-[15rem]">
+              <p className="text-white/60 text-xs">{rakeSummary}</p>
+              <p className="text-white/40 text-[10px]">{rakeText.tournamentNote}</p>
+            </div>
+          </div>
         </div>
 
         <button
-          onClick={() => isValid && onStartGame(realPlayers, botPlayers, smallBlind)}
+          onClick={() => isValid && onStartGame(realPlayers, botPlayers, smallBlind, rake)}
           disabled={!isValid}
           className={`w-full py-4 text-2xl font-bold rounded-xl transition-all ${
             isValid

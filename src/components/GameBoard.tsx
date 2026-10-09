@@ -9,6 +9,7 @@ import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
+import { NO_RAKE, setRakeConfig, type RakeConfig } from '../utils/rake';
 import {
   getGtoPreflopRecommendation,
   getRfiPositionForDisplay,
@@ -32,6 +33,12 @@ interface PlayerConfig {
   realPlayers: number;
   botPlayers: number;
   smallBlind: number;
+  /**
+   * 抽水（桌面条件）。由 `StartPage` 设定，见 `rake.ts`。
+   * 可选：缺省按「不抽水」兜底，与抽水可配置之前的行为逐位一致
+   * （也让既有测试不必逐个补字段）。
+   */
+  rake?: RakeConfig;
 }
 
 interface GameBoardProps {
@@ -40,6 +47,7 @@ interface GameBoardProps {
   savedBuyInCounts?: number[];
   savedGtoEnabled?: boolean;
   savedScenario?: GameScenario;
+  savedRake?: RakeConfig;
   onBackToMenu: () => void;
 }
 
@@ -49,6 +57,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   savedBuyInCounts,
   savedGtoEnabled,
   savedScenario,
+  savedRake,
   onBackToMenu,
 }) => {
   const {
@@ -88,6 +97,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   useEffect(() => {
     setGtoConfig({ scenario });
   }, [scenario]);
+
+  // 抽水（桌面条件）：同样是「按当前值无条件同步」，避免「设了抽水 → 返回菜单 →
+  // 新开一局」留下陈旧全局态。存档优先（续局时以存档为准）。
+  const rakeSource = savedRake ?? playerConfig.rake;
+  const rakeMode = rakeSource?.mode ?? NO_RAKE.mode;
+  const rakeValue = rakeSource?.value ?? NO_RAKE.value;
+  const rakeCapBB = rakeSource?.capBB ?? NO_RAKE.capBB;
+
+  useEffect(() => {
+    setRakeConfig({ mode: rakeMode, value: rakeValue, capBB: rakeCapBB });
+  }, [rakeMode, rakeValue, rakeCapBB]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -188,9 +208,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         savedAt: Date.now(),
         gtoEnabled,
         scenario,
+        rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
       });
     }
-  }, [roundSettled, state.players, state.smallBlind, state.dealer, gtoEnabled, scenario]);
+  }, [
+    roundSettled,
+    state.players,
+    state.smallBlind,
+    state.dealer,
+    gtoEnabled,
+    scenario,
+    rakeMode,
+    rakeValue,
+    rakeCapBB,
+  ]);
 
   const handleBackToMenu = () => {
     if (state.players.length > 0 && state.players[0].hand.length > 0) {
@@ -205,6 +236,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         savedAt: Date.now(),
         gtoEnabled,
         scenario,
+        rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
       });
     }
     onBackToMenu();
