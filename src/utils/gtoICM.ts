@@ -1,6 +1,9 @@
 import type { Card, GameState } from '../types/poker';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { random } from './random';
+// 翻前手牌分档的**唯一**来源。本文件原先自带一份 `getHandStrengthTier`，与
+// `preflopHandStrength.getPreflopTier` 并存且**结果不一致**（见下方注释），已删除。
+import { getPreflopTier } from './preflopHandStrength';
 
 export type TournamentStage = 'early' | 'middle' | 'bubble' | 'final_table';
 export type Position = 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
@@ -143,29 +146,22 @@ function getStageAdjustment(stage: TournamentStage): number {
   return adjustments[stage];
 }
 
-function getHandStrengthTier(hand: Card[]): number {
-  const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
-  const r1 = hand[0].rank;
-  const r2 = hand[1].rank;
-  const isSuited = hand[0].suit === hand[1].suit;
-
-  const idx1 = rankOrder.indexOf(r1);
-  const idx2 = rankOrder.indexOf(r2);
-  const highIdx = Math.max(idx1, idx2);
-  const lowIdx = Math.min(idx1, idx2);
-  const isPair = r1 === r2;
-
-  if (isPair && highIdx >= 10) return 1;
-  if (isPair && highIdx >= 7) return 2;
-  if (isPair) return 3;
-  if (highIdx === 12 && lowIdx >= 10) return 2;
-  if (highIdx === 12 && isSuited) return 3;
-  if (highIdx === 12) return 4;
-  if (highIdx >= 10 && lowIdx >= 8) return 3;
-  if (highIdx >= 10 && isSuited) return 4;
-  if (isSuited && highIdx >= 8 && lowIdx >= 6) return 5;
-  return 6;
-}
+/**
+ * 本模块原先自带的 `getHandStrengthTier` 已删除，改用
+ * `preflopHandStrength.getPreflopTier`（13×13 表，全仓库唯一的翻前分档）。
+ *
+ * 删它的两个理由：
+ *
+ * 1. **两份实现结果不一致**。原实现里 `highIdx === 12 && lowIdx >= 10` 这条
+ *    （A + 10 以上）**先于**同花规则命中，于是 AKs / AKo / AQs 被判成 2，
+ *    而 13×13 表把它们判成 1（T1 Premium：AA,KK,QQ,AKs,AQs,AKo）。
+ * 2. **原实现对 `'10'` 是错的**：它的 `rankOrder` 用 `'T'` 表示 10，而本仓库
+ *    （`preflopHandStrength.RI`、`useGameState.RANKS`）一律用 `'10'`，
+ *    于是 `rankOrder.indexOf('10') === -1` → 任何含 10 的手牌都取到 -1 下标，
+ *    **口袋 TT 被错分成 3**（应为 2）。
+ *
+ * 换成 13×13 表后分档口径与 `botAI`、`gtoShortStack` 等其它翻前路径一致。
+ */
 
 export function getICMRecommendation(
   config: ICMConfig,
@@ -187,7 +183,7 @@ export function getICMRecommendation(
   const riskPremium = calculateRiskPremium(avgBubbleFactor);
   const icmAdjustment = stageAdj * positionAdj;
 
-  const handTier = getHandStrengthTier(hand);
+  const handTier = getPreflopTier(hand);
 
   let adjustedAction: ICMRecommendation['action'] = 'fold';
   let adjustedSizing: number | undefined;

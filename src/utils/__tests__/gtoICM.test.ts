@@ -9,6 +9,7 @@ import {
   getICMConfig,
   type ICMConfig,
 } from '../gtoICM';
+import * as preflopHandStrength from '../preflopHandStrength';
 
 function createCard(rank: Rank, suit: Suit): Card {
   return { rank, suit };
@@ -312,6 +313,51 @@ describe('gtoICM', () => {
       const result = isTournamentBubble(state);
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('翻前分档收敛到 preflopHandStrength（唯一来源）', () => {
+    const config: ICMConfig = {
+      tournamentStage: 'bubble',
+      payoutStructure: [50, 30, 20],
+      playerStacks: [5000, 3000, 2000],
+      heroStack: 5000,
+      blinds: 100,
+      ante: 10,
+      numPlayers: 3,
+      averageStack: 3333,
+    };
+
+    it('getICMRecommendation 走的是 preflopHandStrength.getPreflopTier', () => {
+      const spy = jest.spyOn(preflopHandStrength, 'getPreflopTier');
+      try {
+        const hand = [createCard('A', '♠'), createCard('K', '♠')];
+        getICMRecommendation(config, hand, 'BTN', 'rfi');
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][0]).toEqual(hand);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('口袋 TT 判成 2（原实现用 \'T\' 作 10，对 \'10\' 取到 -1 下标 → 误判成 3）', () => {
+      // 13×13 表：T[4][4] = 2
+      expect(preflopHandStrength.getPreflopTier([
+        createCard('10', '♠'), createCard('10', '♥'),
+      ])).toBe(2);
+    });
+
+    it('AKs / AKo / AQs 都是 1（原实现被同花规则前的那条判成 2）', () => {
+      expect(preflopHandStrength.getPreflopTier([
+        createCard('A', '♠'), createCard('K', '♠'),
+      ])).toBe(1);
+      expect(preflopHandStrength.getPreflopTier([
+        createCard('A', '♠'), createCard('K', '♥'),
+      ])).toBe(1);
+      expect(preflopHandStrength.getPreflopTier([
+        createCard('A', '♠'), createCard('Q', '♠'),
+      ])).toBe(1);
     });
   });
 
