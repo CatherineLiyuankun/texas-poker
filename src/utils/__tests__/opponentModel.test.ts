@@ -7,6 +7,9 @@ import {
   startNewHand,
   recordAction,
   getOpponentVpipPfr,
+  getOpponentCBet,
+  getOpponent3Bet,
+  getOpponentFoldToCbet,
 } from '../opponentModel';
 import type { Player } from '../../types/poker';
 import type { ActionEvent } from '../../types/stats';
@@ -356,5 +359,82 @@ describe('per-hand VPIP/PFR tracking', () => {
     const profile = calculateOpponentProfile(players, 1);
     expect(profile.botStats).toBeDefined();
     expect(profile.botStats.length).toBe(2);
+  });
+});
+
+/**
+ * 需要看到**对手**动作的统计量。
+ *
+ * 这些用例过去会失败：`collectPlayerHands` 把每手事件预过滤成目标玩家自己的，
+ * 于是 `computeFoldToCbetFromEvents` 找不到「对手的翻前加注」、
+ * `compute3BetFromEvents` 找不到「有人在我之前加注」，两项恒为 `null`。
+ * 注意时间戳必须严格递增 —— 这几个统计量都按 timestamp 排序取「最后一次加注」，
+ * 用 `Date.now()` 容易拿到相同的值，排序结果就不确定了。
+ */
+describe('需要对手上下文的统计量（3-bet / fold-to-c-bet）', () => {
+  let clock = 0;
+
+  function timedEvent(
+    playerId: number,
+    action: 'fold' | 'call' | 'raise' | 'check' | 'allin',
+    phase: 'preflop' | 'flop' | 'turn' | 'river',
+  ): ActionEvent {
+    clock += 1;
+    return {
+      handId: currentHandId,
+      playerId: playerId as ActionEvent['playerId'],
+      phase,
+      action,
+      toCall: 0,
+      currentBet: 0,
+      potSize: 100,
+      position: 0,
+      isFacingRaise: false,
+      timestamp: clock,
+    };
+  }
+
+  beforeEach(() => {
+    resetOpponentStats();
+    clock = 0;
+  });
+
+  it('面对对手 c-bet 弃牌 → foldToCbet 是 100 而不是 null', () => {
+    currentHandId = 'hand-fc';
+    startNewHand('hand-fc', [1, 2]);
+    recordAction(timedEvent(2, 'raise', 'preflop'));
+    recordAction(timedEvent(1, 'call', 'preflop'));
+    recordAction(timedEvent(2, 'raise', 'flop')); // P2 持续下注
+    recordAction(timedEvent(1, 'fold', 'flop'));
+
+    expect(getOpponentFoldToCbet(1)).toBe(100);
+
+    // 面板 NodeLock 区块读的就是 botStats，所以这条链路必须通
+    const profile = calculateOpponentProfile(
+      [createMockPlayer(1), createMockPlayer(2)],
+      2,
+    );
+    expect(profile.botStats[0].foldToCbet).toBe(100);
+  });
+
+  it('在对手开池后 3-bet → threeBet 是 100 而不是 null', () => {
+    currentHandId = 'hand-3b';
+    startNewHand('hand-3b', [1, 2]);
+    recordAction(timedEvent(2, 'raise', 'preflop'));
+    recordAction(timedEvent(1, 'raise', 'preflop'));
+
+    expect(getOpponent3Bet(1)).toBe(100);
+  });
+
+  it('c-bet 只算自己的：没加注过的人拿不到 c-bet', () => {
+    currentHandId = 'hand-cb';
+    startNewHand('hand-cb', [1, 2]);
+    recordAction(timedEvent(2, 'raise', 'preflop'));
+    recordAction(timedEvent(1, 'call', 'preflop'));
+    recordAction(timedEvent(2, 'raise', 'flop'));
+
+    // P1 从未翻前加注 → 没有 c-bet 机会，不能借用 P2 的
+    expect(getOpponentCBet(1)).toBeNull();
+    expect(getOpponentCBet(2)).toBe(100);
   });
 });

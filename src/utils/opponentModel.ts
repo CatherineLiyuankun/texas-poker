@@ -4,7 +4,6 @@ import {
   type VpipPfrStats,
   type PlayerStats,
   collectPlayerEvents,
-  collectPlayerHands,
   computeTendencyFromEvents,
   computeFoldRateFromEvents,
   computePlayerStatsFromEvents,
@@ -108,22 +107,33 @@ export function detectLimpers(bigBlind: number): PlayerId[] {
   return detectLimpersFromEvents(sessionData.currentHand.events, bigBlind);
 }
 
+/**
+ * 当前会话的**完整**手牌记录（含所有玩家的动作）。
+ *
+ * 必须整份交给 `computePlayerStatsFromEvents`，由它自己按玩家过滤：
+ * 3-bet / fold-to-c-bet 要看对手的动作，c-bet / WTSD 只看自己的动作，
+ * 两种口径都要，所以调用方不能提前过滤。
+ */
+function sessionHandRecords(): HandRecord[] {
+  return sessionData.currentHand
+    ? [...sessionData.sessionHands, sessionData.currentHand]
+    : sessionData.sessionHands;
+}
+
+/**
+ * 会话内某玩家统计的**单点入口**。
+ *
+ * 原先每个访问器各写一遍「收集事件 + 收集手牌 + 计算」，12 处几乎完全相同；
+ * 收敛到这里之后不会再出现「某一路忘了传完整记录」的漏改。
+ */
+function computeSessionStats(playerId: PlayerId): PlayerStats {
+  return computePlayerStatsFromEvents(playerId, sessionHandRecords());
+}
+
 export function getOpponentVpipPfr(playerId: PlayerId): VpipPfrStats {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
+  const stats = computeSessionStats(playerId);
   return {
     playerId: stats.playerId,
     handsDealt: stats.handsDealt,
@@ -137,190 +147,55 @@ export function getOpponentVpipPfr(playerId: PlayerId): VpipPfrStats {
 export function getOpponentAF(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.af;
+  return computeSessionStats(playerId).af;
 }
 
 export function getOpponentCBet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.cbet;
+  return computeSessionStats(playerId).cbet;
 }
 
 export function getOpponentWTSD(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.wtsd;
+  return computeSessionStats(playerId).wtsd;
 }
 
 export function getOpponentWSD(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.wsd;
+  return computeSessionStats(playerId).wsd;
 }
 
 export function getOpponentCheckRaise(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.checkRaise;
+  return computeSessionStats(playerId).checkRaise;
 }
 
 export function getOpponent3Bet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.threeBet;
+  return computeSessionStats(playerId).threeBet;
 }
 
 export function getOpponentFoldToCbet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.foldToCbet;
+  return computeSessionStats(playerId).foldToCbet;
 }
 
 export function getOpponentAFq(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.afq;
+  return computeSessionStats(playerId).afq;
 }
 
 export function getOpponentTurnCbet(playerId: PlayerId): number | null {
   loadFromStorage();
 
-  const allEvents = collectPlayerEvents(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  if (allEvents.length === 0) return null;
-
-  const allHands = collectPlayerHands(
-    playerId,
-    sessionData.sessionHands,
-    sessionData.currentHand,
-  );
-
-  const stats = computePlayerStatsFromEvents(playerId, allEvents, allHands);
-  return stats.turnCbet;
+  return computeSessionStats(playerId).turnCbet;
 }
 
 // 导出统一的PlayerStats接口作为BotStatsWithAF的别名（向后兼容）
@@ -329,21 +204,7 @@ export type BotStatsWithAF = PlayerStats;
 export function getRealPlayerSessionStats(
   playerIds: PlayerId[],
 ): PlayerStats[] {
-  return playerIds.map((id) => {
-    const allEvents = collectPlayerEvents(
-      id,
-      sessionData.sessionHands,
-      sessionData.currentHand,
-    );
-
-    const allHands = collectPlayerHands(
-      id,
-      sessionData.sessionHands,
-      sessionData.currentHand,
-    );
-
-    return computePlayerStatsFromEvents(id, allEvents, allHands);
-  });
+  return playerIds.map(id => computeSessionStats(id));
 }
 
 export interface OpponentInfo {
@@ -416,21 +277,7 @@ export function calculateOpponentProfile(
 
   return {
     opponents: opponentInfos,
-    botStats: opponents.map((p) => {
-      const allEvents = collectPlayerEvents(
-        p.id,
-        sessionData.sessionHands,
-        sessionData.currentHand,
-      );
-
-      const allHands = collectPlayerHands(
-        p.id,
-        sessionData.sessionHands,
-        sessionData.currentHand,
-      );
-
-      return computePlayerStatsFromEvents(p.id, allEvents, allHands);
-    }),
+    botStats: opponents.map((p) => computeSessionStats(p.id)),
     avgFoldRate,
     hasAggressive,
     hasPassive,
