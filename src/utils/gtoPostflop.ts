@@ -6,6 +6,8 @@ import type {
   OpponentAdjustments,
 } from './gtoPreflop';
 import { calculateRangeAwareEquity } from './rangeEquity';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
 import { evaluateHand } from './handEvaluator';
 import { detectDraws, type DrawInfo } from './drawDetector';
 import {
@@ -171,7 +173,7 @@ export function decidePostflopGTO(
     if (strength === 'air' && ip && ctx.numOpponents <= 2) {
       // 对手弃牌率高时，增加诈唬频率
       const bluffProb = 0.30 + stealBoost;
-      if (flags.canRaiseResult && Math.random() < bluffProb) {
+      if (flags.canRaiseResult && random() < bluffProb) {
         const target = Math.floor(ctx.totalPot * 0.75);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
       }
@@ -191,7 +193,7 @@ export function decidePostflopGTO(
     }
 
     if (strength === 'strong') {
-      if (flags.canRaiseResult && Math.random() < 0.40) {
+      if (flags.canRaiseResult && random() < 0.40) {
         const sizing = getBetSizing(texture.classification, spr);
         const target = Math.floor(ctx.totalPot * sizing * 1.5);
         if (flags.canAllInResult && shouldAllInBySPR(
@@ -203,7 +205,7 @@ export function decidePostflopGTO(
     }
 
     if (strength === 'draw') {
-      if (flags.canRaiseResult && Math.random() < 0.25) {
+      if (flags.canRaiseResult && random() < 0.25) {
         const sizing = getBetSizing(texture.classification, spr);
         const target = Math.floor(ctx.totalPot * sizing * 1.2);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
@@ -255,28 +257,28 @@ export function decidePostflopGTO(
   }
 
   if (strength === 'draw') {
-    if (flags.canRaiseResult && Math.random() < catFreq('draw')) {
+    if (flags.canRaiseResult && random() < catFreq('draw')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'medium') {
-    if (ip && flags.canRaiseResult && Math.random() < catFreq('medium')) {
+    if (ip && flags.canRaiseResult && random() < catFreq('medium')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'weak' && ip && ctx.numOpponents <= 2) {
-    if (flags.canRaiseResult && Math.random() < catFreq('weak')) {
+    if (flags.canRaiseResult && random() < catFreq('weak')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'air' && ip && ctx.numOpponents <= 2) {
-    if (flags.canRaiseResult && Math.random() < catFreq('air')) {
+    if (flags.canRaiseResult && random() < catFreq('air')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }

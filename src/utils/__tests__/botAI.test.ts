@@ -1,4 +1,5 @@
 import { getBotAction, getBotName } from '../botAI';
+import { resetRandomSource, setRandomSeed, setRandomSource } from '../random';
 import type { Player, GameState, PlayerId } from '../../types/poker';
 
 function createPlayer(
@@ -440,6 +441,51 @@ describe('Bot AI 决策', () => {
       // 旧代码把筹码换算硬编码成 `chips / 10`，会把它读成 200bb 而误入深筹码引擎。
       const notDeep = getBotAction(createPlayer(2, 2000, AKs, false), flopState(10));
       expect(notDeep.reasoning ?? '').not.toContain('Deep stack');
+    });
+  });
+
+  describe('策略随机数可注入（P2-d）', () => {
+    const JJ = [
+      { suit: '♠', rank: 'J' },
+      { suit: '♥', rank: 'J' },
+    ];
+
+    // JJ 是 tier 2（`preflopHandStrength.T[3][3]`）。tier 2 分支的第一件事就是
+    // `random() < 0.12` 的「设陷阱仅跟注」判定 —— 该路径不碰权益计算，
+    // 所以决策**完全**由注入的随机源决定，是验证接线的理想探针。
+    const jjState = () => createGameState({ dealer: 1, currentPlayer: 2 });
+    const jjPlayer = () => createPlayer(2, 1000, JJ, false);
+
+    afterEach(() => {
+      resetRandomSource();
+    });
+
+    it('决策确实由注入的随机源驱动（同输入同输出）', () => {
+      const decide = (value: number) => {
+        setRandomSource(() => value);
+        return getBotAction(jjPlayer(), jjState()).action;
+      };
+
+      // 0.05 < 0.12 → 设陷阱跟注；0.5 不满足 → 落到「优先加注」
+      expect(decide(0.05)).toBe('call');
+      expect(decide(0.5)).toBe('raise');
+      // 可复现：同样的注入值得到同样的决策
+      expect(decide(0.05)).toBe('call');
+    });
+
+    it('setRandomSeed 让同一批决策完全可复现', () => {
+      const run = () => {
+        setRandomSeed(2026);
+        return Array.from({ length: 30 }, () => getBotAction(jjPlayer(), jjState()).action);
+      };
+
+      const first = run();
+      const second = run();
+
+      // 两次同种子 → 逐条一致
+      expect(second).toEqual(first);
+      // 30 次里两种决策都出现过 → 证明这条路径真的在掷随机，而不是常量分支
+      expect(new Set(first).size).toBeGreaterThan(1);
     });
   });
 });

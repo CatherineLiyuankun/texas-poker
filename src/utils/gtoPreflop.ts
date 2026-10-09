@@ -1,5 +1,7 @@
 import type { Card, Player, GameState, Action } from '../types/poker';
 import { effectiveStackBB, stackBand, type StackBand } from './stackDepth';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
 
 export interface BotDecision {
   action: Action;
@@ -986,7 +988,7 @@ export function decidePreflopGTO(
 
     if (code === 'C') {
       // 对手激进时收紧跟注范围
-      if (flags.canCallResult && Math.random() >= callTighten) return { action: 'call' };
+      if (flags.canCallResult && random() >= callTighten) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
     }
 
@@ -1029,12 +1031,12 @@ export function decidePreflopGTO(
       return { action: 'allin' };
     }
     // 对手弃牌率高时，加注偷盲概率提升
-    if (flags.canAllInResult && Math.random() < (1.0 + stealBoost) && shouldAllInBySPR(
+    if (flags.canAllInResult && random() < (1.0 + stealBoost) && shouldAllInBySPR(
       player.chips, 0, ctx.totalPot, player.bet, target,
     )) {
       return { action: 'allin' };
     }
-    if (flags.canRaiseResult && Math.random() < (1.0 + stealBoost)) {
+    if (flags.canRaiseResult && random() < (1.0 + stealBoost)) {
       return {
         action: 'raise',
         amount: calculateRaiseAmount(player, state, target),

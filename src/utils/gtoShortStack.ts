@@ -10,6 +10,8 @@ import {
 } from './handStrength';
 // 筹码深度的唯一来源：bb 换算与分档都从 stackDepth 取，本文件不再自己写。
 import { effectiveStackBB, stackBand } from './stackDepth';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -320,7 +322,7 @@ export function getShortStackRecommendation(
       if (shouldPush(player.hand, effectiveStack, position)) {
         const sizing = getShortStackSizing(effectiveStack);
         // 对手弃牌率高时，加注偷盲概率提升
-        if (flags.canAllInResult && Math.random() < (1.0 + stealBoost)) {
+        if (flags.canAllInResult && random() < (1.0 + stealBoost)) {
           return {
             action: 'allin',
             sizing,
@@ -328,7 +330,7 @@ export function getShortStackRecommendation(
             reasoning: `Short stack push: ${effectiveStack}bb from ${position} (opponent fold boost)`,
           };
         }
-        if (flags.canRaiseResult && Math.random() < (1.0 + stealBoost)) {
+        if (flags.canRaiseResult && random() < (1.0 + stealBoost)) {
           return {
             action: 'raise',
             sizing,
@@ -350,7 +352,7 @@ export function getShortStackRecommendation(
     if (config.action === 'facing_open') {
       // 对手激进时收紧防守范围，对手被动时放宽
       const shouldDefendAdjusted = shouldDefend(player.hand, effectiveStack, position) &&
-        Math.random() >= defendTighten;
+        random() >= defendTighten;
 
       if (shouldDefendAdjusted) {
         if (flags.canAllInResult) {

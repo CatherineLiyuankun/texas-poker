@@ -6,6 +6,8 @@ import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
 import { callPotOddsFrom } from './potOdds';
 import { calculateBluffFrequency } from './gtoMath';
 
@@ -532,7 +534,7 @@ export function decideRiverGTO(
     strategy.action === 'raise' &&
     !strategy.isOverbet &&
     flags.canRaiseResult &&
-    Math.random() < strategy.frequency
+    random() < strategy.frequency
   ) {
     const sizing = strategy.sizing ?? 0.5;
     return ctx.toCall > 0

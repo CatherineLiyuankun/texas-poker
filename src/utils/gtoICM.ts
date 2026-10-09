@@ -1,4 +1,6 @@
 import type { Card, GameState } from '../types/poker';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
 
 export type TournamentStage = 'early' | 'middle' | 'bubble' | 'final_table';
 export type Position = 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
@@ -195,7 +197,7 @@ export function getICMRecommendation(
       adjustedAction = 'raise';
       adjustedSizing = 2.5;
       if (riskPremium > 0.15 && handTier === 2) {
-        if (Math.random() < 0.3) {
+        if (random() < 0.3) {
           adjustedAction = 'call';
           adjustedSizing = undefined;
         }
@@ -209,7 +211,7 @@ export function getICMRecommendation(
           adjustedAction = 'raise';
           adjustedSizing = 2.5;
         } else {
-          adjustedAction = Math.random() < 0.5 ? 'raise' : 'fold';
+          adjustedAction = random() < 0.5 ? 'raise' : 'fold';
           if (adjustedAction === 'raise') adjustedSizing = 2.5;
         }
       } else {
@@ -226,12 +228,12 @@ export function getICMRecommendation(
           adjustedAction = 'raise';
           adjustedSizing = 2.5;
         } else {
-          adjustedAction = Math.random() < 0.3 ? 'raise' : 'fold';
+          adjustedAction = random() < 0.3 ? 'raise' : 'fold';
           if (adjustedAction === 'raise') adjustedSizing = 2.5;
         }
       } else if (riskPremium < 0.10) {
         if (position === 'BTN') {
-          adjustedAction = Math.random() < 0.6 ? 'raise' : 'fold';
+          adjustedAction = random() < 0.6 ? 'raise' : 'fold';
           if (adjustedAction === 'raise') adjustedSizing = 2.5;
         } else {
           adjustedAction = 'fold';
@@ -241,7 +243,7 @@ export function getICMRecommendation(
       }
     } else {
       if (riskPremium < 0.03 && (position === 'BTN' || position === 'CO')) {
-        adjustedAction = Math.random() < 0.2 ? 'raise' : 'fold';
+        adjustedAction = random() < 0.2 ? 'raise' : 'fold';
         if (adjustedAction === 'raise') adjustedSizing = 2.5;
       } else {
         adjustedAction = 'fold';
@@ -250,7 +252,7 @@ export function getICMRecommendation(
   } else if (action === 'facing_open') {
     if (handTier <= 1) {
       if (riskPremium > 0.15) {
-        adjustedAction = Math.random() < 0.6 ? 'raise' : 'call';
+        adjustedAction = random() < 0.6 ? 'raise' : 'call';
         adjustedSizing = 3.0;
       } else {
         adjustedAction = 'raise';
@@ -258,28 +260,28 @@ export function getICMRecommendation(
       }
     } else if (handTier === 2) {
       if (riskPremium < 0.08) {
-        adjustedAction = Math.random() < 0.7 ? 'raise' : 'call';
+        adjustedAction = random() < 0.7 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 3.0;
       } else if (riskPremium < 0.12) {
-        adjustedAction = Math.random() < 0.4 ? 'raise' : 'call';
+        adjustedAction = random() < 0.4 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 3.0;
       } else {
-        adjustedAction = Math.random() < 0.2 ? 'raise' : 'call';
+        adjustedAction = random() < 0.2 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 3.0;
       }
     } else if (handTier === 3) {
       if (riskPremium < 0.05) {
-        adjustedAction = Math.random() < 0.3 ? 'raise' : 'call';
+        adjustedAction = random() < 0.3 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 3.0;
       } else if (riskPremium < 0.10) {
-        adjustedAction = Math.random() < 0.1 ? 'raise' : 'call';
+        adjustedAction = random() < 0.1 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 3.0;
       } else {
         adjustedAction = 'fold';
       }
     } else {
       if (riskPremium < 0.03 && position === 'BB') {
-        adjustedAction = Math.random() < 0.2 ? 'call' : 'fold';
+        adjustedAction = random() < 0.2 ? 'call' : 'fold';
       } else {
         adjustedAction = 'fold';
       }
@@ -287,7 +289,7 @@ export function getICMRecommendation(
   } else if (action === 'facing_3bet') {
     if (handTier <= 1) {
       if (riskPremium > 0.12) {
-        adjustedAction = Math.random() < 0.5 ? 'raise' : 'call';
+        adjustedAction = random() < 0.5 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 4.0;
       } else {
         adjustedAction = 'raise';
@@ -295,17 +297,17 @@ export function getICMRecommendation(
       }
     } else if (handTier === 2) {
       if (riskPremium < 0.08) {
-        adjustedAction = Math.random() < 0.5 ? 'raise' : 'call';
+        adjustedAction = random() < 0.5 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 4.0;
       } else if (riskPremium < 0.12) {
-        adjustedAction = Math.random() < 0.3 ? 'raise' : 'call';
+        adjustedAction = random() < 0.3 ? 'raise' : 'call';
         if (adjustedAction === 'raise') adjustedSizing = 4.0;
       } else {
-        adjustedAction = Math.random() < 0.15 ? 'call' : 'fold';
+        adjustedAction = random() < 0.15 ? 'call' : 'fold';
       }
     } else {
       if (riskPremium < 0.05) {
-        adjustedAction = Math.random() < 0.2 ? 'call' : 'fold';
+        adjustedAction = random() < 0.2 ? 'call' : 'fold';
       } else {
         adjustedAction = 'fold';
       }
@@ -315,23 +317,23 @@ export function getICMRecommendation(
       adjustedAction = 'call';
     } else if (handTier === 2) {
       if (riskPremium < 0.10) {
-        adjustedAction = Math.random() < 0.8 ? 'call' : 'fold';
+        adjustedAction = random() < 0.8 ? 'call' : 'fold';
       } else if (riskPremium < 0.15) {
-        adjustedAction = Math.random() < 0.5 ? 'call' : 'fold';
+        adjustedAction = random() < 0.5 ? 'call' : 'fold';
       } else {
-        adjustedAction = Math.random() < 0.2 ? 'call' : 'fold';
+        adjustedAction = random() < 0.2 ? 'call' : 'fold';
       }
     } else if (handTier === 3) {
       if (riskPremium < 0.05) {
-        adjustedAction = Math.random() < 0.4 ? 'call' : 'fold';
+        adjustedAction = random() < 0.4 ? 'call' : 'fold';
       } else if (riskPremium < 0.10) {
-        adjustedAction = Math.random() < 0.2 ? 'call' : 'fold';
+        adjustedAction = random() < 0.2 ? 'call' : 'fold';
       } else {
         adjustedAction = 'fold';
       }
     } else {
       if (riskPremium < 0.03 && position === 'BB') {
-        adjustedAction = Math.random() < 0.15 ? 'call' : 'fold';
+        adjustedAction = random() < 0.15 ? 'call' : 'fold';
       } else {
         adjustedAction = 'fold';
       }
