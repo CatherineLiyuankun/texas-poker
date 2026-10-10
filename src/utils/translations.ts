@@ -118,9 +118,15 @@ export const translations = {
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
     // 隐含赔率（教材口径）：把「成牌后还能再赢到的筹码」折进比率。
-    // 与直接赔率同行显示会让人分不清，故独占一行，并附一句口径说明。
+    // 与直接赔率同行显示会让人分不清，故独占一行；口径说明不占版面，放行的 title。
     impliedOdds: '隐含赔率 Implied',
-    impliedOddsCaveat: '按「成牌后赢下对手剩余筹码」的上界估算，未计成牌概率',
+    // 口径说明**不占版面**：整段挪到该行的 `title`（悬停可见）。
+    // 行内原本挂着一句「按上界估算…」，在 2 列窄面板里会把这一行挤成两行，
+    // 而它只是主值的副标签 —— 完整口径（含公式）放悬停提示里更合适。
+    impliedOddsTooltip:
+      '隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来投入）。'
+      + '此处按上界估算：对手未来投入取「跟注后双方还能继续投入的有效剩余筹码」，'
+      + '我未来投入按教材记为 0（错过就不再往彩池里投钱）；未计成牌概率。',
     // 「这个座位交给机器人会怎么打」——与机器人真实动作（座位气泡）同一条决策路径，
     // 差别只在混合频率的随机抽样（见 botAI.getShadowBotAction）。
     botAction: 'Bot Action',

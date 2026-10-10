@@ -155,11 +155,28 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(implied).toBeLessThan(direct);
   });
 
-  it('附带口径说明（上界估算、未计成牌概率）', async () => {
+  it('口径说明整段挪到行的 title，行内不再留说明文字', async () => {
     await renderPanel();
-    expect(
-      screen.getByText(translations.handAnalysis.impliedOddsCaveat),
-    ).toBeInTheDocument();
+
+    const row = screen.getByText(translations.handAnalysis.impliedOdds)
+      .parentElement as HTMLElement;
+
+    // 完整口径（公式 + 两条上界假设）挂在原生悬停提示上
+    const title = row.getAttribute('title');
+    expect(title).toBe(translations.handAnalysis.impliedOddsTooltip);
+    expect(title).toContain('底池 + 对手未来投入');
+    expect(title).toContain('跟注 + 我未来投入');
+    expect(title).toContain('未计成牌概率');
+
+    // 行内只剩「标签 + 百分比 + 比率」——说明文字不再占版面（原先那句会把这一行挤成两行）
+    expect(row.textContent).toBe(
+      `${translations.handAnalysis.impliedOdds}20.0%4 : 1`,
+    );
+    expect(row.textContent).not.toContain('上界估算');
+    expect(row.textContent).not.toContain('未计成牌概率');
+
+    // 有提示就要有可发现的入口：悬停时光标变成 help
+    expect(row).toHaveClass('cursor-help');
   });
 
   it('河牌不显示隐含赔率行（没有后续街，恒等于直接赔率）', async () => {

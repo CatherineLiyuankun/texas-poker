@@ -446,18 +446,22 @@ function GridRow({
   value,
   color = 'text-white',
   highlight = false,
+  title,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
   color?: string;
   /** 判定依据所在行加绿色边框，让用户一眼看出建议是按哪个权益算的 */
   highlight?: boolean;
+  /** 原生悬停提示：口径说明太长放不下时挂在这里，不占版面 */
+  title?: string;
 }) {
   return (
     <div
       className={`flex items-center gap-1 ${
         highlight ? 'border border-green-400/80 rounded' : ''
-      }`}
+      }${title ? ' cursor-help' : ''}`}
+      title={title}
     >
       <span className="text-white/60">{label}</span>
       <span className={`font-medium ${color}`}>{value}</span>
@@ -1099,27 +1103,24 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
 
           {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。
-              河牌 / 无跟注额时不渲染（见上方 `impliedOdds`）。 */}
+              河牌 / 无跟注额时不渲染（见上方 `impliedOdds`）。
+              口径说明整段挪到该行的 title（悬停可见），行内不留说明文字。 */}
           {impliedOdds !== null && (
-            <>
-              <div className="col-span-2">
-                <GridRow
-                  label={translations.handAnalysis.impliedOdds}
-                  value={
-                    <>
-                      {(impliedOdds.breakeven * 100).toFixed(1)}%
-                      <span className="ml-1 text-[9px] text-white/50">
-                        {formatOddsRatio(impliedOdds.ratio)} : 1
-                      </span>
-                    </>
-                  }
-                  color={getPotOddsColor(impliedOdds.breakeven)}
-                />
-              </div>
-              <div className="col-span-2 text-[9px] leading-tight text-gray-400">
-                {translations.handAnalysis.impliedOddsCaveat}
-              </div>
-            </>
+            <div className="col-span-2">
+              <GridRow
+                label={translations.handAnalysis.impliedOdds}
+                title={translations.handAnalysis.impliedOddsTooltip}
+                value={
+                  <>
+                    {(impliedOdds.breakeven * 100).toFixed(1)}%
+                    <span className="ml-1 text-[9px] text-white/50">
+                      {formatOddsRatio(impliedOdds.ratio)} : 1
+                    </span>
+                  </>
+                }
+                color={getPotOddsColor(impliedOdds.breakeven)}
+              />
+            </div>
           )}
 
           {/* 我方下注的所需弃牌率：与跟注赔率是两个不同的量，只在加注框有值时出现 */}
