@@ -1,4 +1,5 @@
 import {
+  getRandomSource,
   mulberry32,
   random,
   resetRandomSource,
@@ -69,6 +70,45 @@ describe('random（策略随机数的唯一来源）', () => {
       for (let i = 0; i < 50; i += 1) seen.add(random());
       expect(seen.has(0.424242)).toBe(false);
       expect(seen.size).toBeGreaterThan(1);
+    });
+  });
+
+  describe('getRandomSource（临时替换后还原）', () => {
+    it('取回的就是当前源，替换后 random() 走新源', () => {
+      setRandomSource(() => 0.5);
+      const captured = getRandomSource();
+      expect(captured()).toBe(0.5);
+    });
+
+    it('「取回 → 换源 → 还原」之后序列**接着原来的走**，不会重置种子', () => {
+      // 这是面板「影子决策」依赖的性质：临时换一条源跑完就还原，
+      // 真机器人的混合频率序列既没被消耗、也没被重置。
+      setRandomSeed(20261010);
+      const first = random();
+      const second = random();
+
+      setRandomSeed(20261010);
+      const restore = getRandomSource();
+      expect(random()).toBe(first);
+
+      // 临时换成一条独立的源（模拟影子决策）
+      setRandomSource(mulberry32(1));
+      random();
+      random();
+
+      setRandomSource(restore);
+      expect(random()).toBe(second);
+    });
+
+    it('未替换时取回的是默认源（仍读 Math.random）', () => {
+      const spy = jest.spyOn(Math, 'random').mockReturnValue(0.125);
+      try {
+        resetRandomSource();
+        const source = getRandomSource();
+        expect(source()).toBe(0.125);
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 
