@@ -119,7 +119,7 @@ export const translations = {
     potOdds: '赔率 Pot Odds',
     // 加注框有值时单独显示的「我方下注所需弃牌率」——与跟注赔率是两个不同的量
     betRequiredFold: '所需弃牌率 Req. Fold',
-    gto: 'GTO preflop', // GTO建议
+    gto: 'GTO preflop(位置+SPR 查表)', // GTO建议
     spr: 'SPR',
     sprShallow: '浅', // Shallow
     sprMedium: '中等', // Medium
