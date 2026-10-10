@@ -415,6 +415,9 @@ describe('Bot AI 决策', () => {
       { suit: '♠', rank: 'K' },
     ];
 
+    // 本节的最后一条会开锦标赛模式，跑完复位（现金局是默认值）。
+    afterEach(() => resetGtoConfig());
+
     it('21–25bb 归入 short 档，走短筹码引擎', () => {
       // 220 筹码 / (5 × 2) = 22bb。旧代码用 `isShortStack(≤20bb)` 判断，
       // 21–25bb 会被漏掉、落进默认引擎（与 gtoPreflop 的 ≤25bb 分档矛盾）。
@@ -452,6 +455,54 @@ describe('Bot AI 决策', () => {
       // 旧代码把筹码换算硬编码成 `chips / 10`，会把它读成 200bb 而误入深筹码引擎。
       const notDeep = getBotAction(createPlayer(2, 2000, AKs, false), flopState(10));
       expect(notDeep.reasoning ?? '').not.toContain('Deep stack');
+    });
+
+    /**
+     * #23：**跨模块**用例 —— 走完整 `getBotAction`（botAI → gtoShortStack），
+     * 而不是直接调 `getShortStackRecommendation`。
+     *
+     * 必要性：`decidePreflop` 里 **ICM 块排在短筹码块之前**，ICM 返回 `'raise'`
+     * 就会提前 return，压根到不了 `getShortStackRecommendation`。所以「单测能调到」
+     * 不等于「生产路径能走到」。穷举 169 手牌类后确认：本局面下 ICM 不会抢先返回，
+     * 其中 135 手会落到短筹码兜底（另 34 手走推注）—— 这条用例就钉住那条兜底。
+     */
+    it('锦标赛泡沫期：大盲在平跟底池里能免费过牌 → 兜底给 check，而不是非法的 fold', () => {
+      setGtoConfig({ scenario: 'tournament' });
+
+      const K8s = [
+        { suit: '♠', rank: 'K' },
+        { suit: '♠', rank: '8' },
+      ];
+      // 大盲 200 筹码 = 20bb（sb 5）；其余 5 人 100 筹码 ⇒ 主角**高于**桌均 ⇒ 泡沫期。
+      // 大盲已跟到 10（`bet === lastBet`）⇒ `toCall === 0` ⇒ 只能过牌或加注。
+      const bb = createPlayer(3 as PlayerId, 200, K8s, false, false, 10);
+      const state = createGameState({
+        smallBlind: 5,
+        dealer: 1 as PlayerId,
+        currentPlayer: 3 as PlayerId,
+        lastBet: 10,
+        lastRaiseBet: 10,
+        mainPot: 55,
+        players: [
+          createPlayer(1 as PlayerId, 100, AKs, false, false, 10),
+          createPlayer(2 as PlayerId, 100, AKs, false, false, 5), // 小盲
+          bb,
+          createPlayer(4 as PlayerId, 100, AKs, false, false, 10),
+          createPlayer(5 as PlayerId, 100, AKs, false, false, 10),
+          createPlayer(6 as PlayerId, 100, AKs, false, false, 10),
+        ],
+        chipsAtRoundStart: [100, 100, 200, 100, 100, 100],
+        realPlayerCount: 0,
+        botPlayerCount: 6,
+      });
+
+      const decision = getBotAction(bb, state);
+
+      // #23 之前这里是 `'fold'` —— 没有注可弃，是个非法动作，而且
+      // `playerAction` 不做权限校验，所以它会被真的执行。
+      expect(decision.action).toBe('check');
+      expect(decision.reasoning ?? '').toContain('Short stack fallback');
+      expect(decision.amount).toBeUndefined();
     });
   });
 
