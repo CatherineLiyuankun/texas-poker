@@ -179,6 +179,17 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(row).toHaveClass('cursor-help');
   });
 
+  it('隐含赔率的比率副标签与赔率行同色（调亮后的那一档）', async () => {
+    await renderPanel();
+
+    // 两个「x : 1」是同一类信息，配色必须一致 —— 深浅不一会被读成两种不同的东西
+    const potOddsRatioEl = screen.getByText('3 : 1');
+    const impliedRatioEl = screen.getByText('4 : 1');
+
+    expect(impliedRatioEl).toHaveClass('text-white/70');
+    expect(impliedRatioEl.className).toBe(potOddsRatioEl.className);
+  });
+
   it('河牌不显示隐含赔率行（没有后续街，恒等于直接赔率）', async () => {
     await renderPanel({ phase: 'river' });
 

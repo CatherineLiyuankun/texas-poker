@@ -347,6 +347,16 @@ function getPotOddsColor(odds: number | null): string {
   return 'text-red-400';
 }
 
+/**
+ * 比率副标签的配色 —— 赔率行的「底池 : 跟注」与隐含赔率行的「x : 1」共用。
+ *
+ * 两者是同一类信息（百分比主值的比率形式），必须同色同档；分头写两遍字面量
+ * 迟早会漂移，同一屏上两个同类副标签深浅不一会被读成两种不同的东西。
+ * `white/70` 是面板里「标签级」的不透明度（见 `Row` 的 label），比主值弱、
+ * 但不再像 `white/50` 那样在深色底上发虚。
+ */
+const RATIO_LABEL_CLASS = 'ml-1 text-[9px] text-white/70';
+
 // MDF 分档阈值。MDF = 下注前底池 / 含注底池，所以阈值直接对应标准下注尺度：
 //   ≥ 2/3（对手下注 ≤ 半个底池）→ 绿：防守大部分范围
 //   ≥ 1/2（半个到一个底池）      → 黄：常规
@@ -1081,7 +1091,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                 <>
                   {(callPotOdds * 100).toFixed(1)}%
                   {potOddsRatio !== null && (
-                    <span className="ml-1 text-[9px] text-white/50">
+                    <span className={RATIO_LABEL_CLASS}>
                       {formatOddsRatio(potOddsRatio)} : 1
                     </span>
                   )}
@@ -1113,7 +1123,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                 value={
                   <>
                     {(impliedOdds.breakeven * 100).toFixed(1)}%
-                    <span className="ml-1 text-[9px] text-white/50">
+                    <span className={RATIO_LABEL_CLASS}>
                       {formatOddsRatio(impliedOdds.ratio)} : 1
                     </span>
                   </>

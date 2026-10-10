@@ -149,4 +149,13 @@ describe('HandAnalysis — 赔率行的比率形式', () => {
     await renderPanel({ currentPot: 300, betToCall: 200, potOdds: 0.4 });
     expect(rowText(translations.handAnalysis.potOdds)).toContain('1.5 : 1');
   });
+
+  it('比率副标签用调亮后的那一档（不再是发虚的 white/50）', async () => {
+    // 9px 的副标签在深色底上，white/50 会糊成一片；调亮到面板的「标签级」white/70。
+    await renderPanel({ currentPot: 7500, betToCall: 2500, potOdds: 0.25 });
+
+    const ratio = screen.getByText('3 : 1');
+    expect(ratio).toHaveClass('text-white/70');
+    expect(ratio).not.toHaveClass('text-white/50');
+  });
 });
