@@ -7,9 +7,7 @@ import {
   startNewHand,
   recordAction,
   getOpponentVpipPfr,
-  getOpponentCBet,
-  getOpponent3Bet,
-  getOpponentFoldToCbet,
+  getRealPlayerSessionStats,
 } from '../opponentModel';
 import type { Player } from '../../types/poker';
 import type { ActionEvent } from '../../types/stats';
@@ -407,8 +405,6 @@ describe('需要对手上下文的统计量（3-bet / fold-to-c-bet）', () => {
     recordAction(timedEvent(2, 'raise', 'flop')); // P2 持续下注
     recordAction(timedEvent(1, 'fold', 'flop'));
 
-    expect(getOpponentFoldToCbet(1)).toBe(100);
-
     // 面板 NodeLock 区块读的就是 botStats，所以这条链路必须通
     const profile = calculateOpponentProfile(
       [createMockPlayer(1), createMockPlayer(2)],
@@ -423,7 +419,9 @@ describe('需要对手上下文的统计量（3-bet / fold-to-c-bet）', () => {
     recordAction(timedEvent(2, 'raise', 'preflop'));
     recordAction(timedEvent(1, 'raise', 'preflop'));
 
-    expect(getOpponent3Bet(1)).toBe(100);
+    // 面板对手统计表读的就是 getRealPlayerSessionStats
+    const [p1] = getRealPlayerSessionStats([1]);
+    expect(p1.threeBet).toBe(100);
   });
 
   it('c-bet 只算自己的：没加注过的人拿不到 c-bet', () => {
@@ -434,7 +432,8 @@ describe('需要对手上下文的统计量（3-bet / fold-to-c-bet）', () => {
     recordAction(timedEvent(2, 'raise', 'flop'));
 
     // P1 从未翻前加注 → 没有 c-bet 机会，不能借用 P2 的
-    expect(getOpponentCBet(1)).toBeNull();
-    expect(getOpponentCBet(2)).toBe(100);
+    const [p1, p2] = getRealPlayerSessionStats([1, 2]);
+    expect(p1.cbet).toBeNull();
+    expect(p2.cbet).toBe(100);
   });
 });

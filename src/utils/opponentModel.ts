@@ -150,53 +150,14 @@ export function getOpponentAF(playerId: PlayerId): number | null {
   return computeSessionStats(playerId).af;
 }
 
-export function getOpponentCBet(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).cbet;
-}
-
-export function getOpponentWTSD(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).wtsd;
-}
-
-export function getOpponentWSD(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).wsd;
-}
-
-export function getOpponentCheckRaise(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).checkRaise;
-}
-
-export function getOpponent3Bet(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).threeBet;
-}
-
-export function getOpponentFoldToCbet(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).foldToCbet;
-}
-
-export function getOpponentAFq(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).afq;
-}
-
-export function getOpponentTurnCbet(playerId: PlayerId): number | null {
-  loadFromStorage();
-
-  return computeSessionStats(playerId).turnCbet;
-}
+// 这里**故意**不再为 `cbet` / `wtsd` / `wsd` / `checkRaise` / `threeBet` /
+// `foldToCbet` / `afq` / `turnCbet` 各开一个 `getOpponentXxx` 单字段访问器。
+// 它们曾经存在，但没有任何生产代码或测试读过 —— 读这些字段的只有两处整表消费：
+//   - `calculateOpponentProfile(...).botStats`（面板 NodeLock 区块）
+//   - `getRealPlayerSessionStats(ids)`（面板对手统计表）
+// 两者拿到的都是完整的 `PlayerStats`，单字段包装没有存在价值。
+// 需要新字段时**直接从 `PlayerStats` 读**，不要再开包装函数：每多一个包装就多一条
+// 「忘了把完整手牌记录传进去」的漏改路径。
 
 // 导出统一的PlayerStats接口作为BotStatsWithAF的别名（向后兼容）
 export type BotStatsWithAF = PlayerStats;
