@@ -58,10 +58,11 @@ function mkState(
   } as GameState;
 }
 
-// 从面板里读出某一行显示的百分比
+// 从面板里读出某一行显示的百分比。
+// 小数要一起吃掉：赔率行现在是「25.0%  3 : 1」，只匹配 (\d+)% 会命中那个 "0%"。
 function readEquityPct(label: string): number | null {
   const row = rowOf(label);
-  const match = (row.textContent ?? '').match(/(\d+)%/);
+  const match = (row.textContent ?? '').match(/([\d.]+)%/);
   return match ? Number(match[1]) : null;
 }
 

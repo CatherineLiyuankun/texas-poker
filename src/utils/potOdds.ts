@@ -82,3 +82,21 @@ export function computePotOddsFor(state: GameState, player: Player): PotOddsResu
     playerBet: player.bet,
   });
 }
+
+/**
+ * 跟注赔率的**比率形式**（`totalPot : toCall`，归一化成 `x : 1`）。
+ *
+ * 与 `callPotOddsFrom` 是同一件事的两种写法：
+ *   `callPotOdds = toCall / (totalPot + toCall) = 1 / (ratio + 1)`
+ * 所以 1/3（33.3%）⇔ 2:1、1/4（25%）⇔ 3:1、1/6（16.7%）⇔ 5:1 —— 与
+ * 德州教材里那张「1/4 彩池 → 5.0:1 → 17%」的表逐行对得上。
+ *
+ * 注意分母是 `toCall`、分子是**含注底池** `totalPot`（含对手本轮那一注，
+ * 不含我方尚未投入的跟注额），这正是教材说的「总彩池 : 跟注需要的数量」。
+ */
+export function formatOddsRatio(ratio: number): string {
+  if (!Number.isFinite(ratio) || ratio <= 0) return '—';
+  const fixed = ratio.toFixed(1);
+  // 2.0 → 「2」、3.0 → 「3」，但 2.3 / 1.5 保留一位（教材也是这么印的）
+  return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
+}

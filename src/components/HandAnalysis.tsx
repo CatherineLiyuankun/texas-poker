@@ -38,6 +38,7 @@ import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
 import { getShadowBotAction } from '../utils/botAI';
 import { formatActionLabel } from '../utils/actionLabel';
+import { formatOddsRatio } from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
   callThresholdFor,
@@ -906,6 +907,16 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return getShadowBotAction(heroPlayer, gameState);
   }, [heroPlayer, gameState, phase]);
 
+  // 赔率行的**比率形式**（底池 : 跟注）。与 `callPotOdds` 是同一件事：
+  //   callPotOdds = toCall / (totalPot + toCall) = 1 / (ratio + 1)
+  // 用的是显示口径的 `currentPot` / `betToCall`（**未计抽水**的原始值），
+  // 与同行显示的 `potOdds` prop 同源；公式与教材对照见 `potOdds.formatOddsRatio`。
+  const potOddsRatio = useMemo(() => {
+    const toCall = betToCall ?? 0;
+    if (toCall <= 0) return null;
+    return (currentPot ?? 0) / toCall;
+  }, [currentPot, betToCall]);
+
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
   // 得出相反结论时误以为面板算错。
@@ -1038,10 +1049,24 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
 
           {/* 底池赔率：显示**原始赔率**（不含抽水）。机器人与面板建议用的是
-              `callThreshold`（现金局已折进抽水），差异由口径标注说明。 */}
+              `callThreshold`（现金局已折进抽水），差异由口径标注说明。
+              主值是百分比，副标签是同一件事的**比率形式**（底池 : 跟注）。 */}
           <GridRow
             label={translations.handAnalysis.potOdds}
-            value={callPotOdds !== null ? `${(callPotOdds * 100).toFixed(0)}%` : '—'}
+            value={
+              callPotOdds !== null ? (
+                <>
+                  {(callPotOdds * 100).toFixed(1)}%
+                  {potOddsRatio !== null && (
+                    <span className="ml-1 text-[9px] text-white/50">
+                      {formatOddsRatio(potOddsRatio)} : 1
+                    </span>
+                  )}
+                </>
+              ) : (
+                '—'
+              )
+            }
             color={getPotOddsColor(callPotOdds)}
           />
 

@@ -2,6 +2,7 @@ import {
   computePotOdds,
   computePotOddsFor,
   callPotOddsFrom,
+  formatOddsRatio,
 } from '../potOdds';
 import {
   calculateCallEV,
@@ -215,6 +216,57 @@ describe('computePotOddsFor / callPotOddsFrom', () => {
   it('callPotOddsFrom 对 toCall <= 0 返回 0', () => {
     expect(callPotOddsFrom(0, 100)).toBe(0);
     expect(callPotOddsFrom(-5, 100)).toBe(0);
+  });
+});
+
+describe('formatOddsRatio — 比率形式（底池 : 跟注）', () => {
+  it('整数比率不带小数点，其余保留一位', () => {
+    expect(formatOddsRatio(2)).toBe('2');
+    expect(formatOddsRatio(3)).toBe('3');
+    expect(formatOddsRatio(5)).toBe('5');
+    expect(formatOddsRatio(1.5)).toBe('1.5');
+    expect(formatOddsRatio(2.333333)).toBe('2.3');
+  });
+
+  it('非法比率返回破折号而不是 NaN 文本', () => {
+    expect(formatOddsRatio(0)).toBe('—');
+    expect(formatOddsRatio(-1)).toBe('—');
+    expect(formatOddsRatio(Number.NaN)).toBe('—');
+    expect(formatOddsRatio(Number.POSITIVE_INFINITY)).toBe('—');
+  });
+
+  it('与教材那张表逐行对得上（下注 f 倍池 → 比率 → 盈亏平衡%）', () => {
+    // 下注前底池 P、对手下注 f·P → totalPot = (1+f)P、toCall = fP
+    const table: Array<{ f: number; ratio: string; breakevenPct: number }> = [
+      { f: 0.25, ratio: '5', breakevenPct: 17 },
+      { f: 0.5, ratio: '3', breakevenPct: 25 },
+      { f: 0.75, ratio: '2.3', breakevenPct: 30 },
+      { f: 1, ratio: '2', breakevenPct: 33 },
+      { f: 2, ratio: '1.5', breakevenPct: 40 },
+    ];
+    for (const { f, ratio, breakevenPct } of table) {
+      const r = computePotOdds({
+        mainPot: 100 * (1 + f),
+        sidePotTotal: 0,
+        lastBet: 100 * f,
+        playerBet: 0,
+      });
+      expect(formatOddsRatio(r.totalPot / r.toCall)).toBe(ratio);
+      expect(Math.round(r.callPotOdds * 100)).toBe(breakevenPct);
+    }
+  });
+
+  it('比率与百分比是同一件事：callPotOdds === 1 / (ratio + 1)', () => {
+    for (const [totalPot, toCall] of [
+      [150, 50],
+      [200, 100],
+      [125, 25],
+      [300, 200],
+    ] as const) {
+      const callPotOdds = callPotOddsFrom(toCall, totalPot);
+      const ratio = totalPot / toCall;
+      expect(callPotOdds).toBeCloseTo(1 / (ratio + 1), 12);
+    }
   });
 });
 
