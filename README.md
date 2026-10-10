@@ -181,7 +181,7 @@ npm run build
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
 - **Component Tests**: `src/components/__tests__/` - UI, settlement, and equity panel tests
-- **Test Coverage**: 912 tests across 47 test suites (910 passed, 2 skipped) — run `npm test` for the current figure
+- **Test Coverage**: 919 tests across 47 test suites (917 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -361,4 +361,4 @@ npm run build
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
 - **组件测试**: `src/components/__tests__/` - UI、结算和权益面板测试
-- **测试覆盖**: 47 个测试套件，共 912 个测试用例（910 通过，2 跳过）—— 以 `npm test` 的实际输出为准
+- **测试覆盖**: 47 个测试套件，共 919 个测试用例（917 通过，2 跳过）—— 以 `npm test` 的实际输出为准
