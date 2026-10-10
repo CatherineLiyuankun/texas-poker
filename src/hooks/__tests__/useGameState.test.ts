@@ -646,7 +646,8 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       // 只有当短码玩家(P2)是大盲时，才验证大盲不足逻辑
       // 2人局dealer=SB，dealer随机分配，P2可能不是BB
       if (bbPlayer && bbPlayer.id === 2) {
-        expect(state.lastBet).toBe(8);
+        // 大盲筹码不足时，跟注基准不降低，仍为完整大盲 10
+        expect(state.lastBet).toBe(10);
         expect(state.lastRaiseBet).toBe(10 - 5);
         expect(state.raiseRightsOpened).toBe(false);
       } else {
@@ -654,6 +655,20 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         expect(state.lastBet).toBe(10);
         expect(state.raiseRightsOpened).toBe(true);
       }
+    });
+
+    it('大盲筹码不足时，跟注基准仍为完整大盲（bring-in 不降低）', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [8, 8]); // 双方都只剩 8 筹码，大盲必然不足
+      });
+
+      const { players, dealer } = result.current.state;
+      const dealerIdx = dealer - 1;
+      const bigBlindIdx = (dealerIdx + 2) % players.length;
+
+      expect(players[bigBlindIdx].bet).toBe(8); // 大盲全下全部 8 筹码
+      expect(result.current.state.lastBet).toBe(10); // 跟注基准仍为完整大盲
     });
 
     it('preflop小盲不足大盲正常：lastRaiseBet = bbAmount - sbAmount', () => {

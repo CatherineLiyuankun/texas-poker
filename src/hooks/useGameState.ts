@@ -333,7 +333,7 @@ export function useGameState() {
             players: newPlayers,
             currentPlayer: newPlayers[nextPlayerIdx].id,
             dealer: dealer,
-            lastBet: bbAmount,
+            lastBet: bigBlind,
             lastRaiseBet,
             raiseRightsOpened,
             winner: null,
