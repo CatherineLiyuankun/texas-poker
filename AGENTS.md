@@ -343,5 +343,8 @@ leaf rather than synchronising the copies.
 - When tests are present, ensure all tests pass locally before submitting code.
 - If extending or modifying conventions, update this AGENTS.md with rationale.
 - Use this file as ground truth for new agentic contributions, automation, or migration.
+- Known issues, tech debt, and open decisions live in [`TODO.md`](TODO.md) at the repo
+  root — read it before starting, and when you deliberately leave something unfixed,
+  add an entry there instead of a silent `TODO` comment in the code.
 
 ---
