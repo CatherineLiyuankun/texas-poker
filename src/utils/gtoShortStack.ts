@@ -351,6 +351,9 @@ export function getShortStackRecommendation(
   // `botAI` 的路由阈值同源 —— 以前这里写死 `<= 20`，而调用方已按 ≤25bb 路由，
   // 21–25bb 于是被送进来却又跳过这段逻辑，落到下面「按牌力」的分支
   // （那本是翻后的成牌逻辑，用在翻前并不合适）。
+  //
+  // 注：下面「按牌力」块**并非完全不可达** —— 它的真实可达范围、以及它现在的
+  // 实际后果（能过牌却弃牌），见该块前的长注释，别凭这段历史描述下结论。
   const band = stackBand(effectiveStack);
 
   if (band === 'push' || band === 'short') {
@@ -420,6 +423,44 @@ export function getShortStackRecommendation(
     }
   }
 
+  // ─── 下面这一块是「按牌力」兜底。它**不是死代码**，但可达范围极窄 ──────────
+  //
+  // 结论来自穷举实测（169 手牌类 × 6 座 × 4 深度 × 5 种 (heroBet, lastBet) 局面
+  // × {现金局, 锦标赛泡沫期}；标志位一律由生产侧的 `canCheck` / `canCall` /
+  // `canRaise` / `canFold` / `canAllIn` 推导，不手写 —— 手写 all-true 会造出
+  // 翻前不存在的局面，这正是既有用例当初看错这块的原因）。
+  //
+  // 1) `facing_open` 侧**必然**在上面的档位块内返回。因为
+  //    `canFoldResult ≡ (ctx.toCall > 0)`（`canFold` 就是 `lastBet > playerBet`），
+  //    而 `config.action` 只有 `'rfi'` / `'facing_open'` 两个取值 —— 后者意味着
+  //    `toCall > 0`，于是那两个 `if (flags.canFoldResult)` 兜住了所有漏网路径。
+  //
+  // 2) 只有 `rfi` 侧能掉到这里。而翻前 `toCall === 0` 物理上只有一个来源：
+  //    **大盲在「人人平跟」的底池里有说话权**（hero.bet 已等于 lastBet = 大盲）。
+  //    此时 `canFoldResult` 与 `canCallResult` **恒假**（见
+  //    `gtoShortStack.test.ts` 的「按牌力兜底的可达性」一节），于是：
+  //      - `strength === 'strong'` 且 `canRaiseResult` → `value bet`（加注）
+  //      - 其余一律落到最后的 `fallback`
+  //
+  // 3) 用**真实权益**实测（非 mock）在生产可达局面下只出现 `fallback` 一种：
+  //    锦标赛泡沫期 + 大盲 + 平跟底池共 676 个样本（4 深度 × 169 手牌），
+  //    136 个走上推注、**540 个落到 `fallback`**，`strong` / `medium` 一次都没出现。
+  //    原因是 6 人桌翻前对 5 个对手的权益上限很低（AA 也只有约 49%），够不到
+  //    `STRONG_EQUITY` 的 0.70。所以：
+  //      - `strong→call` / `medium→call` / `medium→fold` / `默认 fold`
+  //        这四条是**结构上不可达**的（都要求 `canCallResult` 或 `canFoldResult` 为真）；
+  //      - `strong→raise`（`value bet`）是**理论上可达、实际够不到**。
+  //
+  // 4) ⚠️ 于是实际后果只剩一个，而且是个真 bug：
+  //    `fallback` 返回 `action: flags.canCallResult ? 'call' : 'fold'`，rfi 下
+  //    `canCallResult` 为假 → **返回 `'fold'`，而此时 `canCheckResult` 为真，
+  //    大盲本可以免费过牌**。`playerAction` 不做权限校验（`canPlayerAct` 只用来
+  //    禁 UI 按钮），所以这个 fold 会被真的执行。
+  //    （`value bet` 那行 `Math.min(effectiveStack, ctx.totalPot * 0.75)` 的单位也是
+  //    混的：前者 bb、后者筹码。因为该分支实际够不到，一并留到下一批。）
+  //
+  // **本块暂不改行为**：修法（rfi 侧补 `check` 兜底、并修 sizing 单位）另开一批。
+  // 这里只把可达范围与两个已知问题钉住。**改这块之前先看那组可达性用例。**
   if (strength === 'strong') {
     if (flags.canRaiseResult) {
       const sizing = Math.min(effectiveStack, ctx.totalPot * 0.75);

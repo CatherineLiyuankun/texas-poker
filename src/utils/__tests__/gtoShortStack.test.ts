@@ -2,6 +2,7 @@ import type { GameState, Player, Card, Rank, Suit, PlayerId } from '../../types/
 import type { ActionFlags, ContextInfo } from '../botAI';
 import type { OpponentAdjustments } from '../opponentModel';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
+import { canAllIn, canCall, canCheck, canFold, canRaise } from '../../hooks/useGameState';
 import { 
   getShortStackRecommendation, 
   getShortStackPushRange, 
@@ -305,6 +306,9 @@ describe('gtoShortStack', () => {
         pair22(), sixMaxState(), createMockActionFlags(), heroCtx(), createMockOpponentAdjustments(),
       );
 
+      // 注意这条走的是**档位块里**的 `Short stack fold:`，不是下面的按牌力块 ——
+      // `createMockActionFlags()` 全字段为真，而「rfi + canFoldResult 为真」在生产里
+      // 不存在。按牌力块的真实可达性见本节末尾「按牌力兜底的可达性」。
       expect(rec.action).toBe('fold');
     });
 
@@ -328,6 +332,143 @@ describe('gtoShortStack', () => {
 
       // 短筹码该多赌 —— 泡沫期对他是「放宽」而不是「收紧」
       expect(['allin', 'raise']).toContain(rec.action);
+    });
+  });
+
+  /**
+   * 「按牌力」兜底的可达性 —— 实测钉住（C2）。
+   *
+   * 背景：`0342398`（筹码深度收敛）的提交信息曾断言这块「在 `botAI` 的路由下已不可达」。
+   * **那句是错的。** 穷举实测（169 手牌类 × 6 座 × 4 深度 × 5 种 (heroBet, lastBet)
+   * 局面 × {现金局, 锦标赛泡沫期}）表明：只有 `facing_open` 侧必然在档位块内返回，
+   * `rfi` 侧会掉出来。详见 `gtoShortStack.ts` 里该块前的长注释。
+   *
+   * ⚠️ 本节标志位**一律由生产侧的 `canCheck` / `canCall` / `canRaise` / `canFold` /
+   * `canAllIn` 推导**，不用 `createMockActionFlags()`。那个辅助函数全字段为真，而
+   * 「翻前 `toCall === 0` 且 `canFoldResult === true`」这个组合在生产里并不存在 ——
+   * 用它会让分支可达性判断失真（上面那条「泡沫期 22 → 弃牌」的用例就是被它带偏的：
+   * 它走的是**档位块里**的 `Short stack fold:`，而不是这里的按牌力块）。
+   */
+  describe('「按牌力」兜底的可达性（C2：实测钉住）', () => {
+    afterEach(() => resetGtoConfig());
+
+    /** 庄家 = 1 ⇒ `getPlayerPosition(3, 1, 6) === 2` = BB。 */
+    const BB_ID = 3 as PlayerId;
+    const HERO_CHIPS = 200; // 20bb @ sb 5
+    const OTHER_CHIPS = 100; // 主角**高于**桌均 ⇒ 风险溢价为正 ⇒ 泡沫期
+
+    /**
+     * 生产可达的唯一 `rfi` 局面：**大盲在人人平跟的底池里**。
+     * `hero.bet` 已等于 `lastBet`（大盲）⇒ `toCall === 0` ⇒ 不能弃牌，只能过牌或加注。
+     */
+    const limpAroundState = (): GameState =>
+      createMockGameState({
+        players: [
+          createMockPlayer({ id: 1 as PlayerId, chips: OTHER_CHIPS, bet: 10, isRealPlayer: false }),
+          createMockPlayer({ id: 2 as PlayerId, chips: OTHER_CHIPS, bet: 5, isRealPlayer: false }),
+          createMockPlayer({
+            id: BB_ID,
+            chips: HERO_CHIPS,
+            bet: 10,
+            isRealPlayer: false,
+            // K8s：档位 4 > BUBBLE_MAX_TIER(3)，会被泡沫期收紧挡掉；
+            // 同时它在 20bb 大盲的推注范围内（`K2s+`），所以掉出去**只**因为泡沫期。
+            hand: [createCard('K', '♠'), createCard('8', '♠')],
+          }),
+          createMockPlayer({ id: 4 as PlayerId, chips: OTHER_CHIPS, bet: 10, isRealPlayer: false }),
+          createMockPlayer({ id: 5 as PlayerId, chips: OTHER_CHIPS, bet: 10, isRealPlayer: false }),
+          createMockPlayer({ id: 6 as PlayerId, chips: OTHER_CHIPS, bet: 10, isRealPlayer: false }),
+        ],
+        dealer: 1 as PlayerId,
+        currentPlayer: BB_ID,
+        lastBet: 10,
+        lastRaiseBet: 10,
+        mainPot: 55,
+        smallBlind: 5,
+        realPlayerCount: 0,
+        botPlayerCount: 6,
+        chipsAtRoundStart: [OTHER_CHIPS, OTHER_CHIPS, HERO_CHIPS, OTHER_CHIPS, OTHER_CHIPS, OTHER_CHIPS],
+        chipsBeforeSettlement: [OTHER_CHIPS, OTHER_CHIPS, HERO_CHIPS, OTHER_CHIPS, OTHER_CHIPS, OTHER_CHIPS],
+      });
+
+    const bbCtx = (): ContextInfo =>
+      createMockContext({
+        toCall: 0,
+        totalPot: 55,
+        potOdds: 0,
+        position: 2,
+        totalPlayers: 6,
+        numOpponents: 5,
+        isHeadsUp: false,
+        isLatePosition: false,
+        isButton: false,
+        isCutoff: false,
+        isHijack: false,
+        isMiddlePosition: false,
+        isEarlyPosition: false,
+        isBlind: true,
+        hasLimpers: true,
+      });
+
+    /** 标志位一律按生产侧口径推导，不手写。 */
+    const flagsFor = (state: GameState, hero: Player): ActionFlags => ({
+      canCheckResult: canCheck(state.lastBet, hero.bet),
+      canCallResult: canCall(state.lastBet, hero.bet, hero.chips),
+      canRaiseResult: canRaise(
+        state.lastBet, hero.bet, hero.chips, state.lastRaiseBet, state.raiseRightsOpened,
+      ),
+      canFoldResult: canFold(state.lastBet, hero.bet),
+      canAllInResult: canAllIn(hero.chips),
+    });
+
+    const run = () => {
+      const state = limpAroundState();
+      const hero = state.players[BB_ID - 1];
+      const flags = flagsFor(state, hero);
+      const rec = getShortStackRecommendation(
+        hero, state, flags, bbCtx(), createMockOpponentAdjustments(),
+      );
+      return { rec, flags };
+    };
+
+    it('前提：rfi 下 canFold / canCall 恒假、canCheck 恒真 —— 四条按牌力分支因此结构上不可达', () => {
+      const { flags } = run();
+
+      expect(flags.canCheckResult).toBe(true);
+      expect(flags.canFoldResult).toBe(false); // lastBet === playerBet
+      expect(flags.canCallResult).toBe(false); // toCall === 0
+      expect(flags.canAllInResult).toBe(true);
+      expect(flags.canRaiseResult).toBe(true);
+      // ⇒ 要 canCall 的 `strong→call` / `medium→call`，与要 canFold 的
+      //   `medium→fold` / `默认 fold`，永远走不到。
+    });
+
+    it('现金局对照：同一手牌、同一局面在推注范围内 → 走推注（没有泡沫期收紧就掉不出档位块）', () => {
+      resetGtoConfig();
+      const { rec } = run();
+
+      expect(['allin', 'raise']).toContain(rec.action);
+      expect(rec.reasoning.startsWith('Short stack push')).toBe(true);
+    });
+
+    it('锦标赛泡沫期：K8s 被泡沫期收紧挡掉 → 掉出档位块，落到按牌力 fallback', () => {
+      setGtoConfig({ scenario: 'tournament' });
+      const { rec } = run();
+
+      // 关键断言：reasoning 证明它确实落到了**档位块之外**的按牌力块
+      expect(rec.reasoning.startsWith('Short stack fallback')).toBe(true);
+    });
+
+    it('⚠️ 已知问题（另开一批修）：fallback 在能过牌时返回 fold', () => {
+      setGtoConfig({ scenario: 'tournament' });
+      const { rec, flags } = run();
+
+      // 大盲本可以免费看牌，却拿到一个弃牌建议 —— 且与自己的权限模型自相矛盾。
+      // `playerAction` 不做权限校验（`canPlayerAct` 只用来禁 UI 按钮），
+      // 所以这个 fold 会被真的执行。
+      expect(flags.canCheckResult).toBe(true);
+      expect(rec.action).toBe('fold');
+      // 修法：rfi 侧补 `check` 兜底（能过牌就过牌）。改这块时这条断言要一起改。
     });
   });
 });
