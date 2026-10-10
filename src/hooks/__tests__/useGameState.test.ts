@@ -453,10 +453,10 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(totalChips + totalBets).toBe(10 + 1000);
     });
 
-    it('筹码为0的玩家重置后获得INITIAL_CHIPS并buyInCount+1', () => {
+    it('盲注后筹码归零的玩家，重置后获得INITIAL_CHIPS并buyInCount+1', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, 5, [0, 1000]);
+        result.current.startGame(2, 0, 5, [5, 1000]); // 玩家1只剩 5 筹码，下盲后归零
       });
 
       const playerWithNoChips = result.current.state.players.find(
@@ -474,6 +474,19 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       );
       expect(resetPlayer!.chips).toBe(INITIAL_CHIPS);
       expect(resetPlayer!.buyInCount).toBe(1);
+    });
+
+    it('开局时 0 筹码玩家自动补码，不会带 0 筹码入局', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [0, 1000]);
+      });
+
+      const { players } = result.current.state;
+      expect(players[0].chips + players[0].bet).toBe(INITIAL_CHIPS); // 补码到满额后再下盲
+      expect(players[0].buyInCount).toBe(1);
+      expect(players.every((p) => p.chips > 0)).toBe(true);
+      expect(result.current.state.lastBet).toBe(10);
     });
 
     it('多次破产后buyInCount正确累加', () => {
