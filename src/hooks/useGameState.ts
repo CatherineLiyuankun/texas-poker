@@ -315,14 +315,15 @@ export function useGameState() {
           }
 
           let lastRaiseBet: number;
-          let raiseRightsOpened: boolean;
+
+          // 大盲筹码不足时，bring-in（最低下注额）不降低：其他人仍须按完整大盲跟注，
+          // 加注权保持开放，加注者至少加注到 2×大盲（Robert's Rules Sec.4 / Sec.14）。
+          const raiseRightsOpened = true;
 
           if (bbAmount >= bigBlind) {
             lastRaiseBet = bbAmount - sbAmount;
-            raiseRightsOpened = true;
           } else {
             lastRaiseBet = bigBlind - smallBlind;
-            raiseRightsOpened = false;
           }
 
           const newState = {

@@ -632,7 +632,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(result.current.state.raiseRightsOpened).toBe(true);
     });
 
-    it('preflop大盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
+    it('preflop大盲不足：lastRaiseBet使用理论值，raiseRightsOpened=true', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
         result.current.startGame(2, 0, 5, [1000, 8]); // 玩家2只有8筹码
@@ -649,7 +649,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         // 大盲筹码不足时，跟注基准不降低，仍为完整大盲 10
         expect(state.lastBet).toBe(10);
         expect(state.lastRaiseBet).toBe(10 - 5);
-        expect(state.raiseRightsOpened).toBe(false);
+        expect(state.raiseRightsOpened).toBe(true);
       } else {
         // P1是BB（full $20），P2是SB（$10）
         expect(state.lastBet).toBe(10);
@@ -671,6 +671,15 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(result.current.state.lastBet).toBe(10); // 跟注基准仍为完整大盲
     });
 
+    it('大盲筹码不足时，加注权保持开放', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [8, 8]); // 大盲必然不足
+      });
+
+      expect(result.current.state.raiseRightsOpened).toBe(true);
+    });
+
     it('preflop小盲不足大盲正常：lastRaiseBet = bbAmount - sbAmount', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
@@ -688,7 +697,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       }
     });
 
-    it('preflop双盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
+    it('preflop双盲不足：lastRaiseBet使用理论值，raiseRightsOpened=true', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
         result.current.startGame(2, 0, 5, [5, 8]);
@@ -699,7 +708,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       
       expect(maxBet).toBeLessThan(10);
       expect(result.current.state.lastRaiseBet).toBe(10 - 5);
-      expect(result.current.state.raiseRightsOpened).toBe(false);
+      expect(result.current.state.raiseRightsOpened).toBe(true);
     });
 
     it('postflop第一人下注：lastRaiseBet = 下注额本身', () => {
