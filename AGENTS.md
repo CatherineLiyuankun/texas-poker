@@ -241,8 +241,8 @@ because the two UI toggles write independently.
 - **Render layer takes the scenario as a parameter; decision layer reads the global.**
   `GameBoard` mirrors its `scenario` state into `gtoConfig` inside a `useEffect`, so on the
   frame the toggle flips the prop has changed and the global has not. Anything that paints
-  (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation(...,
-  gameScenario)`) must take it as an argument; anything that decides
+  (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation({
+  ..., gameScenario })`) must take it as an argument; anything that decides
   (`decidePreflopGTO`, `getPreflopRangeClasses`) may read the global.
 - Rake and ICM are **alternatives, not additive**: tournaments do not rake per hand, they
   punish marginal decisions through ICM. Never let both apply.

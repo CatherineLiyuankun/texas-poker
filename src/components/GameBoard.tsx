@@ -781,15 +781,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               ? getOpenerPosition(state, player) ??
                                 undefined
                               : undefined;
-                          return getGtoPreflopRecommendation(
-                            player.hand,
-                            rfiPos,
-                            preflopScenario,
-                            openerPos,
-                            state.smallBlind,
-                            defenderPos,
-                            state.lastBet,
-                            {
+                          return getGtoPreflopRecommendation({
+                            hand: player.hand,
+                            rfiPosition: rfiPos,
+                            spot: preflopScenario,
+                            openerPosition: openerPos,
+                            smallBlind: state.smallBlind,
+                            defenderPosition: defenderPos,
+                            currentBet: state.lastBet,
+                            stackContext: {
                               chips: player.chips,
                               toCall: potOddsInfo.toCall,
                               totalPot: potOddsInfo.totalPot,
@@ -797,8 +797,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             },
                             // 赛制由渲染层传（不读全局）：见
                             // getGtoPreflopRecommendation 的注释。
-                            scenario,
-                          );
+                            gameScenario: scenario,
+                          });
                         })()}
                         actionButtons={
                           showActionButtons ? (

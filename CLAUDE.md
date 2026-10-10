@@ -51,7 +51,7 @@ Total chips must always equal initial chips; tests enforce this. Rules that prot
 
 `scenario` gates three things: the ICM risk premium (`gtoICM.riskPremiumFor`, which is 0 in cash), the rake (cash only — tournaments are `NO_RAKE`, see `rake.effectiveRakeConfigFor`), and the preflop ranges (`gtoPreflop` derives a tighter tournament set from the cash tables).
 
-**Render layer passes the scenario, decision layer reads the global.** `GameBoard` mirrors its `scenario` state into `gtoConfig` inside a `useEffect`, so on the frame the user flips the toggle the prop has changed but the global has not. Anything that paints must therefore take the scenario as a parameter (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation(..., gameScenario)`); anything that decides may read the global.
+**Render layer passes the scenario, decision layer reads the global.** `GameBoard` mirrors its `scenario` state into `gtoConfig` inside a `useEffect`, so on the frame the user flips the toggle the prop has changed but the global has not. Anything that paints must therefore take the scenario as a parameter (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation({ ..., gameScenario })`); anything that decides may read the global.
 
 The GTO modules in `src/utils/` are consulted by both the bots and the player-facing analysis panel:
 

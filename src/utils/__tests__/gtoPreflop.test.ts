@@ -74,16 +74,16 @@ function countActions(
     for (let j = i; j < ranks.length; j++) {
       if (i === j) {
         const hand = [card('♠', ranks[i]), card('♥', ranks[j])];
-        const rec = getGtoPreflopRecommendation(hand, position, 'rfi');
+        const rec = getGtoPreflopRecommendation({ hand, rfiPosition: position, spot: 'rfi' });
         if (rec.action === 'R') raises++;
         else folds++;
       } else {
         const suited = [card('♠', ranks[i]), card('♠', ranks[j])];
-        const recS = getGtoPreflopRecommendation(suited, position, 'rfi');
+        const recS = getGtoPreflopRecommendation({ hand: suited, rfiPosition: position, spot: 'rfi' });
         if (recS.action === 'R') raises++;
         else folds++;
         const offsuit = [card('♠', ranks[i]), card('♥', ranks[j])];
-        const recO = getGtoPreflopRecommendation(offsuit, position, 'rfi');
+        const recO = getGtoPreflopRecommendation({ hand: offsuit, rfiPosition: position, spot: 'rfi' });
         if (recO.action === 'R') raises++;
         else folds++;
       }
@@ -156,7 +156,7 @@ describe('GTO Preflop Engine', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
       const positions = ['UTG', 'MP', 'CO', 'BTN', 'SB'] as const;
       for (const pos of positions) {
-        expect(getGtoPreflopRecommendation(aa, pos, 'rfi').action).toBe('R');
+        expect(getGtoPreflopRecommendation({ hand: aa, rfiPosition: pos, spot: 'rfi' }).action).toBe('R');
       }
     });
 
@@ -164,7 +164,7 @@ describe('GTO Preflop Engine', () => {
       const kk = [card('♠', 'K'), card('♥', 'K')];
       const positions = ['UTG', 'MP', 'CO', 'BTN', 'SB'] as const;
       for (const pos of positions) {
-        expect(getGtoPreflopRecommendation(kk, pos, 'rfi').action).toBe('R');
+        expect(getGtoPreflopRecommendation({ hand: kk, rfiPosition: pos, spot: 'rfi' }).action).toBe('R');
       }
     });
 
@@ -172,7 +172,11 @@ describe('GTO Preflop Engine', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
       const positions = ['UTG', 'MP', 'CO', 'BTN', 'SB'] as const;
       for (const pos of positions) {
-        expect(getGtoPreflopRecommendation(garbage, pos, 'rfi').action).toBe('F');
+        expect(getGtoPreflopRecommendation({
+          hand: garbage,
+          rfiPosition: pos,
+          spot: 'rfi',
+        }).action).toBe('F');
       }
     });
 
@@ -180,20 +184,28 @@ describe('GTO Preflop Engine', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
       const positions = ['UTG', 'MP', 'CO', 'BTN', 'SB'] as const;
       for (const pos of positions) {
-        expect(getGtoPreflopRecommendation(aks, pos, 'rfi').action).toBe('R');
+        expect(getGtoPreflopRecommendation({ hand: aks, rfiPosition: pos, spot: 'rfi' }).action).toBe('R');
       }
     });
 
     it('22 is opened from CO and later but not from UTG', () => {
       const lowPair = [card('♠', '2'), card('♥', '2')];
-      expect(getGtoPreflopRecommendation(lowPair, 'UTG', 'rfi').action).toBe('F');
-      expect(getGtoPreflopRecommendation(lowPair, 'CO', 'rfi').action).toBe('R');
-      expect(getGtoPreflopRecommendation(lowPair, 'BTN', 'rfi').action).toBe('R');
+      expect(getGtoPreflopRecommendation({
+        hand: lowPair,
+        rfiPosition: 'UTG',
+        spot: 'rfi',
+      }).action).toBe('F');
+      expect(getGtoPreflopRecommendation({ hand: lowPair, rfiPosition: 'CO', spot: 'rfi' }).action).toBe('R');
+      expect(getGtoPreflopRecommendation({
+        hand: lowPair,
+        rfiPosition: 'BTN',
+        spot: 'rfi',
+      }).action).toBe('R');
     });
 
     it('A5s is opened from UTG (wheel draw value)', () => {
       const a5s = [card('♠', 'A'), card('♠', '5')];
-      expect(getGtoPreflopRecommendation(a5s, 'UTG', 'rfi').action).toBe('R');
+      expect(getGtoPreflopRecommendation({ hand: a5s, rfiPosition: 'UTG', spot: 'rfi' }).action).toBe('R');
     });
   });
 
@@ -203,7 +215,12 @@ describe('GTO Preflop Engine', () => {
       const openerPositions = ['UTG', 'MP', 'CO', 'BTN', 'SB'] as const;
       for (const oPos of openerPositions) {
         expect(
-          getGtoPreflopRecommendation(qq, 'CO', 'facing_open', oPos).action,
+          getGtoPreflopRecommendation({
+            hand: qq,
+            rfiPosition: 'CO',
+            spot: 'facing_open',
+            openerPosition: oPos,
+          }).action,
         ).toBe('R');
       }
     });
@@ -211,17 +228,32 @@ describe('GTO Preflop Engine', () => {
     it('AKs is 3-bet vs opens', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
       expect(
-        getGtoPreflopRecommendation(aks, 'CO', 'facing_open', 'MP').action,
+        getGtoPreflopRecommendation({
+          hand: aks,
+          rfiPosition: 'CO',
+          spot: 'facing_open',
+          openerPosition: 'MP',
+        }).action,
       ).toBe('R');
     });
 
     it('A5s is used as 3-bet bluff vs late position opens', () => {
       const a5s = [card('♠', 'A'), card('♠', '5')];
       expect(
-        getGtoPreflopRecommendation(a5s, 'BB', 'facing_open', 'CO').action,
+        getGtoPreflopRecommendation({
+          hand: a5s,
+          rfiPosition: 'BB',
+          spot: 'facing_open',
+          openerPosition: 'CO',
+        }).action,
       ).toBe('R');
       expect(
-        getGtoPreflopRecommendation(a5s, 'BB', 'facing_open', 'BTN').action,
+        getGtoPreflopRecommendation({
+          hand: a5s,
+          rfiPosition: 'BB',
+          spot: 'facing_open',
+          openerPosition: 'BTN',
+        }).action,
       ).toBe('R');
     });
 
@@ -230,7 +262,12 @@ describe('GTO Preflop Engine', () => {
       const openerPositions = ['UTG', 'MP', 'CO', 'BTN', 'SB'] as const;
       for (const oPos of openerPositions) {
         expect(
-          getGtoPreflopRecommendation(garbage, 'BB', 'facing_open', oPos).action,
+          getGtoPreflopRecommendation({
+            hand: garbage,
+            rfiPosition: 'BB',
+            spot: 'facing_open',
+            openerPosition: oPos,
+          }).action,
         ).toBe('F');
       }
     });
@@ -244,7 +281,12 @@ describe('GTO Preflop Engine', () => {
         [card('♠', '4'), card('♥', '4')],
       ];
       for (const pair of pairs) {
-        const rec = getGtoPreflopRecommendation(pair, 'BB', 'facing_open', 'UTG');
+        const rec = getGtoPreflopRecommendation({
+          hand: pair,
+          rfiPosition: 'BB',
+          spot: 'facing_open',
+          openerPosition: 'UTG',
+        });
         expect(rec.action).toBe('C');
       }
     });
@@ -255,7 +297,12 @@ describe('GTO Preflop Engine', () => {
         [card('♠', '9'), card('♠', '8')],
       ];
       for (const hand of connectors) {
-        const rec = getGtoPreflopRecommendation(hand, 'BB', 'facing_open', 'CO');
+        const rec = getGtoPreflopRecommendation({
+          hand,
+          rfiPosition: 'BB',
+          spot: 'facing_open',
+          openerPosition: 'CO',
+        });
         expect(rec.action).not.toBe('F');
       }
     });
@@ -274,8 +321,22 @@ describe('GTO Preflop Engine', () => {
                 [card('♠', ranks[i]), card('♥', ranks[j])],
               ];
           for (const hand of hands) {
-            const recUtg = getGtoPreflopRecommendation(hand, 'BB', 'facing_open', 'UTG', 5, 'BB');
-            const recBtn = getGtoPreflopRecommendation(hand, 'BB', 'facing_open', 'BTN', 5, 'BB');
+            const recUtg = getGtoPreflopRecommendation({
+              hand,
+              rfiPosition: 'BB',
+              spot: 'facing_open',
+              openerPosition: 'UTG',
+              smallBlind: 5,
+              defenderPosition: 'BB',
+            });
+            const recBtn = getGtoPreflopRecommendation({
+              hand,
+              rfiPosition: 'BB',
+              spot: 'facing_open',
+              openerPosition: 'BTN',
+              smallBlind: 5,
+              defenderPosition: 'BB',
+            });
             if (recUtg.action !== 'F') vsUtg++;
             if (recBtn.action !== 'F') vsBtn++;
           }
@@ -290,45 +351,45 @@ describe('GTO Preflop Engine', () => {
     it('AA is 4-bet vs 3-bet', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
       expect(
-        getGtoPreflopRecommendation(aa, 'CO', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'CO', spot: 'facing_3bet' }).action,
       ).toBe('R');
     });
 
     it('KK is 4-bet vs 3-bet', () => {
       const kk = [card('♠', 'K'), card('♥', 'K')];
       expect(
-        getGtoPreflopRecommendation(kk, 'CO', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: kk, rfiPosition: 'CO', spot: 'facing_3bet' }).action,
       ).toBe('R');
     });
 
     it('A5s is 4-bet bluff vs 3-bet', () => {
       const a5s = [card('♠', 'A'), card('♠', '5')];
       expect(
-        getGtoPreflopRecommendation(a5s, 'CO', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: a5s, rfiPosition: 'CO', spot: 'facing_3bet' }).action,
       ).toBe('R');
     });
 
     it('AQs is called vs 3-bet from UTG', () => {
       const aqs = [card('♠', 'A'), card('♠', 'Q')];
       expect(
-        getGtoPreflopRecommendation(aqs, 'UTG', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: aqs, rfiPosition: 'UTG', spot: 'facing_3bet' }).action,
       ).toBe('C');
     });
 
     it('AQs is 4-bet vs 3-bet from CO/BTN', () => {
       const aqs = [card('♠', 'A'), card('♠', 'Q')];
       expect(
-        getGtoPreflopRecommendation(aqs, 'CO', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: aqs, rfiPosition: 'CO', spot: 'facing_3bet' }).action,
       ).toBe('R');
       expect(
-        getGtoPreflopRecommendation(aqs, 'BTN', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: aqs, rfiPosition: 'BTN', spot: 'facing_3bet' }).action,
       ).toBe('R');
     });
 
     it('72o is folded vs 3-bet', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
       expect(
-        getGtoPreflopRecommendation(garbage, 'CO', 'facing_3bet').action,
+        getGtoPreflopRecommendation({ hand: garbage, rfiPosition: 'CO', spot: 'facing_3bet' }).action,
       ).toBe('F');
     });
   });
@@ -336,21 +397,26 @@ describe('GTO Preflop Engine', () => {
   describe('Sizing', () => {
     it('UTG/MP/CO open 2.5BB', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const recUtg = getGtoPreflopRecommendation(aa, 'UTG', 'rfi', undefined, 5);
+      const recUtg = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'UTG',
+        spot: 'rfi',
+        smallBlind: 5,
+      });
       expect(recUtg.sizingBB).toBe(2.5);
-      const recCo = getGtoPreflopRecommendation(aa, 'CO', 'rfi', undefined, 5);
+      const recCo = getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'CO', spot: 'rfi', smallBlind: 5 });
       expect(recCo.sizingBB).toBe(2.5);
     });
 
     it('BTN open 2.0BB', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(aa, 'BTN', 'rfi', undefined, 5);
+      const rec = getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'BTN', spot: 'rfi', smallBlind: 5 });
       expect(rec.sizingBB).toBe(2.0);
     });
 
     it('SB open 3.0BB', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(aa, 'SB', 'rfi', undefined, 5);
+      const rec = getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'SB', spot: 'rfi', smallBlind: 5 });
       expect(rec.sizingBB).toBe(3.0);
     });
   });
@@ -423,8 +489,22 @@ describe('GTO Preflop Engine', () => {
       for (let i = 0; i < ranks.length; i++) {
         for (let j = i; j < ranks.length; j++) {
           const hand = [card(suits[0], ranks[i]), card(suits[1], ranks[j])];
-          const recBB = getGtoPreflopRecommendation(hand, 'BB', 'facing_open', 'BTN', 5, 'BB');
-          const recIP = getGtoPreflopRecommendation(hand, 'CO', 'facing_open', 'BTN', 5, 'CO');
+          const recBB = getGtoPreflopRecommendation({
+            hand,
+            rfiPosition: 'BB',
+            spot: 'facing_open',
+            openerPosition: 'BTN',
+            smallBlind: 5,
+            defenderPosition: 'BB',
+          });
+          const recIP = getGtoPreflopRecommendation({
+            hand,
+            rfiPosition: 'CO',
+            spot: 'facing_open',
+            openerPosition: 'BTN',
+            smallBlind: 5,
+            defenderPosition: 'CO',
+          });
           if (recBB.action !== 'F') bbCount++;
           if (recIP.action !== 'F') ipCount++;
         }
@@ -441,7 +521,14 @@ describe('GTO Preflop Engine', () => {
       for (let i = 0; i < ranks.length; i++) {
         for (let j = i; j < ranks.length; j++) {
           const hand = [card(suits[0], ranks[i]), card(suits[1], ranks[j])];
-          const rec = getGtoPreflopRecommendation(hand, 'SB', 'facing_open', 'BTN', 5, 'SB');
+          const rec = getGtoPreflopRecommendation({
+            hand,
+            rfiPosition: 'SB',
+            spot: 'facing_open',
+            openerPosition: 'BTN',
+            smallBlind: 5,
+            defenderPosition: 'SB',
+          });
           if (rec.action === 'C') sbCalls++;
         }
       }
@@ -451,8 +538,22 @@ describe('GTO Preflop Engine', () => {
 
     it('BB calls small pairs vs UTG but SB does not', () => {
       const lowPair = [card('♠', '4'), card('♥', '4')];
-      const bbRec = getGtoPreflopRecommendation(lowPair, 'BB', 'facing_open', 'UTG', 5, 'BB');
-      const sbRec = getGtoPreflopRecommendation(lowPair, 'SB', 'facing_open', 'UTG', 5, 'SB');
+      const bbRec = getGtoPreflopRecommendation({
+        hand: lowPair,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'UTG',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+      });
+      const sbRec = getGtoPreflopRecommendation({
+        hand: lowPair,
+        rfiPosition: 'SB',
+        spot: 'facing_open',
+        openerPosition: 'UTG',
+        smallBlind: 5,
+        defenderPosition: 'SB',
+      });
       expect(bbRec.action).toBe('C');
       expect(sbRec.action).toBe('F');
     });
@@ -461,16 +562,16 @@ describe('GTO Preflop Engine', () => {
   describe('Position Awareness - 3-bet Response', () => {
     it('UTG open has tighter 4-bet range than BTN open', () => {
       const tt = [card('♠', '10'), card('♥', '10')];
-      const recUtg = getGtoPreflopRecommendation(tt, 'UTG', 'facing_3bet');
-      const recBtn = getGtoPreflopRecommendation(tt, 'BTN', 'facing_3bet');
+      const recUtg = getGtoPreflopRecommendation({ hand: tt, rfiPosition: 'UTG', spot: 'facing_3bet' });
+      const recBtn = getGtoPreflopRecommendation({ hand: tt, rfiPosition: 'BTN', spot: 'facing_3bet' });
       expect(recUtg.action).toBe('C');
       expect(recBtn.action).toBe('R');
     });
 
     it('A5s is 4-bet bluff from BTN but not from UTG', () => {
       const a5s = [card('♠', 'A'), card('♠', '5')];
-      const recUtg = getGtoPreflopRecommendation(a5s, 'UTG', 'facing_3bet');
-      const recBtn = getGtoPreflopRecommendation(a5s, 'BTN', 'facing_3bet');
+      const recUtg = getGtoPreflopRecommendation({ hand: a5s, rfiPosition: 'UTG', spot: 'facing_3bet' });
+      const recBtn = getGtoPreflopRecommendation({ hand: a5s, rfiPosition: 'BTN', spot: 'facing_3bet' });
       expect(recUtg.action).toBe('F');
       expect(recBtn.action).toBe('R');
     });
@@ -553,12 +654,20 @@ describe('GTO Preflop Engine', () => {
 
     it('facing_3bet scenario returns 4-bet sizing based on currentBet', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec80 = getGtoPreflopRecommendation(
-        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
-      );
-      const rec120 = getGtoPreflopRecommendation(
-        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 120,
-      );
+      const rec80 = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'CO',
+        spot: 'facing_3bet',
+        smallBlind: 5,
+        currentBet: 80,
+      });
+      const rec120 = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'CO',
+        spot: 'facing_3bet',
+        smallBlind: 5,
+        currentBet: 120,
+      });
       expect(rec80.action).toBe('R');
       expect(rec120.action).toBe('R');
       expect(rec80.sizingBB).not.toBe(rec120.sizingBB);
@@ -567,36 +676,58 @@ describe('GTO Preflop Engine', () => {
 
     it('defender position changes facing_open recommendation', () => {
       const kjs = [card('♠', 'K'), card('♠', 'J')];
-      const recBB = getGtoPreflopRecommendation(
-        kjs, 'BB', 'facing_open', 'CO', 5, 'BB',
-      );
-      const recIP = getGtoPreflopRecommendation(
-        kjs, 'BTN', 'facing_open', 'CO', 5, 'BTN',
-      );
+      const recBB = getGtoPreflopRecommendation({
+        hand: kjs,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'CO',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+      });
+      const recIP = getGtoPreflopRecommendation({
+        hand: kjs,
+        rfiPosition: 'BTN',
+        spot: 'facing_open',
+        openerPosition: 'CO',
+        smallBlind: 5,
+        defenderPosition: 'BTN',
+      });
       expect(recBB.action).not.toBe('F');
       expect(recIP.action).not.toBe('F');
     });
 
     it('BB option returns Check not Fold for weak hands', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
-      const rec = getGtoPreflopRecommendation(garbage, 'BB', 'rfi');
+      const rec = getGtoPreflopRecommendation({ hand: garbage, rfiPosition: 'BB', spot: 'rfi' });
       expect(rec.action).toBe('C');
     });
 
     it('BB option returns Raise for strong hands', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(aa, 'BB', 'rfi');
+      const rec = getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'BB', spot: 'rfi' });
       expect(rec.action).toBe('R');
     });
 
     it('facing_open 3-bet sizing uses actual currentBet', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
-      const recSmall = getGtoPreflopRecommendation(
-        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 20,
-      );
-      const recLarge = getGtoPreflopRecommendation(
-        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 50,
-      );
+      const recSmall = getGtoPreflopRecommendation({
+        hand: aks,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'BTN',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 20,
+      });
+      const recLarge = getGtoPreflopRecommendation({
+        hand: aks,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'BTN',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 50,
+      });
       expect(recSmall.action).toBe('R');
       expect(recLarge.action).toBe('R');
       expect(recSmall.sizingBB).toBeLessThan(recLarge.sizingBB!);
@@ -671,40 +802,60 @@ describe('GTO Preflop Engine', () => {
   describe('SPR-based All-in Detection', () => {
     it('short stack facing 3-bet shows All-in (SPR < 2)', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
-        { chips: 170, toCall: 55, totalPot: 120, bet: 25 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'CO',
+        spot: 'facing_3bet',
+        smallBlind: 5,
+        currentBet: 80,
+        stackContext: { chips: 170, toCall: 55, totalPot: 120, bet: 25 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBe(true);
     });
 
     it('deep stack facing 3-bet shows normal Raise (SPR > 2)', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
-        { chips: 900, toCall: 55, totalPot: 120, bet: 25 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'CO',
+        spot: 'facing_3bet',
+        smallBlind: 5,
+        currentBet: 80,
+        stackContext: { chips: 900, toCall: 55, totalPot: 120, bet: 25 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBeUndefined();
     });
 
     it('short stack facing open shows All-in for 3-bet (SPR < 2)', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
-      const rec = getGtoPreflopRecommendation(
-        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 25,
-        { chips: 80, toCall: 15, totalPot: 35, bet: 10 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aks,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'BTN',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 25,
+        stackContext: { chips: 80, toCall: 15, totalPot: 35, bet: 10 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBe(true);
     });
 
     it('deep stack facing open shows normal 3-bet sizing', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
-      const rec = getGtoPreflopRecommendation(
-        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 25,
-        { chips: 900, toCall: 15, totalPot: 35, bet: 10 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aks,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'BTN',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 25,
+        stackContext: { chips: 900, toCall: 15, totalPot: 35, bet: 10 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBeUndefined();
       expect(rec.sizingBB).toBeGreaterThan(0);
@@ -714,46 +865,76 @@ describe('GTO Preflop Engine', () => {
   describe('Cold 3-bet Defense', () => {
     it('BB cold 3-bet: AA shows 4-bet', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'BB', 'cold_3bet', undefined, 5, 'BB', 100,
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'BB',
+        spot: 'cold_3bet',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 100,
+      });
       expect(rec.action).toBe('R');
     });
 
     it('BB cold 3-bet: 72o shows fold', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
-      const rec = getGtoPreflopRecommendation(
-        garbage, 'BB', 'cold_3bet', undefined, 5, 'BB', 100,
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: garbage,
+        rfiPosition: 'BB',
+        spot: 'cold_3bet',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 100,
+      });
       expect(rec.action).toBe('F');
     });
 
     it('SB cold 3-bet: AKs shows 4-bet', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
-      const rec = getGtoPreflopRecommendation(
-        aks, 'SB', 'cold_3bet', undefined, 5, 'SB', 80,
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aks,
+        rfiPosition: 'SB',
+        spot: 'cold_3bet',
+        smallBlind: 5,
+        defenderPosition: 'SB',
+        currentBet: 80,
+      });
       expect(rec.action).toBe('R');
     });
 
     it('IP cold 3-bet: QQ shows 4-bet, 55 shows fold', () => {
       const qq = [card('♠', 'Q'), card('♥', 'Q')];
-      const recQQ = getGtoPreflopRecommendation(
-        qq, 'CO', 'cold_3bet', undefined, 5, 'CO', 80,
-      );
+      const recQQ = getGtoPreflopRecommendation({
+        hand: qq,
+        rfiPosition: 'CO',
+        spot: 'cold_3bet',
+        smallBlind: 5,
+        defenderPosition: 'CO',
+        currentBet: 80,
+      });
       expect(recQQ.action).toBe('R');
       const fiveFive = [card('♠', '5'), card('♥', '5')];
-      const rec55 = getGtoPreflopRecommendation(
-        fiveFive, 'CO', 'cold_3bet', undefined, 5, 'CO', 80,
-      );
+      const rec55 = getGtoPreflopRecommendation({
+        hand: fiveFive,
+        rfiPosition: 'CO',
+        spot: 'cold_3bet',
+        smallBlind: 5,
+        defenderPosition: 'CO',
+        currentBet: 80,
+      });
       expect(rec55.action).toBe('F');
     });
 
     it('BB cold 3-bet: AJs shows call', () => {
       const ajs = [card('♠', 'A'), card('♠', 'J')];
-      const rec = getGtoPreflopRecommendation(
-        ajs, 'BB', 'cold_3bet', undefined, 5, 'BB', 100,
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: ajs,
+        rfiPosition: 'BB',
+        spot: 'cold_3bet',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 100,
+      });
       expect(rec.action).toBe('C');
     });
   });
@@ -761,25 +942,24 @@ describe('GTO Preflop Engine', () => {
   describe('BB Option Raise', () => {
     it('BB option: AA raises (UTG-tier hand)', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'BB', 'rfi', undefined, 5,
-      );
+      const rec = getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'BB', spot: 'rfi', smallBlind: 5 });
       expect(rec.action).toBe('R');
     });
 
     it('BB option: 72o checks (not UTG-tier)', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
-      const rec = getGtoPreflopRecommendation(
-        garbage, 'BB', 'rfi', undefined, 5,
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: garbage,
+        rfiPosition: 'BB',
+        spot: 'rfi',
+        smallBlind: 5,
+      });
       expect(rec.action).toBe('C');
     });
 
     it('BB option: AKs raises', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
-      const rec = getGtoPreflopRecommendation(
-        aks, 'BB', 'rfi', undefined, 5,
-      );
+      const rec = getGtoPreflopRecommendation({ hand: aks, rfiPosition: 'BB', spot: 'rfi', smallBlind: 5 });
       expect(rec.action).toBe('R');
     });
   });
@@ -787,22 +967,22 @@ describe('GTO Preflop Engine', () => {
   describe('HJ Position', () => {
     it('HJ opens 33 (wider than MP)', () => {
       const lowPair = [card('♠', '3'), card('♥', '3')];
-      expect(getGtoPreflopRecommendation(lowPair, 'HJ', 'rfi').action).toBe('R');
+      expect(getGtoPreflopRecommendation({ hand: lowPair, rfiPosition: 'HJ', spot: 'rfi' }).action).toBe('R');
     });
 
     it('HJ opens A2s (wider than MP)', () => {
       const a2s = [card('♠', 'A'), card('♠', '2')];
-      expect(getGtoPreflopRecommendation(a2s, 'HJ', 'rfi').action).toBe('R');
+      expect(getGtoPreflopRecommendation({ hand: a2s, rfiPosition: 'HJ', spot: 'rfi' }).action).toBe('R');
     });
 
     it('HJ opens K9s (wider than MP)', () => {
       const k9s = [card('♠', 'K'), card('♠', '9')];
-      expect(getGtoPreflopRecommendation(k9s, 'HJ', 'rfi').action).toBe('R');
+      expect(getGtoPreflopRecommendation({ hand: k9s, rfiPosition: 'HJ', spot: 'rfi' }).action).toBe('R');
     });
 
     it('HJ folds 72o', () => {
       const garbage = [card('♣', '7'), card('♦', '2')];
-      expect(getGtoPreflopRecommendation(garbage, 'HJ', 'rfi').action).toBe('F');
+      expect(getGtoPreflopRecommendation({ hand: garbage, rfiPosition: 'HJ', spot: 'rfi' }).action).toBe('F');
     });
   });
 
@@ -858,10 +1038,13 @@ describe('GTO Preflop Engine', () => {
   describe('筹码深度分层（低深度下加注降级为全下）', () => {
     it('≤15bb 开池直接全下，不给小尺度', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'BTN', 'rfi', undefined, 5, undefined, undefined,
-        { chips: 140, toCall: 0, totalPot: 15, bet: 0 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'BTN',
+        spot: 'rfi',
+        smallBlind: 5,
+        stackContext: { chips: 140, toCall: 0, totalPot: 15, bet: 0 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBe(true);
       expect(rec.sizingBB).toBe(14);
@@ -869,37 +1052,51 @@ describe('GTO Preflop Engine', () => {
 
     it('16–25bb 面对开池的 3bet 直接全下', () => {
       const aks = [card('♠', 'A'), card('♠', 'K')];
-      const rec = getGtoPreflopRecommendation(
-        aks, 'BB', 'facing_open', 'BTN', 5, 'BB', 25,
-        { chips: 200, toCall: 15, totalPot: 35, bet: 10 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aks,
+        rfiPosition: 'BB',
+        spot: 'facing_open',
+        openerPosition: 'BTN',
+        smallBlind: 5,
+        defenderPosition: 'BB',
+        currentBet: 25,
+        stackContext: { chips: 200, toCall: 15, totalPot: 35, bet: 10 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBe(true);
     });
 
     it('26–40bb 面对 3bet 的 4bet 直接全下', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
-        { chips: 350, toCall: 55, totalPot: 120, bet: 25 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'CO',
+        spot: 'facing_3bet',
+        smallBlind: 5,
+        currentBet: 80,
+        stackContext: { chips: 350, toCall: 55, totalPot: 120, bet: 25 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBe(true);
     });
 
     it('>40bb 面对 3bet 仍是定尺 4bet', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(
-        aa, 'CO', 'facing_3bet', undefined, 5, undefined, 80,
-        { chips: 600, toCall: 55, totalPot: 120, bet: 25 },
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: aa,
+        rfiPosition: 'CO',
+        spot: 'facing_3bet',
+        smallBlind: 5,
+        currentBet: 80,
+        stackContext: { chips: 600, toCall: 55, totalPot: 120, bet: 25 },
+      });
       expect(rec.action).toBe('R');
       expect(rec.isAllIn).toBeUndefined();
     });
 
     it('没有筹码信息时保持原有定尺行为（无回归）', () => {
       const aa = [card('♠', 'A'), card('♥', 'A')];
-      const rec = getGtoPreflopRecommendation(aa, 'BTN', 'rfi', undefined, 5);
+      const rec = getGtoPreflopRecommendation({ hand: aa, rfiPosition: 'BTN', spot: 'rfi', smallBlind: 5 });
       expect(rec.action).toBe('R');
       expect(rec.sizingBB).toBe(2.0);
       expect(rec.isAllIn).toBeUndefined();
@@ -1253,17 +1450,15 @@ describe('锦标赛范围收紧（B4）', () => {
     const r = new Set<string>();
     const c = new Set<string>();
     for (const cls of allHandClasses()) {
-      const rec = getGtoPreflopRecommendation(
-        classToHand(cls),
-        defender,
-        'facing_open',
-        opener,
-        5,
-        defender,
-        undefined,
-        undefined,
-        scenario,
-      );
+      const rec = getGtoPreflopRecommendation({
+        hand: classToHand(cls),
+        rfiPosition: defender,
+        spot: 'facing_open',
+        openerPosition: opener,
+        smallBlind: 5,
+        defenderPosition: defender,
+        gameScenario: scenario,
+      });
       if (rec.action === 'R') r.add(cls);
       else if (rec.action === 'C') c.add(cls);
     }
@@ -1302,13 +1497,21 @@ describe('锦标赛范围收紧（B4）', () => {
 
   it('不传赛制 == 现金局（渲染层的缺省语义）', () => {
     const hand = [card('♠', 'A'), card('♥', '2')];
-    const omitted = getGtoPreflopRecommendation(hand, 'BTN', 'rfi');
-    const cash = getGtoPreflopRecommendation(
-      hand, 'BTN', 'rfi', undefined, 5, undefined, undefined, undefined, 'cash',
-    );
-    const tour = getGtoPreflopRecommendation(
-      hand, 'BTN', 'rfi', undefined, 5, undefined, undefined, undefined, 'tournament',
-    );
+    const omitted = getGtoPreflopRecommendation({ hand, rfiPosition: 'BTN', spot: 'rfi' });
+    const cash = getGtoPreflopRecommendation({
+      hand,
+      rfiPosition: 'BTN',
+      spot: 'rfi',
+      smallBlind: 5,
+      gameScenario: 'cash',
+    });
+    const tour = getGtoPreflopRecommendation({
+      hand,
+      rfiPosition: 'BTN',
+      spot: 'rfi',
+      smallBlind: 5,
+      gameScenario: 'tournament',
+    });
     expect(omitted).toEqual(cash);
     expect(omitted.action).toBe('R');
     expect(tour.action).toBe('F');
@@ -1376,10 +1579,13 @@ describe('锦标赛范围收紧（B4）', () => {
 
     for (const scenario of ['cash', 'tournament'] as const) {
       setGtoConfig({ scenario });
-      const panel = getGtoPreflopRecommendation(
-        hero.hand, 'BTN', 'rfi', undefined, 5, undefined, undefined, undefined,
-        scenario,
-      );
+      const panel = getGtoPreflopRecommendation({
+        hand: hero.hand,
+        rfiPosition: 'BTN',
+        spot: 'rfi',
+        smallBlind: 5,
+        gameScenario: scenario,
+      });
       const bot = decidePreflopGTO(hero, state, flags, ctx, adj).action;
       if (panel.action === 'F') expect(bot).toBe('fold');
       if (panel.action === 'R') expect(bot).toBe('raise');

@@ -1245,27 +1245,71 @@ export function decidePreflopGTO(
 // ─── AI Analysis Lookup ──────────────────────────────────────
 
 /**
+ * `getGtoPreflopRecommendation` 的查询参数。
+ *
+ * 这九个字段以前是九个**位置参数** —— 调用点里连续三个 `undefined` 是常事，
+ * 而且 `scenario`（rfi / facing_open …）与 `gameScenario`（现金局 / 锦标赛）
+ * 只差一个前缀、语义完全不同。收敛成一个对象后，调用点自己就是文档。
+ *
+ * ⚠️ 命名：`spot` 是**牌局场景**（`PreflopScenario`），`gameScenario` 是**赛制**
+ * （`GameScenario`）。两者**正交**，别混。
+ */
+export interface GtoPreflopQuery {
+  /** 我方手牌。 */
+  hand: Card[];
+  /**
+   * 我方位置。
+   *
+   * `facing_3bet` 时是**开池者**的位置（4-bet 表按开池位分档）；
+   * `cold_3bet` / `facing_open` 时同样是「我」的位置，防守方类型由
+   * `defenderPosition` 决定。
+   */
+  rfiPosition: Position;
+  /** 牌局场景。 */
+  spot: PreflopScenario;
+  /** 开池者位置（`facing_open` 用）。缺省 `'UTG'`。 */
+  openerPosition?: Position;
+  /** 小盲（筹码单位）。缺省 `5`。 */
+  smallBlind?: number;
+  /** 防守者位置（`facing_open` / `cold_3bet` 用）。缺省 `'BB'`。 */
+  defenderPosition?: Position;
+  /** 当前需跟到的下注额（筹码单位）。缺省时按标准开池尺度反推 3-bet 尺度。 */
+  currentBet?: number;
+  /**
+   * 筹码上下文，用来判断「这个尺度是不是已经全下」。
+   *
+   * **不传**时视作最深一档（`band = 'veryDeep'`）—— 即保持本函数最早期的定尺行为，
+   * 这样不关心筹码的调用方输出与以前逐位一致。
+   */
+  stackContext?: { chips: number; toCall: number; totalPot: number; bet: number };
+  /**
+   * 赛制（现金局 / 锦标赛），决定用哪一套范围表 —— **由调用方传**
+   * （`GameBoard` 传自己那个 `scenario` state），而不是在这里读全局：赛制写进
+   * 全局是在 `useEffect` 里，切换的那一帧 prop 已变、全局态还没变，读全局会让
+   * 面板短暂用错范围表（与 `rake.effectiveRakeConfigFor` 同一个理由）。
+   * 缺省视作现金局。
+   */
+  gameScenario?: GameScenario;
+}
+
+/**
  * 面板侧的翻前建议。
  *
- * `gameScenario` 决定用现金局还是锦标赛范围表 —— **由调用方传**（`GameBoard` 传
- * 自己那个 `scenario` state），而不是在这里读全局：赛制写进全局是在 `useEffect`
- * 里，切换的那一帧 prop 已变、全局态还没变，读全局会让面板短暂用错范围表
- * （与 `rake.effectiveRakeConfigFor` 同一个理由）。缺省视作现金局。
- *
- * 注：参数已经有 9 个了。这里不再加，是因为改成 options 对象要动几十个测试调用点；
- * 已记在待清理清单里。
+ * 参数与赛制口径见 `GtoPreflopQuery`。
  */
-export function getGtoPreflopRecommendation(
-  hand: Card[],
-  rfiPosition: Position,
-  scenario: 'rfi' | 'facing_open' | 'facing_3bet' | 'cold_3bet',
-  openerPosition?: Position,
-  smallBlind?: number,
-  defenderPosition?: Position,
-  currentBet?: number,
-  stackContext?: { chips: number; toCall: number; totalPot: number; bet: number },
-  gameScenario?: GameScenario,
-): GtoRecommendation {
+export function getGtoPreflopRecommendation(query: GtoPreflopQuery): GtoRecommendation {
+  const {
+    hand,
+    rfiPosition,
+    spot,
+    openerPosition,
+    smallBlind,
+    defenderPosition,
+    currentBet,
+    stackContext,
+    gameScenario,
+  } = query;
+
   const sb = smallBlind || 5;
   const bb = sb * 2;
   const tables = rangeTablesFor(gameScenario);
@@ -1283,7 +1327,7 @@ export function getGtoPreflopRecommendation(
   const stackBB = stackContext ? stackContext.chips / bb : Infinity;
   const band = stackBand(stackBB);
 
-  if (scenario === 'rfi') {
+  if (spot === 'rfi') {
     const code = lookup(tables.rfi[rfiPosition], hand);
     if (code === 'R') {
       const freq = getFreq('rfi', rfiPosition, hand, 'R');
@@ -1318,7 +1362,7 @@ export function getGtoPreflopRecommendation(
     return { action: 'F', freq: getFreq('rfi', rfiPosition, hand, 'F') };
   }
 
-  if (scenario === 'facing_3bet') {
+  if (spot === 'facing_3bet') {
     const table3bet = tables.vs3bet[rfiPosition] ?? tables.vs3bet['CO'];
     const code = lookup(table3bet, hand);
     if (code === 'R') {
@@ -1343,7 +1387,7 @@ export function getGtoPreflopRecommendation(
     return { action: 'F', freq: getFreq('facing_3bet', rfiPosition, hand, 'F') };
   }
 
-  if (scenario === 'cold_3bet') {
+  if (spot === 'cold_3bet') {
     const dPos = defenderPosition || 'BB';
     const dType = getDefenderType(dPos);
     const table = tables.cold3bet[dType] ?? tables.cold3bet['IP'];
