@@ -107,38 +107,12 @@ export function endCurrentHand(winner: PlayerId | null, potAmount: number): void
 export function getPlayerLongStats(playerId: PlayerId): PlayerStats {
   loadFromStorage();
 
-  // Get all hands where this player participated
-  const playerHands = persistentData.hands.filter(h => h.players.includes(playerId));
-  const handsDealt = playerHands.length;
-
-  if (handsDealt === 0) {
-    return {
-      playerId,
-      handsDealt: 0,
-      vpip: 0,
-      pfr: 0,
-      gap: 0,
-      playerType: 'Unknown',
-      af: null,
-      cbet: null,
-      wtsd: null,
-      wsd: null,
-      checkRaise: null,
-      threeBet: null,
-      foldToCbet: null,
-      afq: null,
-      turnCbet: null,
-    };
-  }
-
-  // Collect all events for this player
-  const allEvents: ActionEvent[] = [];
-  for (const hand of playerHands) {
-    allEvents.push(...hand.events.filter(e => e.playerId === playerId));
-  }
-
-  // Compute statistics from events
-  return computePlayerStatsFromEvents(playerId, allEvents, playerHands);
+  // 把**完整**手牌记录交给 computePlayerStatsFromEvents，由它自己按玩家过滤：
+  // 3-bet / fold-to-c-bet 要看对手的动作，c-bet / WTSD / WSD 只看该玩家自己的动作。
+  // 以前这里传的是完整记录、但函数假定已过滤，于是 c-bet / WTSD / WSD 被算到了
+  // 「本手最后一个翻前加注者」头上；而 session 路径传的又是过滤后的记录，
+  // 于是 3-bet / fold-to-c-bet 恒为 null。现在两条路径统一。
+  return computePlayerStatsFromEvents(playerId, persistentData.hands);
 }
 
 export function getAllRealPlayerStats(realPlayerIds: PlayerId[]): PlayerStats[] {

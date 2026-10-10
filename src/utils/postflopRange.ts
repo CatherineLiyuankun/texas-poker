@@ -210,10 +210,14 @@ function classifyUncached(
       return 'weak';
     }
     default: {
-      // `detectDraws` reports draw potential regardless of street, but on the
-      // river there are no cards to come — a no-pair hand is simply air.
+      // 河牌（cardsToCome = 0）没有牌可发，`detectDraws` 本身也已返回空，
+      // 这里短路一次省掉调用，同时让「无牌可发 = 没有听牌，只能是 air」就地可见。
       if (cardsToCome > 0) {
         const draws = detectDraws(combo, board, cardsToCome);
+        // 注意：这里的阈值是**加权用**的粗口径，刻意不分街、也刻意与
+        // `handStrength` 的决策阈值解耦 —— 它回答的是「这手组合该按多大权重算进
+        // 对手的听牌范围」，不是「该不该半诈唬」。决策侧的分街阈值见
+        // `handStrength.DRAW_OUTS_BY_STREET`。
         if (draws.totalOuts >= 8) return 'draw';
         if (draws.totalOuts >= 4) return 'weak';
       }

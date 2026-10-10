@@ -7,7 +7,6 @@ import {
   canFold,
 } from '../hooks/useGameState';
 import { getPreflopTier } from './preflopHandStrength';
-import { calculateEquity } from './equityCalculator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import {
   calculateOpponentProfile,
@@ -18,19 +17,25 @@ import { translations } from './translations';
 import { decidePreflopGTO } from './gtoPreflop';
 import { decidePostflopGTO } from './gtoPostflop';
 import { decideRiverGTO } from './gtoRiver';
-import { getDeepStackRecommendation, isDeepStack } from './gtoDeepStack';
-import { getShortStackRecommendation, isShortStack } from './gtoShortStack';
-import { getICMRecommendation, isTournamentBubble, getICMConfig, type Position } from './gtoICM';
-import { computePotOddsFor } from './potOdds';
+import { getDeepStackRecommendation } from './gtoDeepStack';
+import { getShortStackRecommendation } from './gtoShortStack';
+// 筹码深度的**唯一**来源：换算与分档都在这里，本文件不再自己写阈值。
+import { effectiveStackBB, stackBand } from './stackDepth';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数，否则同一手牌两边胜率不同。
+import { equityIterations } from './equityIterations';
 import {
-  buildNodelockProfile,
-  getNodelockRecommendation,
-  isSampleSufficient,
-} from './gtoNodelock';
-
-let useGtoStrategy = false;
-export function setGtoStrategy(enabled: boolean): void { useGtoStrategy = enabled; }
-export function getGtoStrategy(): boolean { return useGtoStrategy; }
+  getICMRecommendation,
+  getICMConfig,
+  riskPremiumFor,
+  BUBBLE_PREMIUM_THRESHOLD,
+  type Position,
+} from './gtoICM';
+import { computePotOddsFor } from './potOdds';
+import { callThresholdWithRake } from './rake';
+// 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
+import { isGtoEngine } from './gtoConfig';
 
 export interface BotDecision {
   action: Action;
@@ -49,6 +54,17 @@ export interface ActionFlags {
 export interface ContextInfo {
   toCall: number;
   totalPot: number;
+  /**
+   * **跟注价格**（跟注所需的权益），不是「原始赔率」。
+   *
+   * 现金局里已经叠加了抽水（见 `rake.ts`）：赢家实收的是底池减抽水，所以盈亏平衡点
+   * 比 `toCall / (totalPot + toCall)` 更高。锦标赛下 `rake` 恒为 0，于是这里就等于
+   * 原始赔率 —— 与 ICM 溢价**互斥**，不会叠加。
+   *
+   * 下游所有模块（`gtoPostflop` / `gtoDeepStack` / `gtoRiver` / `gtoShortStack` /
+   * `gtoICM`）都把这个字段当「跟注价格」用，所以「口径统一」只需要在
+   * `getBotAction` 里算一次，不必去改二十多处比较点。
+   */
   potOdds: number;
   position: number;
   totalPlayers: number;
@@ -128,29 +144,43 @@ function decidePreflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  // 检测是否为锦标赛泡沫期
-  if (isTournamentBubble(state)) {
-    const icmConfig = getICMConfig(state);
+  // 锦标赛 ICM：风险溢价显著时由 ICM 接管翻前决策。
+  //
+  // 触发条件以前是 `isTournamentBubble(state)` —— 它要求 `players.length > 6`，
+  // 而本应用是单张 6 人桌，**永远为假**，于是整段 ICM 是死代码。现在改成看
+  // **赛制开关**（`gtoConfig` 是单一真相）叠加「溢价是否显著」：
+  // `riskPremiumFor` 在现金局恒为 0，所以现金局行为与以前逐位一致（无溢价）。
+  //
+  // ⚠️ **本块只在启发式引擎下生效**：`getBotAction` 是按 `isGtoEngine()` 分派的，
+  // 只有 GTO OFF 才会走到这个 `decidePreflop`；GTO ON 走 `decidePreflopGTO`，那条
+  // 路径**不叠风险溢价**（它用「锦标赛收紧范围表」体现 ICM，见 `gtoPreflop` 的
+  // `TOURNAMENT_*_KEEP`）。所以「锦标赛按 ICM 调整」这句话必须限定在启发式引擎下。
+  // 同理，下面短筹码分支里的 `getShortStackRecommendation`（自带 `isTournament` /
+  // `isBubble` / 门槛叠溢价）也只在 GTO OFF 时被调用。
+  const riskPremium = riskPremiumFor(state, player);
+  if (riskPremium > BUBBLE_PREMIUM_THRESHOLD) {
+    const icmConfig = getICMConfig(state, player);
     const position = getPositionName(ctx.position, state.players.length);
     const action = ctx.toCall > 0 ? (ctx.toCall > state.lastRaiseBet * 2 ? 'facing_3bet' : 'facing_open') : 'rfi';
-    const icmRec = getICMRecommendation(icmConfig, player.hand, position, action);
+    const icmRec = getICMRecommendation(icmConfig, player.hand, position, action, ctx.potOdds);
 
-    if (icmRec.riskPremium > 0.10) {
-      if (icmRec.action === 'fold' && flags.canFoldResult) {
-        return { action: 'fold', reasoning: icmRec.reasoning };
-      }
-      if (icmRec.action === 'raise' && flags.canRaiseResult) {
-        return { action: 'raise', amount: icmRec.sizing, reasoning: icmRec.reasoning };
-      }
-      if (icmRec.action === 'call' && flags.canCallResult) {
-        return { action: 'call', reasoning: icmRec.reasoning };
-      }
+    if (icmRec.action === 'fold' && flags.canFoldResult) {
+      return { action: 'fold', reasoning: icmRec.reasoning };
+    }
+    if (icmRec.action === 'raise' && flags.canRaiseResult) {
+      return { action: 'raise', amount: icmRec.sizing, reasoning: icmRec.reasoning };
+    }
+    if (icmRec.action === 'call' && flags.canCallResult) {
+      return { action: 'call', reasoning: icmRec.reasoning };
     }
   }
 
-  // 检测是否为短筹码 (≤20bb)
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
-  if (isShortStack(effectiveStack)) {
+  // 短筹码（push / short 档：≤25bb）走全下/弃牌策略。
+  // 深度统一由 stackDepth 分档 —— 以前这里是 `isShortStack(≤20bb)`，与 GTO 路径的
+  // `preflopStackBand`（≤25bb 判 short）不一致，21–25bb 因此落进默认引擎。
+  const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
+  const band = stackBand(effectiveStack);
+  if (band === 'push' || band === 'short') {
     // 使用短筹码策略
     const shortStackRec = getShortStackRecommendation(player, state, flags, ctx, adj);
     return {
@@ -186,7 +216,7 @@ function decidePreflop(
   // 策略：几乎 100% VPIP，永远不弃牌
   if (tier <= 2) {
     // Tier 2 偶尔设陷阱：12% 概率仅跟注（伪装牌力，不面对大加注时）
-    if (tier === 2 && Math.random() < 0.12 && flags.canCallResult && !isFacingBigRaise) {
+    if (tier === 2 && random() < 0.12 && flags.canCallResult && !isFacingBigRaise) {
       return { action: 'call' };
     }
     // 浅筹码（≤ 2 倍底池）时直接全下
@@ -210,22 +240,22 @@ function decidePreflop(
     if (isFacingBigRaise) {
       if (ctx.isButton || ctx.isCutoff) {
         // 晚期位面对大加注：20% 反加注，65% 跟注，15% 弃牌
-        if (flags.canRaiseResult && Math.random() < 0.20) {
+        if (flags.canRaiseResult && random() < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
         const adjCall = 0.65 * aceCallFactor;
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - 0.20 - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.20 - adjCall, 0.01)) {
           return { action: 'call' };
         }
         if (flags.canFoldResult) return { action: 'fold' };
       } else {
         // 非晚期位面对大加注：先判定弃牌（fold-first 模式）
         const foldProb = 0.40 + foldBoost;
-        if (flags.canFoldResult && Math.random() < foldProb) {
+        if (flags.canFoldResult && random() < foldProb) {
           return { action: 'fold' };
         }
         const adjCall = 0.50 * aceCallFactor;
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
         if (flags.canCallResult) return { action: 'call' };
@@ -240,10 +270,10 @@ function decidePreflop(
       const baseCallProb = 0.17;
       const adjCall = baseCallProb * aceCallFactor;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-      if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+      if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.05) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -254,10 +284,10 @@ function decidePreflop(
       const baseRaiseProb = 0.52;
       const baseCallProb = 0.23;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -268,10 +298,10 @@ function decidePreflop(
       const baseRaiseProb = 0.38;
       const baseCallProb = 0.27;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -282,10 +312,10 @@ function decidePreflop(
       const baseRaiseProb = 0.30;
       const baseCallProb = 0.20;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -301,25 +331,25 @@ function decidePreflop(
     if (isFacingBigRaise) {
       if (ctx.isButton || ctx.isCutoff) {
         // 晚期位面对大加注：更积极地防守
-        if (flags.canRaiseResult && Math.random() < 0.20) {
+        if (flags.canRaiseResult && random() < 0.20) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
         const adjCall = 0.60 * aceCallFactor;
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - 0.20 - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.20 - adjCall, 0.01)) {
           return { action: 'call' };
         }
         // 剩余概率弃牌（20% + foldBoost 增加弃牌倾向）
-        if (flags.canFoldResult && Math.random() < 0.20 + foldBoost) {
+        if (flags.canFoldResult && random() < 0.20 + foldBoost) {
           return { action: 'fold' };
         }
       } else {
         // 非晚期位面对大加注：先判定弃牌（fold-first 模式）
         const foldProb = 0.48 + foldBoost;
-        if (flags.canFoldResult && Math.random() < foldProb) {
+        if (flags.canFoldResult && random() < foldProb) {
           return { action: 'fold' };
         }
         const adjCall = 0.42 * aceCallFactor;
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -334,10 +364,10 @@ function decidePreflop(
       const baseCallProb = 0.17;
       const adjCall = baseCallProb * aceCallFactor;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-      if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+      if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -349,10 +379,10 @@ function decidePreflop(
       const baseCallProb = 0.18;
       const adjCall = baseCallProb * aceCallFactor;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-      if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+      if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -364,10 +394,10 @@ function decidePreflop(
       const baseCallProb = 0.20;
       const adjCall = baseCallProb * aceCallFactor;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-      if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+      if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -378,10 +408,10 @@ function decidePreflop(
       const baseRaiseProb = 0.26;
       const baseCallProb = 0.16;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -392,10 +422,10 @@ function decidePreflop(
       const baseRaiseProb = 0.16;
       const baseCallProb = 0.12;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -403,7 +433,7 @@ function decidePreflop(
     
     // Late position 3-bet light against single raise
     if ((ctx.isButton || ctx.isCutoff) && isFacingRaise && !isFacingBigRaise) {
-      if (flags.canRaiseResult && Math.random() < 0.18) {
+      if (flags.canRaiseResult && random() < 0.18) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.15) };
       }
     }
@@ -432,10 +462,10 @@ function decidePreflop(
         const baseCallProb = 0.30;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.18;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
@@ -443,10 +473,10 @@ function decidePreflop(
         const baseCallProb = 0.12;
         const adjCall = baseCallProb * aceCallFactor;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-        if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+        if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -458,10 +488,10 @@ function decidePreflop(
         const baseCallProb = 0.28;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.15;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
@@ -469,10 +499,10 @@ function decidePreflop(
         const baseCallProb = 0.14;
         const adjCall = baseCallProb * aceCallFactor;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-        if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+        if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -484,10 +514,10 @@ function decidePreflop(
         const baseCallProb = 0.33;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.13;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
@@ -495,10 +525,10 @@ function decidePreflop(
         const baseCallProb = 0.17;
         const adjCall = baseCallProb * aceCallFactor;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-        if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+        if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -510,20 +540,20 @@ function decidePreflop(
         const baseCallProb = 0.35;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.05;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
         const baseRaiseProb = 0.25;
         const baseCallProb = 0.13;
         const adjCall = baseCallProb * aceCallFactor;
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -534,24 +564,24 @@ function decidePreflop(
       const baseRaiseProb = 0.12;
       const baseCallProb = 0.08;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
     }
 
     // Blind defense: call wider against late position raises
     if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
-      if (flags.canRaiseResult && Math.random() < 0.22) {
+      if (flags.canRaiseResult && random() < 0.22) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
       }
       if (flags.canCallResult && ctx.potOdds < (0.40 - tightenCall)) {
         return { action: 'call' };
       }
       const adjCall = 0.48 * aceCallFactor;
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - 0.22 - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.22 - adjCall, 0.01)) {
         return { action: 'call' };
       }
     }
@@ -595,10 +625,10 @@ function decidePreflop(
         const baseCallProb = 0.05;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.03;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
@@ -606,10 +636,10 @@ function decidePreflop(
         const baseCallProb = 0.05;
         const adjCall = baseCallProb * aceCallFactor;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-        if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+        if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -621,10 +651,10 @@ function decidePreflop(
         const baseCallProb = 0.03;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.02;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.9) };
         }
       } else {
@@ -632,10 +662,10 @@ function decidePreflop(
         const baseCallProb = 0.04;
         const adjCall = baseCallProb * aceCallFactor;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-        if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+        if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -647,10 +677,10 @@ function decidePreflop(
         const baseCallProb = 0.02;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.015;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
@@ -658,10 +688,10 @@ function decidePreflop(
         const baseCallProb = 0.03;
         const adjCall = baseCallProb * aceCallFactor;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
-        if (flags.canRaiseResult && Math.random() < effectiveRaise) {
+        if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -673,20 +703,20 @@ function decidePreflop(
         const baseCallProb = 0.02;
         const adjCall = baseCallProb * aceCallFactor;
         const baseRaiseProb = 0.00;
-        if (flags.canCallResult && Math.random() < adjCall) {
+        if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
         }
-        if (baseRaiseProb > 0 && flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
+        if (baseRaiseProb > 0 && flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor / Math.max(1 - adjCall, 0.01)) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
         }
       } else {
         const baseRaiseProb = 0.05;
         const baseCallProb = 0.02;
         const adjCall = baseCallProb * aceCallFactor;
-        if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+        if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
         }
-        if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+        if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
       }
@@ -697,24 +727,24 @@ function decidePreflop(
       const baseRaiseProb = 0.02;
       const baseCallProb = 0.01;
       const adjCall = baseCallProb * aceCallFactor;
-      if (flags.canRaiseResult && Math.random() < baseRaiseProb * aceRaiseFactor) {
+      if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - baseRaiseProb - adjCall, 0.01)) {
         return { action: 'call' };
       }
     }
 
     // Blind defense: very tight even from blinds
     if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
-      if (flags.canRaiseResult && Math.random() < 0.10) {
+      if (flags.canRaiseResult && random() < 0.10) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
       }
       if (flags.canCallResult && ctx.potOdds < (0.25 - tightenCall)) {
         return { action: 'call' };
       }
       const adjCall = 0.15 * aceCallFactor;
-      if (flags.canCallResult && Math.random() < adjCall / Math.max(1 - 0.10 - adjCall, 0.01)) {
+      if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.10 - adjCall, 0.01)) {
         return { action: 'call' };
       }
     }
@@ -748,9 +778,8 @@ function decidePostflop(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  // 检测是否为深筹码 (>150bb)
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
-  if (isDeepStack(effectiveStack)) {
+  // 深筹码（veryDeep 档：>150bb）走深筹码策略；阈值同样来自 stackDepth，不再自己写。
+  if (stackBand(effectiveStackBB(player.chips, state.smallBlind)) === 'veryDeep') {
     // 使用深筹码策略
     const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
     return {
@@ -762,7 +791,7 @@ function decidePostflop(
 
   const community = getCommunityCardsByPhase(state);
 
-  const iterations = state.phase === 'flop' ? 200 : 300;
+  const iterations = equityIterations(state.phase);
   const equity = calculateRangeAwareEquity(
     player, state, community, ctx.numOpponents, iterations,
   );
@@ -809,12 +838,12 @@ function decidePostflop(
       if (flags.canFoldResult) return { action: 'fold' };
     }
     // 主动下注：60% 概率（专业标准）
-    if (flags.canRaiseResult && Math.random() < 0.60) {
+    if (flags.canRaiseResult && random() < 0.60) {
       const mult = equity >= 0.65 ? 0.85 : 0.75;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
     // 过牌：30% 概率（条件概率）
-    if (flags.canCheckResult && Math.random() < 0.30 / (1 - 0.60)) {
+    if (flags.canCheckResult && random() < 0.30 / (1 - 0.60)) {
       return { action: 'check' };
     }
     // 跟注：10% 概率
@@ -834,11 +863,11 @@ function decidePostflop(
     }
     // 诈唬下注：30% 概率（少对手时）
     const bluffProb = ctx.numOpponents <= 2 ? 0.30 : 0;
-    if (flags.canRaiseResult && Math.random() < bluffProb) {
+    if (flags.canRaiseResult && random() < bluffProb) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.7) };
     }
     // 过牌：50% 概率（条件概率）
-    if (flags.canCheckResult && Math.random() < 0.50 / (1 - bluffProb)) {
+    if (flags.canCheckResult && random() < 0.50 / (1 - bluffProb)) {
       return { action: 'check' };
     }
     // 跟注：20% 概率
@@ -855,7 +884,7 @@ function decidePostflop(
     ctx.numOpponents <= 2 &&
     equity >= 0.15 &&
     adj.raiseBonus > 0 &&
-    Math.random() < 0.2
+    random() < 0.2
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
   }
@@ -873,9 +902,8 @@ function decideRiver(
   ctx: ContextInfo,
   adj: OpponentAdjustments,
 ): BotDecision {
-  // 检测是否为深筹码 (>150bb)
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
-  if (isDeepStack(effectiveStack)) {
+  // 深筹码（veryDeep 档：>150bb）走深筹码策略；阈值同样来自 stackDepth，不再自己写。
+  if (stackBand(effectiveStackBB(player.chips, state.smallBlind)) === 'veryDeep') {
     // 使用深筹码策略
     const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
     return {
@@ -887,7 +915,7 @@ function decideRiver(
 
   const community = getCommunityCardsByPhase(state);
   const equity = calculateRangeAwareEquity(
-    player, state, community, ctx.numOpponents, 500,
+    player, state, community, ctx.numOpponents, equityIterations(state.phase),
   );
 
   const isFacingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
@@ -931,12 +959,12 @@ function decideRiver(
       if (flags.canCallResult) return { action: 'call' };
     }
     // 主动下注：50% 概率（河牌更谨慎）
-    if (flags.canRaiseResult && Math.random() < 0.50) {
+    if (flags.canRaiseResult && random() < 0.50) {
       const mult = equity >= 0.60 ? 0.85 : 0.75;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
     // 过牌：35% 概率（条件概率）
-    if (flags.canCheckResult && Math.random() < 0.35 / (1 - 0.50)) {
+    if (flags.canCheckResult && random() < 0.35 / (1 - 0.50)) {
       return { action: 'check' };
     }
     // 跟注：15% 概率
@@ -953,7 +981,7 @@ function decideRiver(
     ctx.numOpponents <= 2 &&
     equity >= 0.15 &&
     adj.raiseBonus > 0 &&
-    Math.random() < 0.25
+    random() < 0.25
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
   }
@@ -1005,7 +1033,10 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     state.players.length,
   );
   const totalPot = potOddsInfo.totalPot;
-  const potOdds = potOddsInfo.callPotOdds;
+  // 跟注价格：现金局把抽水折进分母（`callThresholdWithRake`），锦标赛恒等于原始赔率。
+  // 这里**刻意**替换掉 `potOddsInfo.callPotOdds` —— 下游拿 `ctx.potOdds` 当门槛用，
+  // 换这一处就等于全链路生效（详见 `ContextInfo.potOdds` 的注释）。
+  const potOdds = callThresholdWithRake(toCall, totalPot, state.smallBlind * 2);
   const numOpponents = activePlayers.length;
 
   const ctx: ContextInfo = {
@@ -1036,46 +1067,23 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   const oppProfile = calculateOpponentProfile(state.players, player.id);
   const adj = getOpponentAdjustments(oppProfile);
 
-  // Nodelock策略：当有足够对手数据时应用
-  if (oppProfile.botStats.length > 0) {
-    const firstOpponentStats = oppProfile.botStats[0];
-    if (firstOpponentStats && isSampleSufficient(buildNodelockProfile(firstOpponentStats))) {
-      const nodelockConfig = {
-        opponentProfile: buildNodelockProfile(firstOpponentStats),
-        street: state.phase as 'preflop' | 'flop' | 'turn' | 'river',
-        nodeType: (state.lastBet > 0 ? 'call' : 'bet') as 'call' | 'bet',
-        baseStrategy: {
-          action: 'check' as Action,
-          sizing: 0.5,
-        },
-        leakThreshold: 0.10,
-      };
-
-      const community = getCommunityCardsByPhase(state);
-      const equity = community.length >= 3
-        ? calculateEquity(player.hand, community, ctx.numOpponents, 200)
-        : 0.5;
-
-      getNodelockRecommendation(
-        nodelockConfig,
-        player.hand,
-        equity,
-      );
-    }
-  }
+  // 这里原本有一块 nodelock 计算：`getNodelockRecommendation(...)` 的返回值没有被
+  // 赋值、也没有被使用，属于空跑 —— 它还顺带为这次无用调用算了一遍 200 次迭代的
+  // 权益。真正需要展示给用户的 nodelock 已在面板侧计算（`HandAnalysis` 调用
+  // `getNodelockForOpponent`），机器人侧既没有消费它、也就不该在这里付这份成本。
 
   switch (state.phase) {
     case 'preflop':
-      return useGtoStrategy
+      return isGtoEngine()
         ? decidePreflopGTO(player, state, flags, ctx, adj)
         : decidePreflop(player, state, flags, ctx, adj);
     case 'flop':
     case 'turn':
-      return useGtoStrategy
+      return isGtoEngine()
         ? decidePostflopGTO(player, state, flags, ctx, adj)
         : decidePostflop(player, state, flags, ctx, adj);
     case 'river':
-      return useGtoStrategy
+      return isGtoEngine()
         ? decideRiverGTO(player, state, flags, ctx, adj)
         : decideRiver(player, state, flags, ctx, adj);
     default:

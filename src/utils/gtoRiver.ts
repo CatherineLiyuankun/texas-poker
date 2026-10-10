@@ -6,24 +6,13 @@ import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
-import { callPotOddsFrom } from './potOdds';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
+import { equityIterations } from './equityIterations';
 import { calculateBluffFrequency } from './gtoMath';
 
-interface RiverConfig {
-  equity: number;
-  handStrength: HandStrength;
-  texture: BoardTexture;
-  isIP: boolean;
-  numOpponents: number;
-  spr: number;
-  toCall: number;
-  totalPot: number;
-  lastRaiseBet: number;
-  potOdds: number;
-  isMultiway: boolean;
-}
-
-const HandStrength = {
+export const HandStrength = {
   NUTS: 'nuts',
   STRONG: 'strong',
   MEDIUM: 'medium',
@@ -31,7 +20,7 @@ const HandStrength = {
   AIR: 'air',
 } as const;
 
-type HandStrength = typeof HandStrength[keyof typeof HandStrength];
+export type HandStrength = typeof HandStrength[keyof typeof HandStrength];
 
 function getCommunityByPhase(state: GameState): Card[] {
   const community = state.communityCards || [];
@@ -47,13 +36,16 @@ function getCommunityByPhase(state: GameState): Card[] {
   }
 }
 
+/**
+ * 是否处于有利位置。
+ *
+ * 注意：这里用的是 `isMiddlePosition`（与 `botAI` 构造 `ctx` 的口径一致），
+ * 而 `gtoPostflop.isIP` 用的是 `isHijack` —— 两处对「有利位置」的定义并不相同，
+ * 且按 `botAI` 的公式，6 人桌的 UTG（position 3）也会被算成 `isMiddlePosition`。
+ * 本次改动只统一河牌的两条路径，不改动这个既有口径。
+ */
 function isIP(ctx: ContextInfo): boolean {
   return ctx.isButton || ctx.isCutoff || ctx.isMiddlePosition;
-}
-
-function calculateSPR(ctx: ContextInfo): number {
-  if (ctx.totalPot === 0) return 10;
-  return ctx.toCall / ctx.totalPot;
 }
 
 function countSuits(cards: Card[]): Map<Suit, number> {
@@ -102,7 +94,7 @@ function blocksValueRange(hand: Card[], community: Card[]): number {
       const straightRanks = sortedRanks.slice(i, i + 4);
       const hasNutBlocker = handRanks.some(r => {
         const rankVal = RANK_ORDER[r];
-        return rankVal === straightRanks[0] - 1 || 
+        return rankVal === straightRanks[0] - 1 ||
                rankVal === straightRanks[3] + 1;
       });
       if (hasNutBlocker) {
@@ -163,9 +155,9 @@ const STRONG_EQUITY = 0.75;
  * 是否坚果由 `equity` 决定，而它是 range-aware 权益（已含牌面与行动线信息）。
  *
  * 旧实现把 `rank >= two_pair` 直接判成 NUTS，于是湿牌面上的两对会 100% 跟注
- * 任意价格、并 60% 加注（见 `handleRiverFacingBet` 的 NUTS 分支）。
+ * 任意价格、并 60% 加注。
  */
-function classifyRiverStrength(
+export function classifyRiverStrength(
   equity: number,
   handRank: HandRank | null,
 ): HandStrength {
@@ -192,7 +184,7 @@ function classifyRiverStrength(
   return HandStrength.AIR;
 }
 
-function calculateOptimalSizing(
+export function calculateOptimalSizing(
   strength: HandStrength,
   texture: BoardTexture,
   isIP: boolean,
@@ -227,7 +219,17 @@ function calculateOptimalSizing(
   return 0.5;
 }
 
-function shouldBluff(
+/**
+ * 河牌诈唬概率（0 表示不诈唬）。
+ *
+ * 拆成「概率」与「采样」两步，是为了让面板能展示期望频率、机器人仍按同一
+ * 概率掷骰子 —— 两者共用同一个数，不会各自漂移。
+ *
+ * 让对手抓诈唬无差别的诈唬占比 = 跟注赔率 = B/(P+2B)，公式由 gtoMath 单点持有。
+ * 旧实现在这里算的是 Alpha = B/(B+P)（纯 0 权益诈唬所需的弃牌率），
+ * 半池会给 0.33 而不是 0.25，系统性高估诈唬频率。
+ */
+export function bluffProbability(
   hand: Card[],
   community: Card[],
   equity: number,
@@ -235,18 +237,15 @@ function shouldBluff(
   totalPot: number,
   isIP: boolean,
   isMultiway: boolean,
-): boolean {
-  // 让对手抓诈唬无差别的诈唬占比 = 跟注赔率 = B/(P+2B)，公式由 gtoMath 单点持有。
-  // 旧实现在这里算的是 Alpha = B/(B+P)（纯 0 权益诈唬所需的弃牌率），
-  // 半池会给 0.33 而不是 0.25，系统性高估诈唬频率。
+): number {
   const bluffFreq = calculateBluffFrequency(betSize, totalPot).bluffPct;
 
   if (equity >= 0.3) {
-    return false;
+    return 0;
   }
 
   if (isMultiway) {
-    return false;
+    return 0;
   }
 
   const blockerScore = blocksValueRange(hand, community);
@@ -255,36 +254,20 @@ function shouldBluff(
   const bluffScore = (blockerScore + unblockScore) * 0.5;
 
   if (bluffScore < 0.1) {
-    return false;
+    return 0;
   }
 
   const adjustedFreq = bluffFreq * (1 + bluffScore);
 
-  if (!isIP) {
-    return Math.random() < adjustedFreq * 0.7;
-  }
-
-  return Math.random() < adjustedFreq;
+  return isIP ? adjustedFreq : adjustedFreq * 0.7;
 }
 
-function adjustForOpponent(
-  config: RiverConfig,
-  adj: OpponentAdjustments,
-): RiverConfig {
-  let adjustedEquity = config.equity;
-
-  if (adj.raiseBonus > 0) {
-    adjustedEquity += 0.05;
-  }
-
-  if (adj.callPenalty > 0) {
-    adjustedEquity -= 0.05;
-  }
-
-  return {
-    ...config,
-    equity: Math.max(0, Math.min(1, adjustedEquity)),
-  };
+/** 对手画像对权益的剥削性调整（旧 `adjustForOpponent` 的唯一实质动作）。 */
+function adjustEquity(equity: number, adj: OpponentAdjustments): number {
+  let adjusted = equity;
+  if (adj.raiseBonus > 0) adjusted += 0.05;
+  if (adj.callPenalty > 0) adjusted -= 0.05;
+  return Math.max(0, Math.min(1, adjusted));
 }
 
 /**
@@ -298,137 +281,175 @@ function adjustForOpponent(
  */
 const OVERBET_RATIO = 1.5;
 
-/**
- * 面对下注：按**价格**决定跟注，不再用牌面纹理做闸门。
- *
- * 旧实现在 MEDIUM / WEAK / AIR 三档外挂了一道
- * `category === BLUFF_CATCHER`（只有 `texture.wetness > 7` 才成立）的门：
- * 非 bluff catcher 一律弃牌、完全跳过价格判断，于是干牌面上的小注也会弃掉
- * 权益远高于所需权益的牌（详见 .opencode/plans/pot-odds-consistency.md §10）。
- *
- * 现在的判据与 STRONG 档一致：`equity` 是 range-aware 权益（已含牌面与
- * 行动线信息），与 `potOdds` 比较本身就是完整的跟注判据 ——
- * 「这手牌能不能赢诈唬」已经被「对对手下注范围的权益」包含。
- */
-function handleRiverFacingBet(
-  player: Player,
-  state: GameState,
-  flags: ActionFlags,
-  ctx: ContextInfo,
-  config: RiverConfig,
-): BotDecision {
-  const { equity, handStrength: strength, potOdds } = config;
+/** `getRiverStrategy` 的输入：纯数据，不含 `flags`、不含随机。 */
+export interface RiverStrategyInput {
+  equity: number;
+  handRank: HandRank | null;
+  texture: BoardTexture;
+  isIP: boolean;
+  isMultiway: boolean;
+  potOdds: number;
+  toCall: number;
+  totalPot: number;
+  /** 手牌与公共牌，仅用于诈唬的阻断牌评分 */
+  hand: Card[];
+  community: Card[];
+  /** 对手画像调整；面板传 undefined 表示纯 GTO 基线 */
+  adjustments?: OpponentAdjustments;
+}
 
-  // 「下注前底池」= 含注底池 − 跟注额；跟注额达到它的 OVERBET_RATIO 倍即为超池。
-  const potBeforeBet = Math.max(0, ctx.totalPot - ctx.toCall);
-  if (ctx.toCall >= potBeforeBet * OVERBET_RATIO) {
-    return handleRiverBigRaise(player, state, flags, config);
-  }
+/** 河牌的**期望策略**。`frequency` < 1 表示混合，由调用方负责采样。 */
+export interface RiverStrategy {
+  strength: HandStrength;
+  action: 'raise' | 'call' | 'check' | 'fold';
+  /** `action` 为 raise 时的下注 / 加注尺度（相对底池）；否则 null */
+  sizing: number | null;
+  /** `action` 的期望频率（0–1），1 表示纯策略 */
+  frequency: number;
+  /** 未执行 `action` 时的替代动作 */
+  fallback: 'call' | 'check' | 'fold';
+  /** 处于超池分支（该分支放弃加注） */
+  isOverbet: boolean;
+  reasoning: string;
+}
 
-  switch (strength) {
-    case HandStrength.NUTS:
-      if (flags.canRaiseResult && Math.random() < 0.6) {
-        return createRaiseAction(player, state, ctx, 0.75);
-      }
-      return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-
-    case HandStrength.STRONG:
-      if (equity >= potOdds + 0.05) {
-        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-      }
-      return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
-
-    case HandStrength.MEDIUM:
-      if (equity >= potOdds) {
-        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-      }
-      return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
-
-    case HandStrength.WEAK:
-    case HandStrength.AIR:
-      if (equity >= potOdds + 0.05) {
-        return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
-      }
-      return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
-
-    default:
-      return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
-  }
+function fmtEqOdds(equity: number, potOdds: number): string {
+  return `Equity ${(equity * 100).toFixed(1)}% vs Pot Odds ${(potOdds * 100).toFixed(1)}%`;
 }
 
 /**
- * 面对超池下注：**放弃加注**（连坚果也只跟），但跟 / 弃仍按价格判断。
+ * 河牌策略的唯一实现。
  *
- * 旧实现只放行 NUTS 与 `STRONG && equity >= 0.7`，其余一律弃牌 —— 配合原先
- * 错位的门槛，会把价格本来合适的牌（例如权益 0.6 对 1.5 倍池的 0.375 赔率）
- * 一刀切弃掉。价格判据本身已经能挡住垃圾牌，超池场景额外要表达的只是
- * 「不要往超池下注里加注」。
+ * 机器人的 `decideRiverGTO` 与面板的 `getGtoRiverRecommendation` 都从这里取
+ * 同一个策略 —— 差别只在调用方怎么消费：机器人按 `frequency` 掷骰子并按
+ * `flags` 降级，面板直接展示期望策略。这样两边不会再各自漂移。
+ *
+ * 强度分档用**原始权益**（对手调整前），价格比较用**调整后权益** ——
+ * 与旧实现 `decideRiverGTO`（先 `classifyRiverStrength`，后 `adjustForOpponent`）
+ * 完全一致。
  */
-function handleRiverBigRaise(
-  _player: Player,
-  _state: GameState,
-  flags: ActionFlags,
-  config: RiverConfig,
-): BotDecision {
-  const { equity, handStrength: strength, potOdds } = config;
+export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
+  const { texture, toCall, totalPot, hand, community } = input;
+  const ip = input.isIP;
+  const isMultiway = input.isMultiway;
+  const potOdds = input.potOdds;
 
-  const canContinue =
-    strength === HandStrength.NUTS ||
-    (strength === HandStrength.MEDIUM
-      ? equity >= potOdds
-      : equity >= potOdds + 0.05);
+  const strength = classifyRiverStrength(input.equity, input.handRank);
+  const equity = input.adjustments
+    ? adjustEquity(input.equity, input.adjustments)
+    : input.equity;
 
-  if (canContinue) {
-    return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
+  const base = {
+    strength,
+    sizing: null as number | null,
+    frequency: 1,
+    fallback: 'fold' as 'call' | 'check' | 'fold',
+    isOverbet: false,
+  };
+
+  // ── 面对下注 ──────────────────────────────────────────────
+  if (toCall > 0) {
+    // 「下注前底池」= 含注底池 − 跟注额；跟注额达到它的 OVERBET_RATIO 倍即为超池。
+    const potBeforeBet = Math.max(0, totalPot - toCall);
+    if (toCall >= potBeforeBet * OVERBET_RATIO) {
+      const canContinue =
+        strength === HandStrength.NUTS ||
+        (strength === HandStrength.MEDIUM
+          ? equity >= potOdds
+          : equity >= potOdds + 0.05);
+
+      return canContinue
+        ? {
+            ...base, isOverbet: true, action: 'call', fallback: 'fold',
+            reasoning: `Call vs overbet: ${fmtEqOdds(equity, potOdds)}`,
+          }
+        : {
+            ...base, isOverbet: true, action: 'fold', fallback: 'call',
+            reasoning: `Fold vs overbet: ${fmtEqOdds(equity, potOdds)}`,
+          };
+    }
+
+    switch (strength) {
+      case HandStrength.NUTS:
+        return {
+          ...base, action: 'raise', sizing: 0.75, frequency: 0.6, fallback: 'call',
+          reasoning: `Raise for value with nuts: ${fmtEqOdds(equity, potOdds)}`,
+        };
+
+      case HandStrength.STRONG:
+        return equity >= potOdds + 0.05
+          ? {
+              ...base, action: 'call', fallback: 'fold',
+              reasoning: `Call with strong hand: ${fmtEqOdds(equity, potOdds)}`,
+            }
+          : {
+              ...base, action: 'fold', fallback: 'call',
+              reasoning: `Fold: strong hand short of price: ${fmtEqOdds(equity, potOdds)}`,
+            };
+
+      case HandStrength.MEDIUM:
+        return equity >= potOdds
+          ? {
+              ...base, action: 'call', fallback: 'fold',
+              reasoning: `Call with medium hand: ${fmtEqOdds(equity, potOdds)}`,
+            }
+          : {
+              ...base, action: 'fold', fallback: 'call',
+              reasoning: `Fold: medium hand short of price: ${fmtEqOdds(equity, potOdds)}`,
+            };
+
+      default:
+        return equity >= potOdds + 0.05
+          ? {
+              ...base, action: 'call', fallback: 'fold',
+              reasoning: `Call: ${fmtEqOdds(equity, potOdds)}`,
+            }
+          : {
+              ...base, action: 'fold', fallback: 'call',
+              reasoning: `Fold: ${fmtEqOdds(equity, potOdds)}`,
+            };
+    }
   }
 
-  return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
-}
-
-function handleRiverNoBet(
-  player: Player,
-  state: GameState,
-  flags: ActionFlags,
-  ctx: ContextInfo,
-  config: RiverConfig,
-): BotDecision {
-  const { handStrength: strength, isIP: ip, texture, equity, isMultiway } = config;
-  const community = getCommunityByPhase(state);
-
-  const optimalSizing = calculateOptimalSizing(strength, texture, ip, isMultiway);
+  // ── 无人下注 ──────────────────────────────────────────────
+  const sizing = calculateOptimalSizing(strength, texture, ip, isMultiway);
 
   if (strength === HandStrength.NUTS) {
-    return createBetAction(player, state, ctx, optimalSizing, 'River value bet with nuts');
+    return {
+      ...base, action: 'raise', sizing, fallback: 'check',
+      reasoning: `River value bet with nuts: ${fmtEqOdds(equity, potOdds)}`,
+    };
   }
 
   if (strength === HandStrength.STRONG) {
-    if (flags.canRaiseResult && Math.random() < 0.7) {
-      return createBetAction(player, state, ctx, optimalSizing, 'River value bet');
-    }
-    return flags.canCheckResult ? { action: 'check' } : { action: 'fold' };
+    return {
+      ...base, action: 'raise', sizing, frequency: 0.7, fallback: 'check',
+      reasoning: `River value bet: ${fmtEqOdds(equity, potOdds)}`,
+    };
   }
 
   if (strength === HandStrength.MEDIUM) {
-    return flags.canCheckResult ? { action: 'check' } : { action: 'fold' };
+    return {
+      ...base, action: 'check', fallback: 'fold',
+      reasoning: `Check: medium hand, no value or bluff: ${fmtEqOdds(equity, potOdds)}`,
+    };
   }
 
-  if ((strength === HandStrength.WEAK || strength === HandStrength.AIR)) {
-    const shouldBluffNow = shouldBluff(
-      player.hand,
-      community,
-      equity,
-      ctx.totalPot * optimalSizing,
-      ctx.totalPot,
-      ip,
-      isMultiway,
-    );
+  const bluffProb = bluffProbability(
+    hand, community, equity, totalPot * sizing, totalPot, ip, isMultiway,
+  );
 
-    if (shouldBluffNow && flags.canRaiseResult) {
-      return createBetAction(player, state, ctx, optimalSizing, 'River bluff attempt');
-    }
+  if (bluffProb > 0) {
+    return {
+      ...base, action: 'raise', sizing, frequency: bluffProb, fallback: 'check',
+      reasoning: `River bluff attempt: ${fmtEqOdds(equity, potOdds)}`,
+    };
   }
 
-  return flags.canCheckResult ? { action: 'check' } : { action: 'fold' };
+  return {
+    ...base, action: 'check', fallback: 'fold',
+    reasoning: `Check: ${fmtEqOdds(equity, potOdds)}`,
+  };
 }
 
 function createBetAction(
@@ -467,6 +488,21 @@ function createRaiseAction(
   };
 }
 
+/** 把期望动作按 `ActionFlags` 降级到实际可执行的动作。 */
+function resolveAction(
+  action: 'call' | 'check' | 'fold',
+  flags: ActionFlags,
+): BotDecision {
+  switch (action) {
+    case 'call':
+      return flags.canCallResult ? { action: 'call' } : { action: 'fold' };
+    case 'check':
+      return flags.canCheckResult ? { action: 'check' } : { action: 'fold' };
+    case 'fold':
+      return flags.canFoldResult ? { action: 'fold' } : { action: 'call' };
+  }
+}
+
 export function decideRiverGTO(
   player: Player,
   state: GameState,
@@ -476,33 +512,131 @@ export function decideRiverGTO(
 ): BotDecision {
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
-  const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents, 500);
+  const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents, equityIterations(state.phase));
   const evaluated = evaluateHand(player.hand, community);
-  const strength = classifyRiverStrength(equity, evaluated.rank);
-  const ip = isIP(ctx);
-  const spr = calculateSPR(ctx);
-  const potOdds = callPotOddsFrom(ctx.toCall, ctx.totalPot);
-  const isMultiway = ctx.numOpponents > 1;
 
-  let config: RiverConfig = {
+  const strategy = getRiverStrategy({
     equity,
-    handStrength: strength,
+    handRank: evaluated.rank,
     texture,
-    isIP: ip,
-    numOpponents: ctx.numOpponents,
-    spr,
+    isIP: isIP(ctx),
+    isMultiway: ctx.numOpponents > 1,
+    // 跟注价格直接用 `ctx.potOdds` —— **不要**在这里用 `callPotOddsFrom(ctx.toCall,
+    // ctx.totalPot)` 重算：那个式子只给「原始赔率」，会把现金局的抽水丢掉。
+    // `ctx.potOdds` 由 `botAI.getBotAction` 统一算好（抽水折进分母，锦标赛恒等于原始
+    // 赔率），下游所有引擎共用这一个口径 —— 见 `ContextInfo.potOdds` 的注释。
+    potOdds: ctx.potOdds,
     toCall: ctx.toCall,
     totalPot: ctx.totalPot,
-    lastRaiseBet: state.lastRaiseBet,
-    potOdds,
-    isMultiway,
-  };
+    hand: player.hand,
+    community,
+    adjustments: adj,
+  });
 
-  config = adjustForOpponent(config, adj);
-
-  if (ctx.toCall > 0) {
-    return handleRiverFacingBet(player, state, flags, ctx, config);
+  // 混合策略：按期望频率采样一次，未命中则走替代动作。
+  // 先判 `flags.canRaiseResult` 再掷骰子（短路求值），不可加注时不消耗随机数。
+  if (
+    strategy.action === 'raise' &&
+    !strategy.isOverbet &&
+    flags.canRaiseResult &&
+    random() < strategy.frequency
+  ) {
+    const sizing = strategy.sizing ?? 0.5;
+    return ctx.toCall > 0
+      ? createRaiseAction(player, state, ctx, sizing)
+      : createBetAction(player, state, ctx, sizing, strategy.reasoning);
   }
 
-  return handleRiverNoBet(player, state, flags, ctx, config);
+  return resolveAction(
+    strategy.action === 'raise' ? strategy.fallback : strategy.action,
+    flags,
+  );
+}
+
+export interface GtoRiverRecommendation {
+  action: 'raise' | 'call' | 'check' | 'fold';
+  sizingPercent?: number;
+  sizingBB?: number;
+  /**
+   * 机器人的河牌分支没有 all-in 路径（只按尺度下注 / 加注），所以这里恒为
+   * undefined。保留字段是为了让面板的展示组件能同时吃下翻后与河牌两种建议。
+   */
+  isAllIn?: boolean;
+  freq: { bet: number; check: number; fold: number };
+  boardTexture: BoardTexture;
+  reasoning: string;
+}
+
+/**
+ * 面向面板的河牌建议：与 `decideRiverGTO` 共用 `getRiverStrategy`，
+ * 只是把混合频率展示出来而不掷骰子。
+ *
+ * `position` / `totalPlayers` 用来复现机器人 `ctx` 的
+ * `isButton` / `isCutoff` / `isMiddlePosition` 口径（见本文件 `isIP` 的注释），
+ * 保证面板与机器人对「有利位置」的判断一致。
+ */
+export function getGtoRiverRecommendation(params: {
+  hand: Card[];
+  communityCards: Card[];
+  equity: number;
+  potOdds: number;
+  numOpponents: number;
+  position: number;
+  totalPlayers: number;
+  handRank: HandRank | null;
+  toCall: number;
+  totalPot: number;
+  smallBlind: number;
+}): GtoRiverRecommendation {
+  const community = params.communityCards;
+  const texture = analyzeBoardWithEquity(community);
+  const bb = params.smallBlind * 2;
+
+  const isButton = params.position === 0;
+  const isCutoff = params.position === params.totalPlayers - 1 && params.position > 2;
+  const isMiddlePosition =
+    params.position >= Math.floor(params.totalPlayers * 0.3) &&
+    params.position < params.totalPlayers - 2 &&
+    params.position > 2;
+
+  const strategy = getRiverStrategy({
+    equity: params.equity,
+    handRank: params.handRank,
+    texture,
+    isIP: isButton || isCutoff || isMiddlePosition,
+    isMultiway: params.numOpponents > 1,
+    potOdds: params.potOdds,
+    toCall: params.toCall,
+    totalPot: params.totalPot,
+    hand: params.hand,
+    community,
+  });
+
+  const sizingPercent =
+    strategy.sizing !== null ? Math.round(strategy.sizing * 100) : undefined;
+  const sizingBB =
+    strategy.sizing !== null
+      ? Math.round(params.totalPot * strategy.sizing / bb * 10) / 10
+      : undefined;
+
+  const freq = strategy.action === 'raise'
+    ? {
+        bet: Math.round(strategy.frequency * 100),
+        check: Math.round((1 - strategy.frequency) * 100),
+        fold: 0,
+      }
+    : strategy.action === 'check'
+      ? { bet: 0, check: 100, fold: 0 }
+      : strategy.action === 'fold'
+        ? { bet: 0, check: 0, fold: 100 }
+        : { bet: 0, check: 0, fold: 0 };
+
+  return {
+    action: strategy.action,
+    sizingPercent,
+    sizingBB,
+    freq,
+    boardTexture: texture,
+    reasoning: strategy.reasoning,
+  };
 }

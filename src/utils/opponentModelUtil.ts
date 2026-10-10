@@ -43,6 +43,23 @@ export function classifyPlayerType(
 // Event-based computation functions
 // ============================================================================
 
+/**
+ * 一手牌的公共记录形状。
+ *
+ * **`events` 必须包含所有玩家的动作**。需要观察对手行为的统计量
+ * （3-bet、fold-to-c-bet）依赖这一点；若调用方先按玩家把事件过滤掉，
+ * 这些统计量会静默退化成 `null` —— 不报错、不崩，只是永远算不出来。
+ * 见 `computePlayerStatsFromEvents` 的入参说明。
+ */
+export interface HandRecordLike {
+  handId: string;
+  events: ActionEvent[];
+  /** 参与该手牌的玩家。缺失时退化为「是否留下过动作」判断。 */
+  players?: PlayerId[];
+  showdownPlayers?: PlayerId[];
+  result?: { winner: PlayerId | null; potAmount: number };
+}
+
 export function computeVPIPFromEvents(
   events: ActionEvent[],
   handsDealt: number
@@ -136,10 +153,11 @@ export function detectLimpersFromEvents(
     .filter(id => !raisers.has(id));
 }
 
-export function computeCBetFromEvents(
-  _events: ActionEvent[],
-  hands: { handId: string; events: ActionEvent[] }[]
-): number | null {
+/**
+ * 持续下注率。入参是**该玩家自己**的手牌记录（每手只含他自己的事件）——
+ * 定义是「我翻前加注后，翻牌我是否继续下注」，所以要先按玩家过滤。
+ */
+export function computeCBetFromEvents(hands: HandRecordLike[]): number | null {
   let opportunities = 0;
   let cbets = 0;
 
@@ -168,21 +186,25 @@ export function computeCBetFromEvents(
   return opportunities > 0 ? (cbets / opportunities) * 100 : null;
 }
 
+/**
+ * 见到翻牌后走到摊牌的比例（WTSD）。入参是**该玩家自己**的手牌记录。
+ *
+ * 玩家身份显式传入，不再从 `hand.events[0]` 推断 —— 一旦喂进完整记录，
+ * 那个推断会取到「本手第一个动作的人」，把统计算到别人头上。
+ */
 export function computeWTSDFromEvents(
-  _events: ActionEvent[],
-  hands: { handId: string; events: ActionEvent[]; showdownPlayers?: PlayerId[] }[]
+  playerId: PlayerId,
+  hands: HandRecordLike[],
 ): number | null {
   let flopsSeen = 0;
   let showdowns = 0;
 
   for (const hand of hands) {
-    const hasFlop = hand.events.some(e => e.phase === 'flop');
-    if (!hasFlop) continue;
+    if (!hand.events.some(e => e.phase === 'flop')) continue;
 
     flopsSeen++;
 
-    const playerId = hand.events[0]?.playerId;
-    if (hand.showdownPlayers && playerId && hand.showdownPlayers.includes(playerId)) {
+    if (hand.showdownPlayers?.includes(playerId)) {
       showdowns++;
     }
   }
@@ -190,21 +212,16 @@ export function computeWTSDFromEvents(
   return flopsSeen > 0 ? (showdowns / flopsSeen) * 100 : null;
 }
 
+/** 摊牌胜率（WSD）。入参是**该玩家自己**的手牌记录；玩家身份显式传入（理由同 WTSD）。 */
 export function computeWSDFromEvents(
-  _events: ActionEvent[],
-  hands: {
-    handId: string;
-    events: ActionEvent[];
-    showdownPlayers?: PlayerId[];
-    result?: { winner: PlayerId | null; potAmount: number };
-  }[]
+  playerId: PlayerId,
+  hands: HandRecordLike[],
 ): number | null {
   let showdowns = 0;
   let wins = 0;
 
   for (const hand of hands) {
-    const playerId = hand.events[0]?.playerId;
-    if (!playerId || !hand.showdownPlayers?.includes(playerId)) continue;
+    if (!hand.showdownPlayers?.includes(playerId)) continue;
 
     showdowns++;
 
@@ -265,29 +282,37 @@ function groupEventsByHand(events: ActionEvent[]): Map<string, ActionEvent[]> {
   return map;
 }
 
-export function compute3BetFromEvents(events: ActionEvent[]): number | null {
-  const eventsByHand = groupEventsByHand(events);
+/**
+ * 3-bet 率。入参必须是**完整**手牌记录 —— 机会的定义是「有人在我之前翻前加注」，
+ * 所以必须看得到对手的动作。喂进按玩家过滤过的记录时机会恒为 0，结果恒为 `null`。
+ */
+export function compute3BetFromEvents(
+  playerId: PlayerId,
+  hands: HandRecordLike[],
+): number | null {
   let opportunities = 0;
   let threeBets = 0;
 
-  for (const handEvents of eventsByHand.values()) {
-    const preflopEvents = handEvents
+  for (const hand of hands) {
+    const preflopEvents = hand.events
       .filter(e => e.phase === 'preflop')
       .sort((a, b) => a.timestamp - b.timestamp);
 
     if (preflopEvents.length === 0) continue;
 
-    const playerId = preflopEvents[0].playerId;
     const otherRaises = preflopEvents.filter(
       e => e.playerId !== playerId && (e.action === 'raise' || e.action === 'allin')
     );
     if (otherRaises.length === 0) continue;
 
+    const playerPreflopEvents = preflopEvents.filter(e => e.playerId === playerId);
+    // 自己翻前没行动过（例如不在这手牌里）→ 谈不上「面对加注」，不算机会
+    if (playerPreflopEvents.length === 0) continue;
+
     opportunities++;
 
-    const playerPreflopEvents = preflopEvents.filter(e => e.playerId === playerId);
     const firstAction = playerPreflopEvents[0];
-    if (firstAction && (firstAction.action === 'raise' || firstAction.action === 'allin')) {
+    if (firstAction.action === 'raise' || firstAction.action === 'allin') {
       threeBets++;
     }
   }
@@ -295,12 +320,13 @@ export function compute3BetFromEvents(events: ActionEvent[]): number | null {
   return opportunities > 0 ? (threeBets / opportunities) * 100 : null;
 }
 
+/**
+ * 面对 c-bet 的弃牌率。入参必须是**完整**手牌记录 —— 定义是「对手翻前加注并持续下注后，
+ * 我是否弃牌」，必须看得到对手的加注与下注；喂过滤后的记录会恒为 `null`。
+ */
 export function computeFoldToCbetFromEvents(
   playerId: PlayerId,
-  hands: {
-    handId: string;
-    events: ActionEvent[];
-  }[]
+  hands: HandRecordLike[],
 ): number | null {
   let opportunities = 0;
   let folds = 0;
@@ -328,11 +354,14 @@ export function computeFoldToCbetFromEvents(
     const firstFlopAction = raiserFlopEvents[0];
     if (firstFlopAction.action !== 'raise' && firstFlopAction.action !== 'allin') continue;
 
+    // 机会的定义是「我在翻牌面对了对手的 c-bet」，所以自己必须先走到翻牌：
+    // 翻前就弃牌、或压根不在这手牌里的，不该被算成一次机会（那会拉低这个比率）。
+    const playerFlopEvents = flopEvents.filter(e => e.playerId === playerId);
+    if (playerFlopEvents.length === 0) continue;
+
     opportunities++;
 
-    const playerFlopEvents = flopEvents.filter(e => e.playerId === playerId);
-    const playerFirstAction = playerFlopEvents.sort((a, b) => a.timestamp - b.timestamp)[0];
-    if (playerFirstAction && playerFirstAction.action === 'fold') {
+    if (playerFlopEvents[0].action === 'fold') {
       folds++;
     }
   }
@@ -351,12 +380,13 @@ export function computeAFqFromEvents(events: ActionEvent[]): number | null {
   return (aggressive / postflopEvents.length) * 100;
 }
 
+/**
+ * 转牌持续下注率（在翻牌 c-bet 之后）。入参是**该玩家自己**的手牌记录 ——
+ * 需要判定 `lastRaiser` 就是该玩家，所以必须先按玩家过滤。
+ */
 export function computeTurnCbetFromEvents(
   playerId: PlayerId,
-  hands: {
-    handId: string;
-    events: ActionEvent[];
-  }[]
+  hands: HandRecordLike[],
 ): number | null {
   let flopCbets = 0;
   let turnCbets = 0;
@@ -442,49 +472,6 @@ export function collectPlayerEvents(
 }
 
 /**
- * 从会话数据中收集玩家的手牌记录
- */
-export function collectPlayerHands(
-  playerId: PlayerId,
-  sessionHands: HandRecord[],
-  currentHand: HandRecord | null,
-): {
-  handId: string;
-  events: ActionEvent[];
-  showdownPlayers?: PlayerId[];
-  result?: { winner: PlayerId | null; potAmount: number };
-}[] {
-  const allHands: {
-    handId: string;
-    events: ActionEvent[];
-    showdownPlayers?: PlayerId[];
-    result?: { winner: PlayerId | null; potAmount: number };
-  }[] = [];
-
-  for (const hand of sessionHands) {
-    const playerEvents = hand.events.filter(e => e.playerId === playerId);
-    allHands.push({
-      handId: hand.handId,
-      events: playerEvents,
-      showdownPlayers: hand.showdownPlayers,
-      result: hand.result,
-    });
-  }
-
-  if (currentHand) {
-    const playerEvents = currentHand.events.filter(e => e.playerId === playerId);
-    allHands.push({
-      handId: currentHand.handId,
-      events: playerEvents,
-      showdownPlayers: currentHand.showdownPlayers,
-      result: currentHand.result,
-    });
-  }
-
-  return allHands;
-}
-
-/**
  * 从事件计算攻击性倾向（使用标准AF公式）
  */
 export function computeTendencyFromEvents(
@@ -540,19 +527,39 @@ export function computeFoldRateFromEvents(
 }
 
 /**
- * 从事件计算完整的玩家统计数据
+ * 计算单个玩家的完整统计。
+ *
+ * **入参 `hands` 必须是完整手牌记录** —— 每手的 `events` 含所有玩家的动作。
+ * 过滤由本函数自己做，理由有两条：
+ *
+ * 1. `3-bet` / `fold-to-c-bet` 必须看到**对手**的动作（「对手加注后我是否 3-bet」
+ *    「面对对手的 c-bet 我是否弃牌」）。调用方若先按玩家过滤，这两项会静默变 `null`。
+ * 2. `c-bet` / `turn c-bet` / `WTSD` / `WSD` 必须只看**该玩家自己**的动作，
+ *    否则会把「最后一个翻前加注者」的成绩算到目标玩家头上。
+ *
+ * 也就是说两种口径都要，所以只有完整记录是充分的输入。
  */
 export function computePlayerStatsFromEvents(
   playerId: PlayerId,
-  events: ActionEvent[],
-  hands: {
-    handId: string;
-    events: ActionEvent[];
-    showdownPlayers?: PlayerId[];
-    result?: { winner: PlayerId | null; potAmount: number };
-  }[],
+  hands: HandRecordLike[],
 ): PlayerStats {
-  const handsDealt = hands.length;
+  // 该玩家参与过的手牌：在 players 名单里，或留下过动作
+  const dealtHands = hands.filter(
+    hand =>
+      hand.players?.includes(playerId) ||
+      hand.events.some(e => e.playerId === playerId),
+  );
+  const handsDealt = dealtHands.length;
+
+  // 只看自己的口径：每手只保留该玩家的事件
+  const playerHands: HandRecordLike[] = dealtHands.map(hand => ({
+    handId: hand.handId,
+    events: hand.events.filter(e => e.playerId === playerId),
+    showdownPlayers: hand.showdownPlayers,
+    result: hand.result,
+  }));
+  const events = playerHands.flatMap(hand => hand.events);
+
   const vpip = computeVPIPFromEvents(events, handsDealt);
   const pfr = computePFRFromEvents(events, handsDealt);
 
@@ -564,13 +571,15 @@ export function computePlayerStatsFromEvents(
     gap: vpip - pfr,
     playerType: classifyPlayerType(vpip, pfr, handsDealt),
     af: computeAFFromEvents(events),
-    cbet: computeCBetFromEvents(events, hands),
-    wtsd: computeWTSDFromEvents(events, hands),
-    wsd: computeWSDFromEvents(events, hands),
     checkRaise: computeCheckRaiseFromEvents(events),
-    threeBet: compute3BetFromEvents(events),
-    foldToCbet: computeFoldToCbetFromEvents(playerId, hands),
     afq: computeAFqFromEvents(events),
-    turnCbet: computeTurnCbetFromEvents(playerId, hands),
+    // 只看自己的动作 → 用过滤后的手牌
+    cbet: computeCBetFromEvents(playerHands),
+    wtsd: computeWTSDFromEvents(playerId, playerHands),
+    wsd: computeWSDFromEvents(playerId, playerHands),
+    turnCbet: computeTurnCbetFromEvents(playerId, playerHands),
+    // 必须看到对手的动作 → 用完整手牌（限定在该玩家参与过的手牌里）
+    threeBet: compute3BetFromEvents(playerId, dealtHands),
+    foldToCbet: computeFoldToCbetFromEvents(playerId, dealtHands),
   };
 }

@@ -14,8 +14,16 @@ import {
   analyzeBoardWithEquity,
   type GtoPostflopRecommendation,
 } from '../utils/gtoPostflop';
-import type { NodelockRecommendation, LeakType } from '../utils/gtoNodelock';
+import {
+  getGtoRiverRecommendation,
+  type GtoRiverRecommendation,
+} from '../utils/gtoRiver';
+import { getNodelockForOpponent, type LeakType } from '../utils/gtoNodelock';
 import { SMALL_BLIND } from '../utils/constant';
+// 蒙特卡洛迭代次数的唯一来源。面板以前自带一张表、还按对手数降到下限 120，
+// 而机器人那边又是另一串字面量（翻牌 200 / 河牌 500），于是**同一手牌面板显示的
+// 胜率和机器人据以决策的胜率不是同一个数** —— 用户没法用面板解释机器人的行为。
+import { equityIterations } from '../utils/equityIterations';
 import {
   calculateValueBluffRatio,
   calculateCallEV,
@@ -26,7 +34,15 @@ import {
   type RangeCategory,
 } from '../utils/gtoMath';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
+import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
+import type { GameScenario } from '../utils/gtoConfig';
+import {
+  callThresholdFor,
+  effectiveRakeConfigFor,
+  isRakeEnabled,
+  rakeAmountFor,
+} from '../utils/rake';
 
 interface HandAnalysisProps {
   holeCards: Card[];
@@ -44,7 +60,6 @@ interface HandAnalysisProps {
     freq?: { r: number; c: number; f: number };
     isAllIn?: boolean;
   } | null;
-  nodelockRecommendation?: NodelockRecommendation | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
@@ -54,36 +69,16 @@ interface HandAnalysisProps {
   gameState?: GameState;
   /** 当前面板所属的真人玩家对象 */
   heroPlayer?: Player;
+  /**
+   * 赛制。`'tournament'` 时口径标注会补一句「未计 ICM（机器人已计）」并加
+   * 「锦标赛范围收紧」。缺省按现金局。
+   */
+  scenario?: GameScenario;
 }
 
 // 建议逻辑：仅基于胜率（0–1 概率）+ 赔率
 // Monte Carlo 胜率已包含听牌概率，不再单独叠加
-function getRecommendation(
-  equity: number,
-  potOdds: number,
-  phase: GamePhase,
-): string {
-  const { rec } = translations.handAnalysis;
-  if (potOdds <= 0) {
-    // 无注可跟：明显领先就下注，否则过牌
-    return equity >= 0.6 ? rec.raise : rec.check;
-  }
-  if (phase === 'preflop') {
-    // 翻前多路底池的权益会被稀释（AA 对 8 人随机牌也只有约 33%），
-    // 因此用相对赔率的阈值，而非绝对胜率阈值。
-    if (equity >= potOdds + 0.35) return rec.raise;
-    if (equity >= potOdds + 0.15) return rec.callRaise;
-    if (equity >= potOdds) return rec.call;
-    if (potOdds < 0.1) return rec.callCheap;
-    return rec.fold;
-  }
-  if (equity >= 0.7) return rec.raise;
-  if (equity >= 0.55) return rec.callRaise;
-  if (equity >= potOdds + 0.05) return rec.call;
-  if (potOdds < 0.1) return rec.callCheap;
-  return rec.fold;
-}
-
+// 判据本体已抽到 utils/panelRecommendation（纯函数、可单测）
 function drawLabel(type: string): string {
   const { draws } = translations.handAnalysis;
   const map: Record<string, string> = {
@@ -397,21 +392,6 @@ function opponentsCaveat(numOpponents: number): string {
   return multiway(numOpponents);
 }
 
-// 蒙特卡洛迭代次数：翻前要模拟 5 张公共牌，成本最高；单次模拟成本随对手数
-// 近似线性增长，因此多人底池自动下调迭代数，保证面板不卡顿。
-const EQUITY_ITERATIONS: Record<string, number> = {
-  preflop: 400,
-  flop: 350,
-  turn: 300,
-  river: 300,
-};
-
-function equityIterations(phase: GamePhase, numOpponents: number): number {
-  const base = EQUITY_ITERATIONS[phase] ?? 300;
-  const trimmed = Math.round(base * (2 / Math.max(2, numOpponents)));
-  return Math.min(base, Math.max(120, trimmed));
-}
-
 function StrengthBar({ value, color }: { value: number; color: string }) {
   return (
     <div className="w-10 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
@@ -475,7 +455,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   spr,
   playerRaiseAmount,
   gtoRecommendation,
-  nodelockRecommendation,
   opponentProfile,
   longStats,
   viewingPlayerId,
@@ -483,6 +462,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   positionLabel,
   gameState,
   heroPlayer,
+  scenario,
 }) => {
   const [randomEquity, setRandomEquity] = useState<number | null>(null);
   const [rangeEquity, setRangeEquity] = useState<number | null>(null);
@@ -577,7 +557,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       return;
     }
 
-    const iterations = equityIterations(phase, numOpponents);
+    const iterations = equityIterations(phase);
     const timer = setTimeout(() => {
       // 随机权益：所有对手都按随机牌建模
       const random = calculateEquity(
@@ -624,10 +604,69 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         ? 'range'
         : 'random';
 
+  // NodeLock（利用对手漏洞）建议。
+  //
+  // 以前这段计算在 `botAI.getBotAction` 里空跑（算完就丢），面板的 NodeLock 区块
+  // 永远收不到数据。现在改成在面板里算：面板本来就持有全部输入
+  // （`opponentProfile.botStats` 就是下面「玩家数据」表用的同一份统计）。
+  //
+  // 取「样本最多的那个对手」—— 样本越多，漏洞判定越可信；`getNodelockForOpponent`
+  // 内部用 `isSampleSufficient`（≥100 手）把关，不够就返回 null，整块隐藏。
+  //
+  // 权益只喂给建议里的 action 字段（区块不展示 action），所以权益还没算完时
+  // 用 0.5 占位不影响展示的四个字段（漏洞 / 置信度 / 调整幅度 / 依据）。
+  const nodelockRecommendation = useMemo(() => {
+    if (!gameState || !heroPlayer) return null;
+    if (
+      phase !== 'preflop' &&
+      phase !== 'flop' &&
+      phase !== 'turn' &&
+      phase !== 'river'
+    ) {
+      return null;
+    }
+    const botStats = opponentProfile?.botStats ?? [];
+    if (botStats.length === 0) return null;
+    const target = botStats.reduce(
+      (best, s) => (s.handsDealt > best.handsDealt ? s : best),
+      botStats[0],
+    );
+    return getNodelockForOpponent(
+      gameState,
+      heroPlayer,
+      target,
+      decisionEquity ?? 0.5,
+    );
+  }, [gameState, heroPlayer, opponentProfile, decisionEquity, phase]);
+
+  // 生效的抽水配置：**按 `scenario` prop** 推导，与下面 ICM 标注同源。
+  //
+  // 这里刻意不用 `effectiveRakeConfig()`（它读全局 `gtoConfig`）：`GameBoard` 是把
+  // 赛制同步进 `gtoConfig` 的（`useEffect`），赛制刚切换的那一帧 prop 已变、全局态
+  // 还没变，读全局态会让「ICM 标注」与「抽水标注」短暂打架。规则本身仍只有一处
+  // ——`effectiveRakeConfigFor`。
+  const rakeConfig = useMemo(() => effectiveRakeConfigFor(scenario), [scenario]);
+
+  // 面板建议用的「跟注价格」：现金局叠加抽水，与机器人 `ctx.potOdds` 同口径
+  // （机器人在 `botAI.getBotAction` 里算一次，见 `ContextInfo.potOdds`）。
+  //
+  // 显示行「赔率 Pot Odds」仍然显示**原始赔率**（`potOdds` prop）—— 那是「不计抽水」
+  // 的赔率；两个口径的差异由下方 GTO Math 的标注说明，不在这里偷改显示值。
+  const callThreshold = useMemo(
+    () =>
+      callThresholdFor(
+        betToCall ?? 0,
+        currentPot ?? 0,
+        (gameState?.smallBlind ?? 0) * 2,
+        rakeConfig,
+      ),
+    [betToCall, currentPot, gameState?.smallBlind, rakeConfig],
+  );
+
   const recommendation = useMemo(() => {
     if (decisionEquity === null) return '';
-    return getRecommendation(decisionEquity, potOdds, phase);
-  }, [decisionEquity, potOdds, phase]);
+    return getPanelRecommendation(decisionEquity, callThreshold, phase);
+  }, [decisionEquity, callThreshold, phase]);
 
   // 翻后 GTO 建议（面板「Board 牌面 / Action / Reasoning」三行）。
   //
@@ -640,7 +679,12 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   //
   // 权益还在算（effect 有 50ms 防抖）时返回 null，整块延后渲染，
   // 避免短暂的「建议已更新、权益还是上一手」的同屏矛盾。
-  const postflopRecommendation = useMemo<GtoPostflopRecommendation | null>(() => {
+  //
+  // 河牌改走 `getGtoRiverRecommendation` —— 它与机器人 `decideRiverGTO` 共用
+  // 同一个 `getRiverStrategy`，面板与机器人不会再各自实现河牌逻辑而漂移。
+  const postflopRecommendation = useMemo<
+    GtoPostflopRecommendation | GtoRiverRecommendation | null
+  >(() => {
     if (phase === 'preflop' || phase === 'showdown' || phase === 'ended')
       return null;
     if (community.length < 3 || holeCards.length < 2) return null;
@@ -652,12 +696,30 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       ? (heroPlayer.id - gameState.dealer + totalPlayers) % totalPlayers
       : 0;
 
+    if (phase === 'river') {
+      return getGtoRiverRecommendation({
+        hand: holeCards,
+        communityCards: community,
+        equity: decisionEquity,
+        // 用**抽水后**的跟注价格，与机器人 `ctx.potOdds` 同口径（见上方 `callThreshold`）。
+        // 显示行「赔率 Pot Odds」仍显示原始赔率，差异由 GTO Math 口径标注说明。
+        potOdds: callThreshold,
+        numOpponents,
+        position,
+        totalPlayers,
+        handRank: currentHandRank,
+        toCall: betToCall ?? 0,
+        totalPot: currentPot ?? 0,
+        smallBlind: gameState?.smallBlind ?? SMALL_BLIND,
+      });
+    }
+
     return getGtoPostflopRecommendation({
       hand: holeCards,
       communityCards: community,
       phase,
       equity: decisionEquity,
-      potOdds,
+      potOdds: callThreshold,
       // 与面板 SPR 行同口径：有效筹码 / 底池
       spr: spr ?? 999,
       position,
@@ -677,7 +739,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       lastRaiseBet: gameState?.lastRaiseBet ?? 0,
     });
   }, [
-    phase, community, holeCards, boardTexture, decisionEquity, potOdds, spr,
+    phase, community, holeCards, boardTexture, decisionEquity, callThreshold, spr,
     numOpponents, currentHandRank, drawInfo, betToCall, currentPot, gameState,
     heroPlayer,
   ]);
@@ -723,7 +785,16 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       : null;
 
     // EV calculations
-    const callEV = bet > 0 ? calculateCallEV(eq, pot, bet) : null;
+    //
+    // 跟注 EV 要按**抽水后**的底池算，否则会与上面的建议行打架：抽水把盈亏平衡点
+    // 抬高后，建议行可能说「弃牌」，而用原始底池算出来的 Call EV 还是正的、标着
+    // 「✅call」。抽水从最终底池（含跟注额）里扣，与 `rake.callThresholdFor` 同口径。
+    const rakeOnCall = rakeAmountFor(
+      pot + bet,
+      (gameState?.smallBlind ?? 0) * 2,
+      rakeConfig,
+    );
+    const callEV = bet > 0 ? calculateCallEV(eq, pot, bet, rakeOnCall) : null;
 
     // Raise EV：弃牌率由「1 − MDF」推出（GTO 对手按 MDF 防守），
     // 不再手写 `0.3 + (尺度 − 50) × 0.005` 的线性模型。
@@ -754,16 +825,40 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       : null;
 
     return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
-  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer]);
+  }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer, rakeConfig, gameState?.smallBlind]);
 
-  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导，未计抽水与 ICM。
-  // 显式标出来，避免把近似值误读成完整 GTO 解。
+  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导。抽水是否计入随
+  // StartPage 的设置变，所以显式标出来，避免把近似值误读成完整 GTO 解。
+  //
+  // **ICM 那一段在两种赛制下都是「未计」** —— 本文件不 import `gtoICM`，面板的
+  // 任何数字（建议行、GTO Math 的 MDF / Call EV / Raise EV / V:B）都不做 ICM
+  // 调整。锦标赛下面板数字确实会变，但变的原因是**对手范围被收紧**
+  // （`getPreflopRangeClasses` 走全局赛制，见 B4 的连带影响），那件事有自己的
+  // 标注「锦标赛范围收紧」。锦标赛那句只补充说明「机器人侧计了 ICM」。
   const gtoMathCaveat = useMemo(() => {
     const street = translations.gtoMath.caveat.street[phase];
-    return [street, opponentsCaveat(numOpponents), translations.gtoMath.caveat.noIcm].join(' · ');
-  }, [phase, numOpponents]);
+    // 赛制只影响**文案**：现金局两边都不计，锦标赛补一句机器人已计。
+    const icm =
+      scenario === 'tournament'
+        ? translations.gtoMath.caveat.icm
+        : translations.gtoMath.caveat.noIcm;
+    // 抽水口径：现金局且用户在 StartPage 设了抽水时才算进去；锦标赛恒不抽水
+    // （与 ICM 互斥，所以这两段标注在锦标赛下必然是一个「计」+ 一个「未计」）。
+    const rake = isRakeEnabled(rakeConfig)
+      ? translations.gtoMath.caveat.rake
+      : translations.gtoMath.caveat.noRake;
+    const clauses = [street, opponentsCaveat(numOpponents), icm, rake];
+    // 锦标赛下翻前的范围表是从现金局表收紧派生的（见 `gtoPreflop`）—— 只在翻前
+    // 标出来，翻后的建议不查范围表。
+    if (scenario === 'tournament' && phase === 'preflop') {
+      clauses.push(translations.gtoMath.caveat.rangeTightened);
+    }
+    return clauses.join(' · ');
+  }, [phase, numOpponents, scenario, rakeConfig]);
 
-  // 底池赔率行恒为「跟注赔率」，与机器人 ctx.potOdds 同口径。
+  // 底池赔率行显示的是**原始赔率**（`potOdds` prop，`computePotOddsFor` 的口径）。
+  // 而建议（`recommendation`）与机器人 `ctx.potOdds` 用的是**叠加抽水后**的价格
+  // （`callThreshold`）—— 两者在现金局设了抽水时**不相等**，差异由上方口径标注说明。
   // 没有跟注额（可以免费过牌）时无意义，显示为 —。
   const callPotOdds = potOdds > 0 ? potOdds : null;
 
@@ -904,7 +999,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             color={getEquityTextColor(rangeEquity)}
           />
 
-          {/* 底池赔率：恒为跟注赔率，与机器人决策同口径 */}
+          {/* 随机权益的口径标注：对手全部按随机牌建模，翻前会系统性高估。
+              放在权益两行之后独占整行（col-span-2），不打乱 2 列配对。 */}
+          <div className="col-span-2 text-[9px] leading-tight text-gray-400">
+            {translations.handAnalysis.equityVsRandom}
+          </div>
+
+          {/* 底池赔率：显示**原始赔率**（不含抽水）。机器人与面板建议用的是
+              `callThreshold`（现金局已折进抽水），差异由口径标注说明。 */}
           <GridRow
             label={translations.handAnalysis.potOdds}
             value={callPotOdds !== null ? `${(callPotOdds * 100).toFixed(0)}%` : '—'}
@@ -1025,6 +1127,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                   value={
                     <span className="text-[9px] text-white/50">
                       {postflopRecommendation.reasoning}
+                      {/* Reasoning 里的 Equity 就是 decisionEquity：范围推断失败时
+                          它是随机权益，必须就地标注，否则和上面那行一样会被误读。 */}
+                      {decisionBasis === 'random' && (
+                        <span className="text-gray-400">
+                          {' · '}
+                          {translations.handAnalysis.equityVsRandomTag}
+                        </span>
+                      )}
                     </span>
                   }
                 />
@@ -1118,13 +1228,15 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
         </div>
 
-        {/* 口径说明：本区块是单街闭式 + 单挑推导，且未计抽水 / ICM */}
+        {/* 口径说明：本区块是单街闭式 + 单挑推导；抽水是否计入随 StartPage 设置变，
+            ICM 则在两种赛制下都不计入（只影响机器人），由 `gtoMathCaveat` 逐段标出。 */}
         <div className="text-[9px] leading-tight text-white/40 mt-1">
           {gtoMathCaveat}
         </div>
       </div>
       
-      {/* NodeLock Recommendation lyk TODO */}
+      {/* NodeLock 建议：利用对手漏洞的剥削方向。数据来自上方 useMemo，
+          样本 < 100 手（isSampleSufficient）或对手无显著漏洞（neutral）时整块隐藏。 */}
       {nodelockRecommendation && nodelockRecommendation.adjustmentType !== 'neutral' && (
         <div className="border-t border-white/10 pt-1 mt-1">
           <div className="text-white/50 font-medium text-center tracking-wide text-[12px] mb-1">

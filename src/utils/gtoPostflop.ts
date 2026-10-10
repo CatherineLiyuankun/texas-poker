@@ -6,18 +6,46 @@ import type {
   OpponentAdjustments,
 } from './gtoPreflop';
 import { calculateRangeAwareEquity } from './rangeEquity';
+// 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
+import { random } from './random';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
+import { equityIterations } from './equityIterations';
 import { evaluateHand } from './handEvaluator';
 import { detectDraws, type DrawInfo } from './drawDetector';
 import {
   analyzeBoardWithEquity,
   type BoardTexture,
 } from './boardTexture';
-import { getCommunityByPhase } from './communityByPhase';
+import { getCommunityByPhase, getCardsToCome } from './communityByPhase';
 import {
   getBetSizing,
-  getCbetFreq,
+  getCategoryBetFreq,
   type HandStrengthCategory,
 } from './postflopFrequencies';
+import {
+  classifyPostflopHand,
+  DRAW_OUTS_BY_STREET,
+  MADE_HAND_FLOORS,
+  type HandStrengthRules,
+} from './handStrength';
+import { drawCallEquityThreshold } from './gtoMath';
+
+/**
+ * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
+ * 这里只声明「本调用方用哪套规则」，避免三份实现再次漂移。
+ *
+ * - `madeHandFloors: MADE_HAND_FLOORS` —— **有条件的**成牌类别下限（A3）。
+ *   本模块原本的 `_handRank` 参数完全没被使用（成牌类别不参与分档），于是
+ *   「顶对但权益只有 0.30」会被判 `air`、引擎去走诈唬分支；现在按下限抬到 `weak`，
+ *   而「两对但牌面已经到齐」也不会再被无条件抬成 `strong`。
+ * - `drawOutsThreshold: DRAW_OUTS_BY_STREET` —— 听牌档阈值**按街给**：
+ *   翻牌 8 outs（两张牌未发，≈31.5%），转牌 9 outs（只剩一张，8 outs 掉到 ≈17.4%，
+ *   已不够格当半诈唬听牌，降级为 weak 走纯赔率判据）。
+ */
+export const HAND_STRENGTH_RULES: HandStrengthRules = {
+  madeHandFloors: MADE_HAND_FLOORS,
+  drawOutsThreshold: DRAW_OUTS_BY_STREET,
+};
 
 export interface GtoPostflopRecommendation {
   action: Action;
@@ -59,18 +87,6 @@ function shouldAllInBySPR(
   return spr < 2.0 || raiseTarget >= playerChips * 0.5;
 }
 
-function classifyHandStrength(
-  equity: number,
-  _handRank: HandRank | null,
-  draws: DrawInfo | null,
-): HandStrengthCategory {
-  if (equity >= 0.70) return 'strong';
-  if (equity >= 0.50) return 'medium';
-  if (draws && draws.totalOuts >= 8) return 'draw';
-  if (equity >= 0.35) return 'weak';
-  return 'air';
-}
-
 function getHandRankName(rank: HandRank | null): string {
   if (!rank) return 'High Card';
   const names: Record<HandRank, string> = {
@@ -97,14 +113,17 @@ export function decidePostflopGTO(
   const texture = analyzeBoardWithEquity(community);
   const equity = calculateRangeAwareEquity(
     player, state, community, ctx.numOpponents,
-    state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200,
+    equityIterations(state.phase),
   );
-  const draws = detectDraws(player.hand, community,
-    state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
+  const draws = detectDraws(player.hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(player.hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank, draws);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+  );
   const ip = isIP(ctx);
   const street: 'flop' | 'turn' = state.phase === 'turn' ? 'turn' : 'flop';
+  // SPR = 身后筹码 / 当前底池。低 SPR 下小尺度不成立，用它约束下注尺度。
+  const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;
 
   const facingBet = ctx.toCall > 0;
   const facingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
@@ -144,7 +163,7 @@ export function decidePostflopGTO(
 
     // River: not facing bet
     if (strength === 'strong') {
-      const sizing = getBetSizing(texture.classification);
+      const sizing = getBetSizing(texture.classification, spr);
       const target = Math.floor(ctx.totalPot * Math.max(sizing, 0.75));
       if (flags.canAllInResult && shouldAllInBySPR(
         player.chips, 0, ctx.totalPot, player.bet, target,
@@ -156,7 +175,7 @@ export function decidePostflopGTO(
     if (strength === 'air' && ip && ctx.numOpponents <= 2) {
       // 对手弃牌率高时，增加诈唬频率
       const bluffProb = 0.30 + stealBoost;
-      if (flags.canRaiseResult && Math.random() < bluffProb) {
+      if (flags.canRaiseResult && random() < bluffProb) {
         const target = Math.floor(ctx.totalPot * 0.75);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
       }
@@ -176,8 +195,8 @@ export function decidePostflopGTO(
     }
 
     if (strength === 'strong') {
-      if (flags.canRaiseResult && Math.random() < 0.40) {
-        const sizing = getBetSizing(texture.classification);
+      if (flags.canRaiseResult && random() < 0.40) {
+        const sizing = getBetSizing(texture.classification, spr);
         const target = Math.floor(ctx.totalPot * sizing * 1.5);
         if (flags.canAllInResult && shouldAllInBySPR(
           player.chips, ctx.toCall, ctx.totalPot, player.bet, target,
@@ -188,13 +207,21 @@ export function decidePostflopGTO(
     }
 
     if (strength === 'draw') {
-      if (flags.canRaiseResult && Math.random() < 0.25) {
-        const sizing = getBetSizing(texture.classification);
+      if (flags.canRaiseResult && random() < 0.25) {
+        const sizing = getBetSizing(texture.classification, spr);
         const target = Math.floor(ctx.totalPot * sizing * 1.2);
         return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
       }
-      if (equity >= ctx.potOdds && flags.canCallResult) return { action: 'call' };
-      if (flags.canCallResult && ctx.potOdds < 0.35) return { action: 'call' };
+      // 跟注门槛 = 直接赔率 − 隐含赔率额度（口径见 gtoMath.drawCallEquityThreshold，
+      // 与面板的 draw 分支共用同一处，不再各写各的）。
+      //
+      // 这里原本还有一条**无条件**兜底 `ctx.potOdds < 0.35`：0.35 的赔率覆盖到
+      // 「下注约 ≤54% 底池」，等于「只要是听牌就跟」—— 转牌 8 outs 的两头顺
+      // （权益约 19%）会去跟半池（需要 25%），是实打实的漏。它已被门槛判据取代，
+      // 只在「差得不多」时才放宽，且放宽量有上界。
+      if (flags.canCallResult && equity >= drawCallEquityThreshold(ctx.potOdds)) {
+        return { action: 'call' };
+      }
       if (flags.canFoldResult) return { action: 'fold' };
     }
 
@@ -214,8 +241,11 @@ export function decidePostflopGTO(
   }
 
   // Flop/Turn: not facing bet (bet/check decision)
-  const cbetFreq = getCbetFreq(street, ip, texture.classification);
-  const sizing = getBetSizing(texture.classification);
+  const sizing = getBetSizing(texture.classification, spr);
+  // 档位下注频率：与面板 getGtoPostflopRecommendation 共用 getCategoryBetFreq，
+  // 两边不再各自内联乘数（此前面板的 medium 写死 0.70、此处 0.50）。
+  const catFreq = (category: HandStrengthCategory) =>
+    getCategoryBetFreq(category, street, ip, texture.classification);
 
   if (strength === 'strong') {
     if (flags.canAllInResult && shouldAllInBySPR(
@@ -229,28 +259,28 @@ export function decidePostflopGTO(
   }
 
   if (strength === 'draw') {
-    if (flags.canRaiseResult && Math.random() < cbetFreq * 0.6) {
+    if (flags.canRaiseResult && random() < catFreq('draw')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'medium') {
-    if (ip && flags.canRaiseResult && Math.random() < cbetFreq * 0.5) {
+    if (ip && flags.canRaiseResult && random() < catFreq('medium')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'weak' && ip && ctx.numOpponents <= 2) {
-    if (flags.canRaiseResult && Math.random() < cbetFreq * 0.3) {
+    if (flags.canRaiseResult && random() < catFreq('weak')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
   }
 
   if (strength === 'air' && ip && ctx.numOpponents <= 2) {
-    if (flags.canRaiseResult && Math.random() < cbetFreq * 0.2) {
+    if (flags.canRaiseResult && random() < catFreq('air')) {
       const target = Math.floor(ctx.totalPot * sizing);
       return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
     }
@@ -293,7 +323,9 @@ export function getGtoPostflopRecommendation(params: {
 
   const ip = params.isButton || params.isCutoff || params.isHijack;
   const street: 'flop' | 'turn' = phase === 'turn' ? 'turn' : 'flop';
-  const strength = classifyHandStrength(equity, handRank, draws);
+  const strength = classifyPostflopHand(
+    equity, handRank, draws, HAND_STRENGTH_RULES,
+  );
   const facingBet = toCall > 0;
   const facingBigRaise = toCall > lastRaiseBet * 2;
 
@@ -351,8 +383,8 @@ export function getGtoPostflopRecommendation(params: {
       return { ...baseRec, action: 'fold', reasoning: `Fold vs big raise: ${fmtEqOdds(equity, potOdds)}` };
     }
     if (strength === 'strong') {
-      const sizingPercent = Math.round(getBetSizing(boardTexture.classification) * 150);
-      const raiseAmountBB = Math.round(totalPot * getBetSizing(boardTexture.classification) * 1.5 / bb * 10) / 10;
+      const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 150);
+      const raiseAmountBB = Math.round(totalPot * getBetSizing(boardTexture.classification, spr) * 1.5 / bb * 10) / 10;
       const isAllIn = spr < 2.0 || raiseAmountBB >= chips / bb * 0.5;
       return {
         ...baseRec, action: 'raise', sizingPercent,
@@ -363,10 +395,14 @@ export function getGtoPostflopRecommendation(params: {
     }
     if (strength === 'draw') {
       const drawType = draws?.draws?.[0]?.type === 'flush_draw' ? 'flush' : draws?.draws?.[0]?.type?.includes('straight') ? 'straight' : 'combo';
-      if (equity >= potOdds) {
-        return { ...baseRec, action: 'call', freq: { bet: 25, check: 60, fold: 15 }, reasoning: `Call draw: ${draws?.totalOuts ?? 0} outs (${drawType} draw): ${fmtEqOdds(equity, potOdds)}` };
+      // 与机器人 decidePostflopGTO 的 draw 分支共用门槛（gtoMath.drawCallEquityThreshold）。
+      // 门槛低于直接赔率（隐含赔率额度），所以把「需要多少」一起显示出来，
+      // 否则用户会看到「权益 20% < 赔率 25% 却是 Call」而以为算错了。
+      const needPct = (drawCallEquityThreshold(potOdds) * 100).toFixed(1);
+      if (equity >= drawCallEquityThreshold(potOdds)) {
+        return { ...baseRec, action: 'call', freq: { bet: 25, check: 60, fold: 15 }, reasoning: `Call draw: ${draws?.totalOuts ?? 0} outs (${drawType} draw): ${fmtEqOdds(equity, potOdds)} (need ${needPct}%)` };
       }
-      return { ...baseRec, action: 'fold', reasoning: `Fold draw: ${draws?.totalOuts ?? 0} outs insufficient odds: ${fmtEqOdds(equity, potOdds)}` };
+      return { ...baseRec, action: 'fold', reasoning: `Fold draw: ${draws?.totalOuts ?? 0} outs insufficient odds: ${fmtEqOdds(equity, potOdds)} (need ${needPct}%)` };
     }
     if (equity >= potOdds + 0.05) {
       return { ...baseRec, action: 'call', reasoning: `Call with ${getHandRankName(handRank)}: ${fmtEqOdds(equity, potOdds)} (+${((equity - potOdds) * 100).toFixed(1)}% edge)` };
@@ -378,25 +414,29 @@ export function getGtoPostflopRecommendation(params: {
   }
 
   // Flop/Turn: bet/check decision
-  const cbetFreq = getCbetFreq(street, ip, boardTexture.classification);
-  const sizingPercent = Math.round(getBetSizing(boardTexture.classification) * 100);
+  // 档位下注频率与机器人 decidePostflopGTO 共用 getCategoryBetFreq，
+  // 面板不再内联乘数（此前的 medium 0.70 与机器人的 0.50 长期漂移）。
+  const catFreq = (category: HandStrengthCategory) =>
+    getCategoryBetFreq(category, street, ip, boardTexture.classification);
+  const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 100);
 
   if (strength === 'strong') {
-    const sizingPercent = Math.round(getBetSizing(boardTexture.classification) * 100);
-    const sizingBB = Math.round(totalPot * getBetSizing(boardTexture.classification) / bb * 10) / 10;
+    const sizingPercent = Math.round(getBetSizing(boardTexture.classification, spr) * 100);
+    const sizingBB = Math.round(totalPot * getBetSizing(boardTexture.classification, spr) / bb * 10) / 10;
     const isAllIn = spr < 2.0 || sizingBB >= chips / bb * 0.5;
+    const strongFreq = catFreq('strong');
     return {
       ...baseRec, action: 'raise',
       sizingPercent,
       sizingBB: isAllIn ? Math.round(chips / bb) : sizingBB,
-      freq: { bet: Math.round(cbetFreq * 100), check: Math.round((1 - cbetFreq) * 100), fold: 0 },
+      freq: { bet: Math.round(strongFreq * 100), check: Math.round((1 - strongFreq) * 100), fold: 0 },
       isAllIn: isAllIn || undefined,
       reasoning: `Value bet with ${getHandRankName(handRank)} on ${boardTexture.classification} board: ${fmtEqOdds(equity, potOdds)}`,
     };
   }
 
   if (strength === 'draw') {
-    const bluffFreq = Math.round(cbetFreq * 60);
+    const bluffFreq = Math.round(catFreq('draw') * 100);
     const drawType = draws?.draws?.[0]?.type === 'flush_draw' ? 'flush' : draws?.draws?.[0]?.type?.includes('straight') ? 'straight' : 'combo';
     return {
       ...baseRec, action: 'raise', sizingPercent,
@@ -406,7 +446,7 @@ export function getGtoPostflopRecommendation(params: {
   }
 
   if (strength === 'medium' && ip) {
-    const betFreq = Math.round(cbetFreq * 70);
+    const betFreq = Math.round(catFreq('medium') * 100);
     return {
       ...baseRec, action: 'raise', sizingPercent,
       freq: { bet: betFreq, check: 100 - betFreq, fold: 0 },
@@ -415,11 +455,20 @@ export function getGtoPostflopRecommendation(params: {
   }
 
   if (strength === 'weak' && ip && numOpponents <= 2) {
-    const bluffFreq = Math.round(cbetFreq * 30);
+    const bluffFreq = Math.round(catFreq('weak') * 100);
     return {
       ...baseRec, action: 'check',
       freq: { bet: bluffFreq, check: 100 - bluffFreq, fold: 0 },
       reasoning: `Weak hand (${getHandRankName(handRank)}) - check or bluff on ${boardTexture.classification} board`,
+    };
+  }
+
+  if (strength === 'air' && ip && numOpponents <= 2) {
+    const bluffFreq = Math.round(catFreq('air') * 100);
+    return {
+      ...baseRec, action: 'check',
+      freq: { bet: bluffFreq, check: 100 - bluffFreq, fold: 0 },
+      reasoning: `Air (${getHandRankName(handRank)}) - check or bluff on ${boardTexture.classification} board`,
     };
   }
 

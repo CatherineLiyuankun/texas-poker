@@ -31,6 +31,15 @@ const BET_SIZING: Record<string, number> = {
 };
 
 /**
+ * 低 SPR 门槛：低于此值小尺度失去意义（打完一层还剩一堆筹码），
+ * 同时听牌的隐含赔率也不再支撑跟注。
+ */
+const LOW_SPR = 3;
+
+/** 极低 SPR 门槛：低于此值直接按满池打，等价于把筹码压进去。 */
+const VERY_LOW_SPR = 1.5;
+
+/**
  * Relative propensity of each hand category to fire a bet, expressed as a
  * multiplier on the range-level c-bet frequency.
  *
@@ -38,9 +47,9 @@ const BET_SIZING: Record<string, number> = {
  * (see the bet/check branch); they are extracted here so that postflop range
  * narrowing can reuse the same frequencies instead of inventing its own.
  *
- * Note: `getGtoPostflopRecommendation` uses a slightly different medium-hand
- * multiplier (0.70 instead of 0.50). That inconsistency predates this table and
- * is deliberately left untouched so bot behaviour is unchanged.
+ * `gtoPostflop` 的两条路径（机器人的 `decidePostflopGTO` 与面板的
+ * `getGtoPostflopRecommendation`）**都必须**通过 `getCategoryBetFreq` 取值 ——
+ * 面板原本把 medium 写死成 0.70，与这里的 0.50 长期漂移，已统一。
  */
 export const HAND_CATEGORY_BET_MULTIPLIER: Record<HandStrengthCategory, number> = {
   strong: 1.0,
@@ -75,6 +84,36 @@ export function getRiverBarrelFreq(
   return getCbetFreq('turn', isIP, texture) * RIVER_BARREL_TIGHTENING;
 }
 
-export function getBetSizing(texture: BoardClassification): number {
-  return BET_SIZING[texture] ?? 0.50;
+/**
+ * 按牌力档位给出的**下注 / 半诈唬频率**（0–1）：范围级 c-bet 频率 × 档位倾向。
+ *
+ * 这是 `gtoPostflop` 两条路径共用的唯一下注频率口径：
+ * 机器人 `decidePostflopGTO` 用它掷骰子，面板 `getGtoPostflopRecommendation`
+ * 用它填 `freq.bet`。任何一边再内联乘数都会立刻产生漂移。
+ */
+export function getCategoryBetFreq(
+  category: HandStrengthCategory,
+  street: 'flop' | 'turn',
+  isIP: boolean,
+  texture: BoardClassification,
+): number {
+  return getCbetFreq(street, isIP, texture) * HAND_CATEGORY_BET_MULTIPLIER[category];
+}
+
+/**
+ * 翻后下注尺度（相对底池）。
+ *
+ * 尺度由**牌面纹理**决定，再受 **SPR** 约束下限 —— 牌面只回答「该用多大」，
+ * 但低 SPR 下小尺度本身不成立：一层 33% 打不完筹码，等于白送对手一个便宜看牌。
+ * 不传 `spr`（或传入非正数）时退回纯纹理口径，保持既有调用方行为不变。
+ */
+export function getBetSizing(
+  texture: BoardClassification,
+  spr?: number,
+): number {
+  const base = BET_SIZING[texture] ?? 0.50;
+  if (spr === undefined || !Number.isFinite(spr) || spr <= 0) return base;
+  if (spr < VERY_LOW_SPR) return 1.0;
+  if (spr < LOW_SPR) return Math.max(base, 0.66);
+  return base;
 }

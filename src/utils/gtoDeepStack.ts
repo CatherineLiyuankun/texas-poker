@@ -1,13 +1,42 @@
-import type { Card, GameState, Player, HandRank, Action } from '../types/poker';
-import { HAND_RANK_ORDER, RANK_ORDER } from '../types/poker';
+import type { Card, GameState, Player, Action } from '../types/poker';
+import { RANK_ORDER } from '../types/poker';
 import type { ActionFlags, ContextInfo } from './botAI';
 import type { OpponentAdjustments } from './opponentModel';
 import { analyzeBoardWithEquity } from './boardTexture';
 import type { BoardTexture } from './boardTexture';
+import { getCardsToCome } from './communityByPhase';
 import { evaluateHand } from './handEvaluator';
 import { calculateRangeAwareEquity } from './rangeEquity';
 import { detectDraws } from './drawDetector';
-import type { DrawInfo } from './drawDetector';
+import {
+  classifyPostflopHand,
+  DRAW_OUTS_BY_STREET,
+  MADE_HAND_FLOORS,
+  type HandStrengthRules,
+} from './handStrength';
+import { drawCallEquityThreshold } from './gtoMath';
+// 筹码深度的唯一来源：bb 换算从 stackDepth 取（本文件曾硬编码 `/10`）。
+import { effectiveStackBB } from './stackDepth';
+// 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
+import { equityIterations } from './equityIterations';
+
+/**
+ * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
+ * 这里只声明「本调用方用哪套规则」。
+ *
+ * - `madeHandFloors: MADE_HAND_FLOORS` —— 有条件的成牌类别下限（A3）。
+ *   旧行为是 `promoteMadeHandsByRank: true`：两对及以上**无条件** `strong`，
+ *   于是 4 花面上的底两对（权益可能只有 0.20）也会被拿去加注。
+ * - `drawOutsThreshold: DRAW_OUTS_BY_STREET` —— 与 `gtoPostflop` 同一张分街表：
+ *   翻牌 8 outs、转牌 9 outs。听牌质量是概率事实，两个引擎不该有第二套阈值。
+ *
+ * A3 之后本模块与 `gtoPostflop` 的规则**完全相同** —— 这是收敛而不是巧合：
+ * 分档是纯概率问题，不该因为「哪个引擎在问」而不同。
+ */
+export const HAND_STRENGTH_RULES: HandStrengthRules = {
+  madeHandFloors: MADE_HAND_FLOORS,
+  drawOutsThreshold: DRAW_OUTS_BY_STREET,
+};
 
 interface DeepStackConfig {
   effectiveStack: number;        // 有效筹码 (bb)
@@ -95,8 +124,15 @@ function isSuitedGapper(hand: Card[]): boolean {
   return diff >= 2 && diff <= 3;
 }
 
+/**
+ * 深筹码才做手牌调整：小对子 / 同花连张等听牌型手牌升值，非同花大牌降值。
+ *
+ * 阈值是 **150bb**，与「什么时候启用深筹码引擎」同源（`stackDepth.stackBand`
+ * 的 `veryDeep` 档）。以前这里写的是 100bb，而引擎只在 >150bb 被调用，
+ * 100–150bb 那段判断永远走不到 —— 两个数字自相矛盾，现已对齐。
+ */
 function getHandAdjustment(hand: Card[], effectiveStack: number): HandAdjustment {
-  if (effectiveStack <= 100) return 'neutral';
+  if (effectiveStack <= 150) return 'neutral';
 
   if (isSmallPair(hand)) return 'upgrade';
   if (isSuitedConnector(hand)) return 'upgrade';
@@ -147,24 +183,6 @@ function getCommunityByPhase(state: GameState): Card[] {
   }
 }
 
-function classifyHandStrength(
-  equity: number,
-  handRank: HandRank | null,
-  draws: DrawInfo | null,
-): 'strong' | 'medium' | 'draw' | 'weak' | 'air' {
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.three_of_kind) {
-    return 'strong';
-  }
-  if (handRank && HAND_RANK_ORDER[handRank] >= HAND_RANK_ORDER.two_pair) {
-    return 'strong';
-  }
-  if (equity >= 0.70) return 'strong';
-  if (equity >= 0.50) return 'medium';
-  if (draws && draws.totalOuts >= 8) return 'draw';
-  if (equity >= 0.35) return 'weak';
-  return 'air';
-}
-
 function calculateRaiseAmount(
   player: Player,
   state: GameState,
@@ -192,10 +210,11 @@ function handleDeepStackFacingBet(
   const sizing = getDeepStackSizing(boardTexture, sprDecision, handAdjustment);
 
   const community = getCommunityByPhase(state);
-  const draws = detectDraws(hand, community,
-    state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
+  const draws = detectDraws(hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank, draws);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+  );
 
   if (sprDecision === 'commit') {
     if (strength === 'strong') {
@@ -229,6 +248,21 @@ function handleDeepStackFacingBet(
           handAdjustment,
           sprDecision,
           reasoning: 'Deep stack commit: calling with medium hand',
+        };
+      }
+    }
+
+    // 听牌出口。必须显式写出来：本分支原本只有 strong / medium 两个出口，
+    // 分档顺序调整后「权益已过 medium 线的组合听牌」从 medium 挪到了 draw，
+    // 若不补这一支就会直接掉到下面的默认弃牌 —— 低 SPR 下弃掉 15+ outs 的组合听牌。
+    if (strength === 'draw' && equity >= drawCallEquityThreshold(potOdds)) {
+      if (flags.canCallResult) {
+        return {
+          action: 'call',
+          sizing,
+          handAdjustment,
+          sprDecision,
+          reasoning: 'Deep stack commit: calling with draw',
         };
       }
     }
@@ -278,7 +312,9 @@ function handleDeepStackFacingBet(
       }
     }
 
-    if (strength === 'draw' && equity >= potOdds) {
+    // 跟注门槛与 gtoPostflop / 面板共用（含隐含赔率额度），
+    // 否则同一条街的同一个听牌在两个引擎里会得出相反的结论。
+    if (strength === 'draw' && equity >= drawCallEquityThreshold(potOdds)) {
       if (flags.canCallResult) {
         return {
           action: 'call',
@@ -335,6 +371,20 @@ function handleDeepStackFacingBet(
       }
     }
 
+    // 听牌出口，理由同 commit 分支：分档顺序调整后组合听牌从 medium 挪到 draw，
+    // 本分支若不显式接住就会掉到默认弃牌。判据与 control 档同口径（含隐含赔率额度）。
+    if (strength === 'draw' && equity >= drawCallEquityThreshold(potOdds)) {
+      if (flags.canCallResult) {
+        return {
+          action: 'call',
+          sizing,
+          handAdjustment,
+          sprDecision,
+          reasoning: 'Deep stack cautious: calling with draw',
+        };
+      }
+    }
+
     if (flags.canFoldResult) {
       return {
         action: 'fold',
@@ -379,10 +429,11 @@ function handleDeepStackNoBet(
   const sizing = getDeepStackSizing(boardTexture, sprDecision, handAdjustment);
 
   const community = getCommunityByPhase(state);
-  const draws = detectDraws(hand, community,
-    state.phase === 'flop' ? 2 : state.phase === 'turn' ? 1 : 0);
+  const draws = detectDraws(hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(hand, community);
-  const strength = classifyHandStrength(equity, evaluated.rank, draws);
+  const strength = classifyPostflopHand(
+    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+  );
 
   if (sprDecision === 'commit') {
     if (strength === 'strong') {
@@ -408,6 +459,20 @@ function handleDeepStackNoBet(
         handAdjustment,
         sprDecision,
         reasoning: 'Deep stack commit: betting medium hand',
+      };
+    }
+
+    // 听牌出口：commit 档下组合听牌按半诈唬下注。分档顺序调整前它们走的是
+    // 上面 medium 的 0.8 倍下注，调整后必须补上，否则会退化成过牌（丢掉下注频率）。
+    if (strength === 'draw' && flags.canRaiseResult) {
+      const target = Math.floor(ctx.totalPot * sizing * 0.8);
+      return {
+        action: 'raise',
+        amount: calculateRaiseAmount(player, state, target),
+        sizing: sizing * 0.8,
+        handAdjustment,
+        sprDecision,
+        reasoning: 'Deep stack commit: semi-bluff with draw',
       };
     }
 
@@ -515,9 +580,9 @@ export function getDeepStackRecommendation(
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
-    state.phase === 'river' ? 500 : state.phase === 'turn' ? 300 : 200);
+    equityIterations(state.phase));
 
-  const effectiveStack = player.chips / 10; // Convert chips to bb (assuming 10bb = 100 chips)
+  const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;
 
   const handAdjustment = getHandAdjustment(player.hand, effectiveStack);
@@ -574,10 +639,6 @@ export function getDeepStackRecommendation(
   }
 
   return result;
-}
-
-export function isDeepStack(effectiveStack: number): boolean {
-  return effectiveStack > 150;
 }
 
 export function getDeepStackAdjustments(

@@ -8,6 +8,27 @@ export const translations = {
     smallBlindInfo: (smallBlind: number) => `小盲: $${smallBlind} | 大盲: $${smallBlind * 2}`,
     initialChipsInfo: (smallBlind: number) => `每人初始筹码: $${smallBlind * 200}`,
     smallBlindLabel: '小盲大小 Small Blind',
+    // 抽水（rake）：桌面条件，与「引擎 / 赛制」两个轴无关。锦标赛恒不抽水。
+    rake: {
+      label: '抽水 Rake',
+      modeNone: '不抽水',
+      modePercent: '按百分比',
+      modeBb: '固定大盲',
+      valuePercent: '比例 %',
+      valueBb: '大盲个数',
+      valueAria: '抽水数值',
+      capLabel: '封顶上限',
+      capUnit: '大盲',
+      capAria: '抽水封顶上限（大盲）',
+      capHint: '0 = 不封顶',
+      none: '不抽水，底池全额归赢家',
+      percent: (p: number, capBB: number, capChips: number) =>
+        capBB > 0 ? `每手抽 ${p}% · 封顶 ${capBB}BB（$${capChips}）` : `每手抽 ${p}% · 不封顶`,
+      // 「固定大盲」模式下抽水本身就是固定值，再封顶只是把它变成另一个更小的固定值，
+      // 所以这个模式没有封顶 —— 文案也就不带封顶参数。
+      bb: (bb: number) => `每手抽 ${bb}BB`,
+      tournamentNote: '锦标赛不抽水（改按 ICM 风险溢价收紧）',
+    },
   },
   actionButtons: {
     botThinking: '电脑玩家思考中... Bot Thinking...',
@@ -84,6 +105,15 @@ export const translations = {
     preflop: '手牌强度', // 翻牌前preflopStrength Chen Formula 
     equity: '随机权益 Equity', //  Equity vs random hands（对随机牌）
     rangeEquity: '范围权益 Equity', //  Equity vs estimated continuing range（对推断范围）
+    // 随机权益一行的口径标注。对手全部按随机牌建模 → 翻前会系统性高估
+    // （真实对手的跟注范围远强于随机牌），必须显式写出来。
+    // 放在独立的整行里而不是并进 equity 标签：权益区是 grid-cols-2，
+    // 每列实测只有 134.8px，标签一长就换行、挤掉右侧的权益条；
+    // 整行有 278px 可用（本行文本实测 146.7px，单行）。
+    equityVsRandom: 'vs 随机牌（对手全部按随机牌建模）',
+    // 行内短标注：翻后 Reasoning 里那串 "Equity x%" 用的是 decisionEquity，
+    // 范围推断失败时它就是随机权益，必须在同一行就地说明，否则同样会被误读成真实胜率。
+    equityVsRandomTag: 'vs 随机牌',
     rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
@@ -131,6 +161,12 @@ export const translations = {
     on: 'ON',
     off: 'OFF',
   },
+  // 赛制开关：与 GTO 开关是**正交**的两个轴（引擎 × 赛制）。
+  scenario: {
+    toggle: '赛制',
+    cash: '现金局',
+    tournament: '锦标赛',
+  },
   gtoPostflop: {
     board: 'Board 牌面',
     veryDry: 'Very Dry 极干',
@@ -170,6 +206,14 @@ export const translations = {
       multiway: (n: number) => `多人(${n})未调整`,
       noOpponent: '无对手',
       noIcm: '未计 ICM',
+      // 面板的**任何数字都不做 ICM 调整**（本仓库 `grep riskPremiumFor src/components/`
+      // 为空）：ICM 风险溢价只影响机器人，且只在**启发式引擎**的翻前路径上生效
+      // （`botAI.decidePreflop`；`decidePreflopGTO` 走的是收紧后的范围表）。
+      // 所以两段都以「未计」开头，锦标赛那句只补充说明「机器人侧计了」。
+      icm: '未计 ICM（机器人已计）',
+      noRake: '未计抽水',
+      rake: '已计抽水',
+      rangeTightened: '锦标赛范围收紧',
     },
     rangeCategories: {
       value: 'Value', // 价值牌

@@ -5,6 +5,8 @@ import { getMDFReferenceTable } from '../../utils/gtoMath';
 import { startNewHand, recordAction, resetOpponentStats } from '../../utils/opponentModel';
 import { evaluateHand } from '../../utils/handEvaluator';
 import { getCommunityByPhase } from '../../utils/communityByPhase';
+import { resetGtoConfig } from '../../utils/gtoConfig';
+import { resetRakeConfig, setRakeConfig } from '../../utils/rake';
 import type { Card, GamePhase, GameState, Player, PlayerId } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -82,6 +84,7 @@ async function renderPanel(
     currentPot: number;
     betToCall: number;
     playerRaiseAmount: number | null;
+    scenario: 'cash' | 'tournament';
   }> = {},
 ) {
   render(
@@ -98,6 +101,7 @@ async function renderPanel(
       gameState={state}
       heroPlayer={hero}
       positionLabel="BTN"
+      scenario={overrides.scenario}
     />,
   );
 
@@ -217,10 +221,126 @@ describe('HandAnalysis 权益面板（随机权益 + 范围权益）', () => {
     const rangePct = readEquityPct(translations.handAnalysis.rangeEquity);
     console.log('[翻牌 AA 面对加注] 随机权益 =', randomPct, '%  范围权益 =', rangePct, '%');
 
-    // 对手加注意味着范围更强，AA 的权益必须低于对随机牌
-    expect(rangePct).toBeLessThan(randomPct!);
+    // 两行权益都是蒙特卡洛估计（flop 350 次迭代），且「范围权益」是按权重抽样，
+    // 实测单点波动可达 ±5 个百分点；两个估计相互独立，所以严格不等式
+    // `range < random` 会偶发翻号（2026-10-08 全量跑里出现过 81 vs 82）。
+    // 这里给 6 个百分点（约 2σ）的噪声容差，判据收敛为方向性的
+    // 「范围权益没有明显高于随机权益」。
+    // 「范围确实被收窄了」这个**确定性**判据由下面那条 rangeNarrowed 标注断言负责。
+    const MC_NOISE_TOLERANCE_PCT = 6;
+    expect(rangePct).toBeLessThanOrEqual(randomPct! + MC_NOISE_TOLERANCE_PCT);
+    // 前提自检：范围权益确实来自「推断出的范围」，而不是静默回退成随机值
+    expect(rangePct).not.toBe(randomPct);
     // 面板必须显式标注范围已被翻后行动收窄
     expect(screen.getByText(translations.handAnalysis.rangeNarrowed)).toBeTruthy();
+  });
+});
+
+describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
+  beforeEach(() => {
+    resetOpponentStats();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+  });
+
+  // 翻后用例共用的干燥牌面（K♠7♦2♣ → very_dry）
+  const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+
+  it('翻前显式标注「vs 随机牌」，独占整行且与权益两行同网格', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'K')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'Q'), card('♣', 'Q')], totalBet: 20 });
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    // 文案必须真的写出「vs 随机牌」，否则这行标注没有意义
+    expect(translations.handAnalysis.equityVsRandom).toContain('vs 随机牌');
+
+    const note = screen.getByText(translations.handAnalysis.equityVsRandom);
+    // 独占整行：挤进某一列会打乱「随机权益 | 范围权益」的配对
+    expect(note.className).toContain('col-span-2');
+
+    // 与它标注的两行处在同一个 2 列网格里
+    const grid = note.parentElement as HTMLElement;
+    expect(grid.contains(screen.getByText(translations.handAnalysis.equity))).toBe(true);
+    expect(grid.contains(screen.getByText(translations.handAnalysis.rangeEquity))).toBe(true);
+  });
+
+  it('翻后同样标注（范围推断失败时会静默回退到随机权益）', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♥', 'K'), card('♥', 'K')],
+      totalBet: 60,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'Q'), card('♣', 'J')], totalBet: 60 });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    expect(screen.getByText(translations.handAnalysis.equityVsRandom)).toBeTruthy();
+  });
+
+  it('口径文案不并进权益行（权益区每列实测仅 134.8px）', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
+
+    // 行标签保持短标签，口径写在独立的整行里
+    const labelSpan = screen.getByText(translations.handAnalysis.equity);
+    expect(labelSpan.textContent).toBe(translations.handAnalysis.equity);
+    expect(labelSpan.textContent).not.toContain('vs 随机牌');
+    // 也不能塞进权益行的 value 里
+    expect(rowOf(translations.handAnalysis.equity).textContent).not.toContain('vs 随机牌');
+  });
+
+  it('范围推断失败时，翻后 Reasoning 就地标注「vs 随机牌」', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♥', 'K'), card('♥', 'K')],
+      totalBet: 60,
+    });
+    // 对手手牌不完整 → estimateOpponentCombos 返回 null → 决策回退随机权益
+    const opp = mkPlayer({ id: 2, hand: [], totalBet: 60 });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    // 前提自检：这一轮确实回退到了随机权益（否则下面的断言测不到东西）
+    expect(rowOf(translations.handAnalysis.equity).className).toContain(BASIS_HIGHLIGHT);
+
+    // Reasoning 里的 "Equity x%" 就是 decisionEquity，必须同行标注口径
+    const reasoning = rowOf(translations.gtoPostflop.reasoning).textContent ?? '';
+    expect(reasoning).toContain(translations.handAnalysis.equityVsRandomTag);
+  });
+
+  it('范围推断成功时，翻后 Reasoning 不加「vs 随机牌」标注', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♥', 'K'), card('♥', 'K')],
+      totalBet: 60,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'Q'), card('♣', 'J')], totalBet: 60 });
+
+    await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
+
+    // 前提自检：这一轮用的是范围权益
+    expect(rowOf(translations.handAnalysis.rangeEquity).className).toContain(BASIS_HIGHLIGHT);
+
+    const reasoning = rowOf(translations.gtoPostflop.reasoning).textContent ?? '';
+    expect(reasoning).not.toContain(translations.handAnalysis.equityVsRandomTag);
   });
 });
 
@@ -728,5 +848,183 @@ describe('HandAnalysis 加注 EV 口径（只对真加注给 EV）', () => {
     });
 
     expect(screen.getByText(translations.gtoMath.raiseEV)).toBeTruthy();
+  });
+});
+
+describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
+  // 口径标注是纯文本，直接断言页面上出现了哪一句话 —— 比按 class 找元素稳。
+  const caveat = () => document.body.textContent ?? '';
+
+  beforeEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  const aaHero = () =>
+    mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 20,
+    });
+  const kkOpp = () =>
+    mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+
+  const renderAA = async (scenario?: 'cash' | 'tournament') => {
+    const hero = aaHero();
+    const opp = kkOpp();
+    await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', [], { scenario });
+  };
+
+  it('现金局 + 未设抽水：标注「未计抽水」+「未计 ICM」', async () => {
+    await renderAA();
+    expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
+    expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
+    // 现金局不收紧范围，所以没有这条标注。
+    expect(caveat()).not.toContain(
+      translations.gtoMath.caveat.rangeTightened,
+    );
+  });
+
+  it('现金局 + 设了抽水：标注改为「已计抽水」，ICM 仍未计', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    await renderAA();
+    expect(caveat()).toContain(translations.gtoMath.caveat.rake);
+    expect(caveat()).not.toContain(translations.gtoMath.caveat.noRake);
+    expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
+  });
+
+  it('锦标赛 + 设了抽水：抽水标注回到「未计抽水」，ICM 仍标「未计」（补注机器人已计），并标注范围收紧', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    await renderAA('tournament');
+    expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
+    expect(caveat()).not.toContain(translations.gtoMath.caveat.rake);
+    // 面板**从不**做 ICM 调整，所以两种赛制下都出现「未计 ICM」；锦标赛那句只是
+    // `未计 ICM（机器人已计）`，前半段与现金局完全一致。
+    expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
+    expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+    // 翻前 + 锦标赛 → 范围收紧也标出来。
+    expect(caveat()).toContain(translations.gtoMath.caveat.rangeTightened);
+  });
+
+  it('ICM 文案的契约：两种赛制都以「未计」开头（面板侧永不声称已计入 ICM）', () => {
+    // 面板不 import `gtoICM`，任何「计 ICM」的写法都会被读成「面板数字已含 ICM」。
+    // 这条用例把「面板从不计 ICM」钉成契约，防止文案回退成 `计 ICM（锦标赛）`。
+    expect(translations.gtoMath.caveat.noIcm.startsWith('未计')).toBe(true);
+    expect(translations.gtoMath.caveat.icm.startsWith('未计')).toBe(true);
+  });
+
+  it('锦标赛 + 翻后：不再标注范围收紧（翻后不查范围表）', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♠', 'Q')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({
+      id: 2,
+      hand: [card('♦', 'K'), card('♣', 'K')],
+      totalBet: 20,
+    });
+    const board = [
+      card('♠', 'K'),
+      card('♦', '7'),
+      card('♣', '2'),
+      card('♥', 'J'),
+      card('♦', '4'),
+    ];
+    await renderPanel(
+      hero,
+      mkState([hero, opp], 'river', board),
+      1,
+      'river',
+      board,
+      { scenario: 'tournament' },
+    );
+    // ICM 标注还在（与街无关），但范围收紧只属于翻前。
+    expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+    expect(caveat()).not.toContain(
+      translations.gtoMath.caveat.rangeTightened,
+    );
+  });
+});
+
+describe('面板翻后建议用抽水后价格（B3-b）', () => {
+  // 面板的翻后/河牌建议曾经直接吃 `potOdds` prop（**原始赔率**），而机器人吃的是
+  // `ctx.potOdds`（现金局已折进抽水）—— 两边会给出不同建议，用户没法用面板解释机器人。
+  // 现在两边都走 `callThresholdFor`。
+  //
+  // 判据用 Reasoning 行里的 `vs Pot Odds X%`：`getRiverStrategy` 的**每个**分支都会
+  // 把它格式化进理由，所以这条断言与手牌强度、权益大小都无关，完全稳定。
+  const caveat = () => document.body.textContent ?? '';
+
+  beforeEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  afterEach(() => {
+    resetOpponentStats();
+    resetRakeConfig();
+    resetGtoConfig();
+  });
+
+  // 小盲 10 → 大盲 20；toCall 20 / totalPot 60。
+  // 原始赔率 = 20 / (60 + 20) = 25.0%。
+  // 5% 抽水（封顶 3BB = 60，未触顶）→ rake = 4 → 20 / 76 = 26.3157…% → 26.3%。
+  const RIVER_BOARD = [
+    card('♠', 'K'),
+    card('♦', '7'),
+    card('♣', '2'),
+    card('♥', 'J'),
+    card('♦', '4'),
+  ];
+
+  const renderRiver = async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♠', 'Q')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    await renderPanel(hero, mkState([hero, opp], 'river', RIVER_BOARD), 1, 'river', RIVER_BOARD, {
+      scenario: 'cash',
+    });
+  };
+
+  it('未设抽水：建议里的价格就是原始赔率 25.0%（对照组，证明断言不空转）', async () => {
+    await renderRiver();
+    expect(caveat()).toContain('Pot Odds 25.0%');
+  });
+
+  it('设了 5% 抽水：建议里的价格被抬到 26.3%，不再是原始赔率', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    await renderRiver();
+    expect(caveat()).toContain('Pot Odds 26.3%');
+    expect(caveat()).not.toContain('Pot Odds 25.0%');
+  });
+
+  it('锦标赛下即便设了抽水，建议仍用原始赔率 25.0%（与 ICM 互斥）', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♠', 'Q')],
+      totalBet: 20,
+    });
+    const opp = mkPlayer({ id: 2, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 });
+    await renderPanel(hero, mkState([hero, opp], 'river', RIVER_BOARD), 1, 'river', RIVER_BOARD, {
+      scenario: 'tournament',
+    });
+    expect(caveat()).toContain('Pot Odds 25.0%');
   });
 });

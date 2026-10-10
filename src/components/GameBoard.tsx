@@ -7,12 +7,15 @@ import { ActionButtons } from './ActionButtons';
 import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
-import { getBotAction, setGtoStrategy } from '../utils/botAI';
+import { getBotAction } from '../utils/botAI';
+import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
+import { NO_RAKE, setRakeConfig, type RakeConfig } from '../utils/rake';
 import {
   getGtoPreflopRecommendation,
   getRfiPositionForDisplay,
   getDefenderPositionForDisplay,
   getOpenerPosition,
+  detectPreflopScenario,
 } from '../utils/gtoPreflop';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
@@ -30,6 +33,12 @@ interface PlayerConfig {
   realPlayers: number;
   botPlayers: number;
   smallBlind: number;
+  /**
+   * 抽水（桌面条件）。由 `StartPage` 设定，见 `rake.ts`。
+   * 可选：缺省按「不抽水」兜底，与抽水可配置之前的行为逐位一致
+   * （也让既有测试不必逐个补字段）。
+   */
+  rake?: RakeConfig;
 }
 
 interface GameBoardProps {
@@ -37,6 +46,8 @@ interface GameBoardProps {
   savedChips?: number[];
   savedBuyInCounts?: number[];
   savedGtoEnabled?: boolean;
+  savedScenario?: GameScenario;
+  savedRake?: RakeConfig;
   onBackToMenu: () => void;
 }
 
@@ -45,6 +56,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   savedChips,
   savedBuyInCounts,
   savedGtoEnabled,
+  savedScenario,
+  savedRake,
   onBackToMenu,
 }) => {
   const {
@@ -64,16 +77,37 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handCounterRef = useRef(0);
   const handKeyRef = useRef<string>('');
   const [gtoEnabled, setGtoEnabled] = useState(savedGtoEnabled ?? false);
+  const [scenario, setScenario] = useState<GameScenario>(savedScenario ?? 'cash');
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
   const [gameScale, setGameScale] = useState(1);
   const [chipSummaryOpen, setChipSummaryOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // 引擎轴：把 UI 状态**双向**同步进全局配置。
+  //
+  // 旧实现只在 `savedGtoEnabled` 为真时写一次（`if (savedGtoEnabled) setGtoStrategy(true)`），
+  // 于是「GTO 开 → 返回菜单 → 新开一局」会留下陈旧全局态：UI 显示 OFF，
+  // 模块里却还是 GTO。改成按当前值无条件同步，顺带修掉这个 bug。
   useEffect(() => {
-    if (savedGtoEnabled) {
-      setGtoStrategy(true);
-    }
-  }, [savedGtoEnabled]);
+    setGtoConfig({ engine: gtoEnabled ? 'gto' : 'heuristic' });
+  }, [gtoEnabled]);
+
+  // 赛制轴：与引擎轴正交，两个 effect 各写自己那个字段（`setGtoConfig` 是合并语义，
+  // 不会互相覆盖）。
+  useEffect(() => {
+    setGtoConfig({ scenario });
+  }, [scenario]);
+
+  // 抽水（桌面条件）：同样是「按当前值无条件同步」，避免「设了抽水 → 返回菜单 →
+  // 新开一局」留下陈旧全局态。存档优先（续局时以存档为准）。
+  const rakeSource = savedRake ?? playerConfig.rake;
+  const rakeMode = rakeSource?.mode ?? NO_RAKE.mode;
+  const rakeValue = rakeSource?.value ?? NO_RAKE.value;
+  const rakeCapBB = rakeSource?.capBB ?? NO_RAKE.capBB;
+
+  useEffect(() => {
+    setRakeConfig({ mode: rakeMode, value: rakeValue, capBB: rakeCapBB });
+  }, [rakeMode, rakeValue, rakeCapBB]);
 
   useEffect(() => {
     const updateScale = () => {
@@ -173,9 +207,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         dealer: state.dealer,
         savedAt: Date.now(),
         gtoEnabled,
+        scenario,
+        rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
       });
     }
-  }, [roundSettled, state.players, state.smallBlind, state.dealer, gtoEnabled]);
+  }, [
+    roundSettled,
+    state.players,
+    state.smallBlind,
+    state.dealer,
+    gtoEnabled,
+    scenario,
+    rakeMode,
+    rakeValue,
+    rakeCapBB,
+  ]);
 
   const handleBackToMenu = () => {
     if (state.players.length > 0 && state.players[0].hand.length > 0) {
@@ -189,6 +235,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         dealer: state.dealer,
         savedAt: Date.now(),
         gtoEnabled,
+        scenario,
+        rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
       });
     }
     onBackToMenu();
@@ -429,12 +477,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </button>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
+            {/* 引擎轴：GTO / 启发式。全局配置的同步交给上面的 effect，这里只改 UI 状态。 */}
             <button
-              onClick={() => {
-                const next = !gtoEnabled;
-                setGtoEnabled(next);
-                setGtoStrategy(next);
-              }}
+              onClick={() => setGtoEnabled(!gtoEnabled)}
               className={`px-2 py-1 text-xs rounded font-bold ${
                 gtoEnabled
                   ? 'bg-green-700/60 text-green-300 hover:bg-green-600/70'
@@ -442,6 +487,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               }`}
             >
               {translations.gtoStrategy.toggle} {gtoEnabled ? translations.gtoStrategy.on : translations.gtoStrategy.off}
+            </button>
+            {/* 赛制轴：现金局 / 锦标赛。与引擎轴正交，两个开关互不影响。 */}
+            <button
+              onClick={() => setScenario(scenario === 'cash' ? 'tournament' : 'cash')}
+              className={`px-2 py-1 text-xs rounded font-bold ${
+                scenario === 'tournament'
+                  ? 'bg-amber-700/60 text-amber-200 hover:bg-amber-600/70'
+                  : 'bg-gray-800/40 text-white/50 hover:text-white/70'
+              }`}
+            >
+              {translations.scenario.toggle} {scenario === 'tournament' ? translations.scenario.tournament : translations.scenario.cash}
             </button>
             <div className="text-white/60 text-xs sm:text-sm whitespace-nowrap">
               {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
@@ -650,6 +706,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         smallBlind={state.smallBlind}
                         adminRevealAll={adminRevealAll}
                         gameState={state}
+                        scenario={scenario}
                         currentPot={potOddsInfo.totalPot}
                         betToCall={potOddsInfo.toCall}
                         potOdds={potOddsInfo.callPotOdds}
@@ -706,62 +763,42 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                                 ),
                             isBlind: pos === 1 || pos === 2,
                           };
-                          const toCall =
-                            state.lastBet - player.bet;
-                          const facingOpen = toCall > 0;
-                          const facing3bet =
-                            player.bet > state.smallBlind * 2 &&
-                            state.lastBet > player.bet;
-                          const cold3bet = (() => {
-                            if (player.bet > 0 || !facingOpen)
-                              return false;
-                            const raisers = state.players.filter(
-                              (p) =>
-                                p.id !== player.id &&
-                                !p.folded &&
-                                p.bet > state.smallBlind * 2,
-                            );
-                            if (raisers.length < 2) return false;
-                            const bets = new Set(
-                              raisers.map((p) => p.bet),
-                            );
-                            return bets.size >= 2;
-                          })();
                           const rfiPos =
                             getRfiPositionForDisplay(ctxForGto);
                           const defenderPos =
                             getDefenderPositionForDisplay(ctxForGto);
-                          const scenario:
-                            | 'rfi'
-                            | 'facing_open'
-                            | 'facing_3bet'
-                            | 'cold_3bet' = facing3bet
-                            ? 'facing_3bet'
-                            : cold3bet
-                              ? 'cold_3bet'
-                              : facingOpen
-                                ? 'facing_open'
-                                : 'rfi';
+                          // 场景判定与机器人 decidePreflopGTO 共用
+                          // detectPreflopScenario，面板不再自己近似一遍
+                          // （原先的 facing_3bet 漏了 `player.bet === lastRaiseBet`）。
+                          // 注意变量名带 `preflop` 前缀：外层的 `scenario` 是
+                          // 赛制（现金/锦标赛），别把两者搞混。
+                          const preflopScenario = detectPreflopScenario(
+                            state,
+                            player,
+                          );
                           const openerPos =
-                            facingOpen || facing3bet || cold3bet
+                            preflopScenario !== 'rfi'
                               ? getOpenerPosition(state, player) ??
                                 undefined
                               : undefined;
-                          return getGtoPreflopRecommendation(
-                            player.hand,
-                            rfiPos,
-                            scenario,
-                            openerPos,
-                            state.smallBlind,
-                            defenderPos,
-                            state.lastBet,
-                            {
+                          return getGtoPreflopRecommendation({
+                            hand: player.hand,
+                            rfiPosition: rfiPos,
+                            spot: preflopScenario,
+                            openerPosition: openerPos,
+                            smallBlind: state.smallBlind,
+                            defenderPosition: defenderPos,
+                            currentBet: state.lastBet,
+                            stackContext: {
                               chips: player.chips,
                               toCall: potOddsInfo.toCall,
                               totalPot: potOddsInfo.totalPot,
                               bet: player.bet,
                             },
-                          );
+                            // 赛制由渲染层传（不读全局）：见
+                            // getGtoPreflopRecommendation 的注释。
+                            gameScenario: scenario,
+                          });
                         })()}
                         actionButtons={
                           showActionButtons ? (

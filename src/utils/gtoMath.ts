@@ -105,13 +105,61 @@ export function calculateValueBluffRatio(
   return { valuePct, bluffPct, ratio: formatValueBluffRatio(valuePct, bluffPct) };
 }
 
+/**
+ * 跟注 EV。
+ *
+ * ```text
+ * 赢：+potSize（拿走当前底池，自己的跟注额退回来）  输：−betToCall
+ * EV = e·potSize − (1−e)·betToCall   ⇒  盈亏平衡 e = betToCall / (potSize + betToCall)
+ * ```
+ * 那个盈亏平衡点正是 `potOdds.callPotOdds`。
+ *
+ * `rake` 是这一手要交的抽水（筹码量，默认 0 = 不抽水）。现金局里赢家实收的是
+ * **最终底池减抽水**，所以赢的那一侧变成 `potSize − rake`（推导见 `rake.ts` 文件头），
+ * 盈亏平衡点随之抬高到 `betToCall / (potSize + betToCall − rake)` —— 与
+ * `rake.callThresholdFor` 同一个口径。抽水只从**赢**的那一侧扣，输的那一侧不变。
+ *
+ * 默认 0 时逐位等于旧实现（不抽水的行为完全不变）。
+ */
 export function calculateCallEV(
   equity: number,
   potSize: number,
   betToCall: number,
+  rake = 0,
 ): number {
   if (betToCall <= 0) return 0;
-  return equity * potSize - (1 - equity) * betToCall;
+  // 负数抽水不该变成奖励；抽水超过底池也不该让「赢」变成倒贴 —— 两头都夹住。
+  const winnable = Math.max(0, potSize - Math.max(0, rake));
+  return equity * winnable - (1 - equity) * betToCall;
+}
+
+/**
+ * 听牌跟注的**隐含赔率额度**：允许在直接赔率之外放宽的权益百分点数。
+ *
+ * 听牌跟注不能只看当下这一注 —— 成牌之后还能再赢一条街。这里用一个固定的、
+ * 有界的额度来近似它，而不是把「未来能多赢多少」真正建模进去（那需要对手支付
+ * 模型，是另一个量级的工作）。0.06 ≈ 3 个 outs 的权益，量级与「成牌后至少再拿到
+ * 一个小注」相当。与本模块其它阈值一样，这是**建模值**，不是求解值。
+ *
+ * ⚠️ 这条额度只对**真听牌**生效（`HandStrengthCategory === 'draw'`）。
+ * 「转牌隐含赔率变少」这层意思由 `handStrength` 的分街阈值负责：转牌上 8 outs 的
+ * 两端顺已被降级为 `weak`，走的是纯直接赔率判据，拿不到这条额度。
+ * 这样判据本身保持统一，分街只出现在分档一处。
+ */
+export const DRAW_IMPLIED_ODDS = 0.06;
+
+/**
+ * 听牌跟注的权益门槛 = 跟注赔率 − 隐含赔率额度。
+ *
+ * 与 `calculateCallEV(equity, ...) >= 0` 同向：`potOdds` 正是它的盈亏平衡点，
+ * 这里只是把门槛下调 `DRAW_IMPLIED_ODDS`。
+ *
+ * 机器人（`gtoPostflop` / `gtoDeepStack`）与面板（`getGtoPostflopRecommendation`）
+ * 必须共用这一条 —— 此前机器人有一条**无条件**兜底 `potOdds < 0.35`（等于「听牌跟
+ * 任何 ≤54% 底池的下注」），而面板只看 `equity >= potOdds`，两边口径完全不一致。
+ */
+export function drawCallEquityThreshold(potOdds: number): number {
+  return Math.max(0, potOdds - DRAW_IMPLIED_ODDS);
 }
 
 /**

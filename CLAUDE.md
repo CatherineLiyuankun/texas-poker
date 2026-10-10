@@ -41,15 +41,31 @@ Total chips must always equal initial chips; tests enforce this. Rules that prot
 
 ### Bot AI pipeline
 
-`src/utils/botAI.ts` → `getBotAction(player, state)` is the only bot entry point. It computes action flags, pot odds, position context, and opponent-profile adjustments, then dispatches by phase (`preflop` / `flop`+`turn` / `river`). A module-level flag `useGtoStrategy` (set via `setGtoStrategy()` from GameBoard's saved setting) switches each phase between heuristic strategies (`decidePreflop`/`decidePostflop`/`decideRiver`) and GTO strategies (`decidePreflopGTO` / `decidePostflopGTO` / `decideRiverGTO`).
+`src/utils/botAI.ts` → `getBotAction(player, state)` is the only bot entry point. It computes action flags, pot odds, position context, and opponent-profile adjustments, then dispatches by phase (`preflop` / `flop`+`turn` / `river`). The global `gtoConfig` (see below) switches each phase between heuristic strategies (`decidePreflop`/`decidePostflop`/`decideRiver`) and GTO strategies (`decidePreflopGTO` / `decidePostflopGTO` / `decideRiverGTO`).
+
+`ctx.potOdds` is the **call price**, not the raw pot odds: `getBotAction` computes it once via `rake.callThresholdWithRake(toCall, totalPot, BB)` and every downstream engine reads that field. Never recompute raw odds downstream (that is how the river threshold silently lost rake).
+
+### Strategy configuration — two orthogonal axes (`gtoConfig.ts`)
+
+`engine` (`gto` | `heuristic`) and `scenario` (`cash` | `tournament`) are **separate fields of one object**, deliberately not two module-level `let`s: `GTO OFF + tournament` would otherwise have no single answer for whether the heuristic path should still take ICM. Read it through `getGtoConfig()` / `isGtoEngine()` / `isTournamentScenario()`; write it with the merge-semantics `setGtoConfig(patch)` so the two independent UI toggles do not clobber each other.
+
+`scenario` gates three things: the ICM risk premium (`gtoICM.riskPremiumFor`, which is 0 in cash), the rake (cash only — tournaments are `NO_RAKE`, see `rake.effectiveRakeConfigFor`), and the preflop ranges (`gtoPreflop` derives a tighter tournament set from the cash tables).
+
+**Render layer passes the scenario, decision layer reads the global.** `GameBoard` mirrors its `scenario` state into `gtoConfig` inside a `useEffect`, so on the frame the user flips the toggle the prop has changed but the global has not. Anything that paints must therefore take the scenario as a parameter (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation({ ..., gameScenario })`); anything that decides may read the global.
 
 The GTO modules in `src/utils/` are consulted by both the bots and the player-facing analysis panel:
 
-- `gtoPreflop.ts` — position-based RFI / defend / 3-bet range tables and frequencies; also `getPreflopRangeClasses` used by range-aware equity.
+- `gtoPreflop.ts` — position-based RFI / defend / 3-bet range tables and frequencies; also `getPreflopRangeClasses` used by range-aware equity. The tournament ranges are **derived** from the cash tables at module load (see the header comment): each table is trimmed to the top `TOURNAMENT_RAISE_KEEP` / `TOURNAMENT_CALL_KEEP` fraction of its raise / call cells ordered by `tier → Chen`. Do not hand-author a second set of tables.
 - `gtoPostflop.ts`, `gtoRiver.ts` — street decisions using board texture + GTO math.
 - `gtoDeepStack.ts`, `gtoShortStack.ts` (push/call ranges), `gtoICM.ts` (bubble factors, risk premium).
 - `gtoNodelock.ts` — exploitative adjustments from detected opponent leaks (needs sufficient sample size via `isSampleSufficient`).
-- `gtoMath.ts` — MDF, value/bluff ratios, call/raise EV, required equity.
+- `gtoMath.ts` — MDF, value/bluff ratios, call/raise EV (the `rake` argument defaults to 0 so the call break-even matches `rake.callThresholdFor`), required equity.
+- `gtoConfig.ts` — the strategy config leaf (engine × scenario). See above.
+- `rake.ts` — rake config leaf: `RakeMode` / `setRakeConfig` / `rakeAmountFor` / `callThresholdFor` (the call price with rake folded into the denominator) / `effectiveRakeConfigFor(scenario)`.
+- `stackDepth.ts` — continuous stack-depth bands (`stackBand`, `effectiveStackBB`); the single source for the 20/150bb-style thresholds.
+- `random.ts` — the only source of strategy randomness (`random`, `setRandomSource`, `setRandomSeed`). Never call `Math.random()` in strategy code; dealing/shuffling and Monte Carlo sampling intentionally stay on `Math.random()`.
+- `equityIterations.ts` — the single source for Monte Carlo iteration counts.
+- `handStrength.ts` — made-hand classification shared by postflop modules.
 - `postflopFrequencies.ts` — leaf module holding the shared c-bet / river-barrel frequencies, hand-category bet multipliers and bet sizings. `gtoPostflop.ts` and `postflopRange.ts` both read from here (it exists so range-narrowing never has to import `gtoPostflop.ts`, avoiding an import cycle).
 - `postflopRange.ts` — narrows an inferred range by the observed postflop action line (see below).
 - `docs/GTO_REFERENCE.md` — the 6-max 100BB charts these tables approximate.
@@ -80,13 +96,13 @@ The `HandAnalysis` panel surfaces both layers side by side (random equity vs. ra
 ### Hand evaluation & pot-adjacent utils
 
 - `handEvaluator.ts` — `evaluateHand(hand, community)` / `compareHands`; ranks High Card → Royal Flush.
-- `preflopHandStrength.ts` — 169-hand-class scoring/tiers used by preflop decisions.
+- `preflopHandStrength.ts` — 169-hand-class scoring/tiers used by preflop decisions, and the strength order the tournament range trimming is built on. Do not add a second ordering.
 - `drawDetector.ts` — flush draw / OESD / gutshot with outs-based probabilities.
 - `preflopOpenRanges.ts`, `tablePositions.ts` — open-ability by position and seat label helpers.
 
 ### Persistence (localStorage)
 
-- `gamePersistence.ts` — chips, buy-in counts, GTO flag, table config (resume-game flow in `App.tsx`/`StartPage`).
+- `gamePersistence.ts` — chips, buy-in counts, GTO engine flag, scenario, rake config, table config (resume-game flow in `App.tsx`/`StartPage`).
 - The two stats stores above. Tests that touch these should clean up localStorage.
 
 ## Testing notes

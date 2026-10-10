@@ -221,6 +221,45 @@ turned a half-pot MDF of 0.667 into 0.75 and a 3:1 value:bluff into 4:1.
 - `classifyRange` is a **heuristic**, not a GTO solution; it only labels the panel. Never
   feed it into EV or decision logic.
 
+### Strategy configuration (`src/utils/gtoConfig.ts`, `src/utils/rake.ts`)
+
+`engine` (`gto` | `heuristic`) and `scenario` (`cash` | `tournament`) are **two orthogonal
+fields of one config object**, not two module-level `let`s. Read via `getGtoConfig()` /
+`isGtoEngine()` / `isTournamentScenario()`; write via `setGtoConfig(patch)`, which merges
+because the two UI toggles write independently.
+
+`scenario` gates three things, and they must stay mutually consistent:
+
+| Gate | Cash | Tournament |
+| --- | --- | --- |
+| ICM risk premium (`gtoICM.riskPremiumFor`) | 0 | derived from the stack-relative bubble factor |
+| Rake (`rake.effectiveRakeConfigFor`) | user config | always `NO_RAKE` |
+| Preflop ranges (`gtoPreflop`) | base tables | derived, tighter tables |
+
+**Rules:**
+
+- **Render layer takes the scenario as a parameter; decision layer reads the global.**
+  `GameBoard` mirrors its `scenario` state into `gtoConfig` inside a `useEffect`, so on the
+  frame the toggle flips the prop has changed and the global has not. Anything that paints
+  (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation({
+  ..., gameScenario })`) must take it as an argument; anything that decides
+  (`decidePreflopGTO`, `getPreflopRangeClasses`) may read the global.
+- Rake and ICM are **alternatives, not additive**: tournaments do not rake per hand, they
+  punish marginal decisions through ICM. Never let both apply.
+- `botAI.getBotAction` computes `ctx.potOdds` once via `rake.callThresholdWithRake(...)`
+  and every downstream engine reads that field. It is the **call price**, not the raw pot
+  odds — recomputing raw odds downstream silently drops the rake.
+- Tournament preflop ranges are **derived** from the cash tables at module load (trim each
+  table's raise / call cells to the top `TOURNAMENT_RAISE_KEEP` / `TOURNAMENT_CALL_KEEP`
+  fraction, ordered `tier → Chen`). Never hand-author a second set of tables — that creates
+  a second source of truth for the same concept.
+
+**Single-source leaf modules.** Rake, stack-depth bands, strategy randomness, equity
+iteration counts, preflop hand strength and hand-strength classification each live in one
+leaf module with no business imports, so React components, bot code and tests can all
+depend on them without cycles. When a value is computed in more than one place, extract the
+leaf rather than synchronising the copies.
+
 ---
 
 ## 4. Code Style and Formatting Rules
@@ -304,5 +343,8 @@ turned a half-pot MDF of 0.667 into 0.75 and a 3:1 value:bluff into 4:1.
 - When tests are present, ensure all tests pass locally before submitting code.
 - If extending or modifying conventions, update this AGENTS.md with rationale.
 - Use this file as ground truth for new agentic contributions, automation, or migration.
+- Known issues, tech debt, and open decisions live in [`TODO.md`](TODO.md) at the repo
+  root — read it before starting, and when you deliberately leave something unfixed,
+  add an entry there instead of a silent `TODO` comment in the code.
 
 ---

@@ -40,6 +40,32 @@ describe('Draw Detector', () => {
       ).toBe(8);
     });
 
+    it('低端为 Ace: 2-3-4-5 的 A 端也算补牌 (8 outs)', () => {
+      // 5♥4♠ + 2♠K♣3♠：持有 2-3-4-5，A 补成 wheel、6 补成 2-3-4-5-6，
+      // 两端各 4 张 = 8 outs，不能被当成只有 6 能补的卡顺。
+      const result = detectDraws(
+        [card('♥', '5'), card('♠', '4')],
+        [card('♠', '2'), card('♣', 'K'), card('♠', '3')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(true);
+      expect(
+        result.draws.find((d) => d.type === 'open_ended_straight')?.outs,
+      ).toBe(8);
+      expect(result.draws.some((d) => d.type === 'gutshot')).toBe(false);
+      expect(result.totalOuts).toBe(8);
+    });
+
+    it('低端为 Ace: 2-3-4-5 换一组持牌同样识别 (8 outs)', () => {
+      const result = detectDraws(
+        [card('♥', '2'), card('♠', '3')],
+        [card('♣', '4'), card('♦', '5'), card('♥', 'K')],
+        2,
+      );
+      expect(result.draws.some((d) => d.type === 'open_ended_straight')).toBe(true);
+      expect(result.totalOuts).toBe(8);
+    });
+
     it('已成顺子不检测为听牌', () => {
       const result = detectDraws(
         [card('♠', '5'), card('♥', '6')],
@@ -148,6 +174,63 @@ describe('Draw Detector', () => {
       );
       expect(result.estimatedEquity).toBe(0);
       expect(result.totalOuts).toBe(0);
+    });
+  });
+
+  describe('河牌无牌可发', () => {
+    const flushDrawHand = [card('♠', 'A'), card('♠', '4')];
+    const flushDrawBoard = [
+      card('♠', 'K'), card('♠', '7'), card('♣', '2'),
+      card('♦', '9'), card('♥', '3'),
+    ];
+    const oesdHand = [card('♠', '5'), card('♥', '6')];
+    const oesdBoard = [
+      card('♣', '7'), card('♦', '8'), card('♥', 'K'),
+      card('♦', '2'), card('♣', '3'),
+    ];
+
+    it('同一副牌在翻牌有听牌、到河牌就不再报', () => {
+      // 翻牌口径：4 张黑桃确实有补牌，2-3-4-5 的两头顺也确实有 8 outs。
+      const flop = detectDraws(flushDrawHand, flushDrawBoard.slice(0, 3), 2);
+      expect(flop.draws.some((d) => d.type === 'flush_draw')).toBe(true);
+      const flopOesd = detectDraws(oesdHand, oesdBoard.slice(0, 3), 2);
+      expect(flopOesd.totalOuts).toBe(8);
+
+      // 河牌口径：牌已发完，同样这几张牌不再有任何补牌。
+      const river = detectDraws(flushDrawHand, flushDrawBoard, 0);
+      expect(river.draws).toEqual([]);
+      expect(river.totalOuts).toBe(0);
+      expect(river.estimatedEquity).toBe(0);
+
+      const riverOesd = detectDraws(oesdHand, oesdBoard, 0);
+      expect(riverOesd.draws).toEqual([]);
+      expect(riverOesd.totalOuts).toBe(0);
+    });
+  });
+
+  describe('cardsToCome 随结果带出（下游分街分档的唯一依据）', () => {
+    const hand = [card('♠', 'A'), card('♠', '4')];
+    const board = [card('♠', 'K'), card('♠', '7'), card('♣', '2'), card('♦', '9')];
+
+    it('翻牌 / 转牌 / 河牌分别报 2 / 1 / 0', () => {
+      expect(detectDraws(hand, board.slice(0, 3), 2).cardsToCome).toBe(2);
+      expect(detectDraws(hand, board, 1).cardsToCome).toBe(1);
+      expect(detectDraws(hand, board, 0).cardsToCome).toBe(0);
+    });
+
+    it('无听牌时也照实带出（下游不能靠「outs > 0」推断街）', () => {
+      const result = detectDraws(
+        [card('♠', 'A'), card('♥', 'K')],
+        [card('♣', '2'), card('♦', '3'), card('♣', '7')],
+        2,
+      );
+      expect(result.totalOuts).toBe(0);
+      expect(result.cardsToCome).toBe(2);
+    });
+
+    it('河牌短路路径也带出 0（而不是 undefined）', () => {
+      const result = detectDraws(hand, board, 0);
+      expect(result.cardsToCome).toBe(0);
     });
   });
 });
