@@ -22,7 +22,7 @@ import { getShortStackRecommendation } from './gtoShortStack';
 // 筹码深度的**唯一**来源：换算与分档都在这里，本文件不再自己写阈值。
 import { effectiveStackBB, stackBand } from './stackDepth';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
-import { random } from './random';
+import { getRandomSource, mulberry32, random, setRandomSource } from './random';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数，否则同一手牌两边胜率不同。
 import { equityIterations } from './equityIterations';
 import {
@@ -1090,6 +1090,64 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
       return {
         action: canCheckResult ? 'check' : canCallResult ? 'call' : 'fold',
       };
+  }
+}
+
+/**
+ * 「影子决策」的确定性种子。
+ *
+ * 把**影响决策的局面字段**折成一串签名再做 FNV-1a 哈希，于是：
+ * - 同一局面 → 同一动作：面板重渲染不会让 `Bot Action` 行来回跳；
+ * - 不同局面 → 不同抽样：不会所有局面都落在混合频率的同一支上。
+ *
+ * 刻意不把「随机」交给全局源 —— 见 `getShadowBotAction`。
+ */
+function shadowSeed(state: GameState, playerId: PlayerId): number {
+  const signature = [
+    state.phase,
+    playerId,
+    state.dealer,
+    state.currentPlayer,
+    state.lastBet,
+    state.lastRaiseBet,
+    state.mainPot,
+    ...state.players.map(
+      (p) => `${p.id}:${p.folded ? 1 : 0}:${p.bet}:${p.totalBet}:${p.chips}`,
+    ),
+    ...state.communityCards.map((c) => `${c.rank}${c.suit}`),
+  ].join('|');
+
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < signature.length; i += 1) {
+    hash ^= signature.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * 「**如果这个座位交给机器人**，它会怎么打」—— 面板的 `Bot Action` 行用它。
+ *
+ * 与 `getBotAction` 跑的是**同一条决策路径**（同一套引擎分派、同样的对手画像与
+ * 行动权限过滤），差别只有两点：
+ *
+ * 1. **随机源被隔离**。`getBotAction` 的混合频率走全局策略随机流；面板在渲染期
+ *    调用它，若直接跑就会把真机器人的随机序列往前推 —— 面板显示的与机器人实际
+ *    会做的对不上，`setRandomSeed` 的可复现性也会被破坏。这里临时换成一条
+ *    由局面签名派生的独立 PRNG，`finally` 里还原，**全局流一个数都不消耗**。
+ * 2. **混合频率抽样确定**。同一种子 ⇒ 同一次抽样，避免重渲染时动作来回跳
+ *    （权益本身仍是蒙特卡洛，自带几个百分点的方差）。
+ *
+ * ⚠️ 这是**假设性**结果：机器人真实动作还受它自己那一刻的随机抽样影响，
+ * 两者可以合法地不同（混合频率的意义就在这里）。
+ */
+export function getShadowBotAction(player: Player, state: GameState): BotDecision {
+  const previous = getRandomSource();
+  setRandomSource(mulberry32(shadowSeed(state, player.id)));
+  try {
+    return getBotAction(player, state);
+  } finally {
+    setRandomSource(previous);
   }
 }
 
