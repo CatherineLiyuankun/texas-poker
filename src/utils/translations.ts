@@ -117,6 +117,9 @@ export const translations = {
     rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
+    // 「这个座位交给机器人会怎么打」——与机器人真实动作（座位气泡）同一条决策路径，
+    // 差别只在混合频率的随机抽样（见 botAI.getShadowBotAction）。
+    botAction: 'Bot Action',
     // 加注框有值时单独显示的「我方下注所需弃牌率」——与跟注赔率是两个不同的量
     betRequiredFold: '所需弃牌率 Req. Fold',
     gto: 'GTO preflop(位置+SPR 查表)', // GTO建议

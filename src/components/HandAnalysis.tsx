@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import type { Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
+import type { Action, Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
@@ -36,6 +36,8 @@ import {
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
+import { getShadowBotAction } from '../utils/botAI';
+import { formatActionLabel } from '../utils/actionLabel';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
   callThresholdFor,
@@ -227,6 +229,20 @@ function getGtoActionColor(action: string): string {
   if (action === 'check') return 'text-yellow-400';
   if (action === 'F') return 'text-red-400';
   return 'text-white';
+}
+
+/**
+ * Bot Action 行的颜色。与座位气泡（`PlayerArea`）的配色保持同一套语义：
+ * 加注绿、跟注蓝、过牌黄、弃牌红、全下紫。
+ */
+function getBotActionColor(action: Action): string {
+  switch (action) {
+    case 'raise': return 'text-green-400';
+    case 'call': return 'text-blue-400';
+    case 'check': return 'text-yellow-400';
+    case 'fold': return 'text-red-400';
+    case 'allin': return 'text-purple-400';
+  }
 }
 
 function getOutsColor(outs: number): string {
@@ -874,6 +890,22 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return calculateRequiredFoldEquity(betSize, potBeforeHeroBet);
   }, [playerRaiseAmount, heroPlayer, currentPot]);
 
+  // 「Bot Action」：**这个真人座位如果交给机器人**会怎么打。
+  //
+  // 跑的是与机器人真实决策完全同一条路径（`botAI.getShadowBotAction` →
+  // `getBotAction`），只是随机源被隔离 —— 面板在渲染期调用，绝不能推进真机器人的
+  // 混合频率序列（原因与实现见 `getShadowBotAction` 的注释）。
+  //
+  // 依赖整个 `gameState`：它每次行动都会换引用，正好等于「局面变了就重算一次」；
+  // 面板因权益 effect 重渲染时 gameState 不变，memo 命中，不会重复跑蒙特卡洛。
+  const shadowBotAction = useMemo(() => {
+    if (!heroPlayer || !gameState) return null;
+    if (phase === 'showdown' || phase === 'ended') return null;
+    // 已弃牌 / 已全下的人没有行动可做，问了也是无意义
+    if (heroPlayer.folded || heroPlayer.allIn) return null;
+    return getShadowBotAction(heroPlayer, gameState);
+  }, [heroPlayer, gameState, phase]);
+
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
   // 得出相反结论时误以为面板算错。
@@ -1141,6 +1173,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Bot Action：这个真人座位如果交给机器人会怎么打。
+          放在 GTO Math 之前 —— 用户最想先知道「AI 会怎么做」，再看拆解。
+          与座位气泡里的「机器人真实动作」是同一条决策路径，差别只有混合频率抽样。 */}
+      {shadowBotAction && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <Row
+            label={translations.handAnalysis.botAction}
+            value={formatActionLabel(shadowBotAction.action)}
+            color={getBotActionColor(shadowBotAction.action)}
+          />
         </div>
       )}
 
