@@ -3,6 +3,8 @@ import {
   computePotOddsFor,
   callPotOddsFrom,
   formatOddsRatio,
+  impliedOddsFrom,
+  futureWinningsFrom,
 } from '../potOdds';
 import {
   calculateCallEV,
@@ -267,6 +269,74 @@ describe('formatOddsRatio — 比率形式（底池 : 跟注）', () => {
       const ratio = totalPot / toCall;
       expect(callPotOdds).toBeCloseTo(1 / (ratio + 1), 12);
     }
+  });
+});
+
+describe('impliedOddsFrom — 隐含赔率（教材口径）', () => {
+  it('书中的例子：彩池 7500、跟 2500、双方各剩 2500 → 4:1 且盈亏平衡 20%', () => {
+    const r = impliedOddsFrom(7500, 2500, 2500);
+    expect(r).not.toBeNull();
+    expect(r!.ratio).toBeCloseTo(4, 12);
+    expect(formatOddsRatio(r!.ratio)).toBe('4');
+    expect(r!.breakeven).toBeCloseTo(0.2, 12);
+  });
+
+  it('未来赢不到筹码时退化为直接赔率', () => {
+    const direct = computePotOdds({
+      mainPot: 150,
+      sidePotTotal: 0,
+      lastBet: 50,
+      playerBet: 0,
+    });
+    const r = impliedOddsFrom(direct.totalPot, direct.toCall, 0);
+    expect(r!.ratio).toBeCloseTo(direct.totalPot / direct.toCall, 12);
+    expect(r!.breakeven).toBeCloseTo(direct.callPotOdds, 12);
+  });
+
+  it('隐含赔率的盈亏平衡**不高于**直接赔率（放宽才叫隐含赔率）', () => {
+    const r = impliedOddsFrom(150, 50, 100);
+    expect(r!.breakeven).toBeLessThan(50 / 200);
+  });
+
+  it('无跟注额（可免费过牌）时返回 null', () => {
+    expect(impliedOddsFrom(100, 0, 50)).toBeNull();
+    expect(impliedOddsFrom(100, -5, 50)).toBeNull();
+  });
+});
+
+describe('futureWinningsFrom — 隐含赔率里的「未来可赢筹码」', () => {
+  it('取「我方跟注后剩余」与「各未弃牌对手剩余」的较小值', () => {
+    const hero = mkPlayer({ id: 1, chips: 5000 });
+    const state = mkState({
+      players: [
+        hero,
+        mkPlayer({ id: 2, chips: 2500, bet: 2500, totalBet: 2500 }),
+      ],
+    });
+    // 书中的例子：hero 跟 2500 后剩 2500，对手还剩 2500 → 2500
+    expect(futureWinningsFrom(state, hero, 2500)).toBe(2500);
+  });
+
+  it('我方剩余更少时以我方为界（赢不到自己掏不出的钱）', () => {
+    const hero = mkPlayer({ id: 1, chips: 1000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 9000 })],
+    });
+    expect(futureWinningsFrom(state, hero, 400)).toBe(600);
+  });
+
+  it('对手全部弃牌时是 0（无人可支付）', () => {
+    const hero = mkPlayer({ id: 1, chips: 1000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 9000, folded: true })],
+    });
+    expect(futureWinningsFrom(state, hero, 100)).toBe(0);
+  });
+
+  it('跟注额超过自身筹码时不产生负数', () => {
+    const hero = mkPlayer({ id: 1, chips: 100 });
+    const state = mkState({ players: [hero, mkPlayer({ id: 2, chips: 9000 })] });
+    expect(futureWinningsFrom(state, hero, 500)).toBe(0);
   });
 });
 

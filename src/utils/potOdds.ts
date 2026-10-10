@@ -100,3 +100,57 @@ export function formatOddsRatio(ratio: number): string {
   // 2.0 → 「2」、3.0 → 「3」，但 2.3 / 1.5 保留一位（教材也是这么印的）
   return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
 }
+
+/**
+ * 隐含赔率（implied odds）。
+ *
+ * 教材口径：隐含赔率 =（彩池 + 对手未来可能投入的筹码）/（我现在要跟注的筹码 +
+ * 我未来可能投入的筹码），同样归一化成 `x : 1`，盈亏平衡百分比 = `1 / (ratio + 1)`。
+ *
+ * 本仓库采用那页书里的**乐观**假设：
+ * - 「对手未来可能投入的筹码」= 跟注后双方还能继续投入的**有效剩余筹码**
+ *   （`futureWinningsFrom`：取「我方跟注后剩余」与「各未弃牌对手剩余」的较小值）；
+ * - 「我未来可能投入的筹码」= 0 —— 书里明说：错过就不再往彩池里投钱。
+ *
+ * 校验（书中的例子）：彩池 7500、跟 2500、双方各剩 2500 →
+ * ratio = (7500 + 2500) / 2500 = 4（4:1）、盈亏平衡 = 1/5 = 20%，与书上一致。
+ *
+ * ⚠️ 这是**上界**：它假设成牌后能把对手的剩余筹码全部赢过来，真实牌局里对手
+ * 未必支付；而且它完全不看成牌概率（面板另有权益行）。河牌没有后续街可发，
+ * 调用方应直接隐藏该行（那时隐含赔率恒等于直接赔率）。
+ */
+export interface ImpliedOddsResult {
+  /** 隐含赔率比率（表示 `ratio : 1`） */
+  ratio: number;
+  /** 隐含赔率对应的跟注盈亏平衡百分比 = `1 / (ratio + 1)` */
+  breakeven: number;
+}
+
+export function impliedOddsFrom(
+  totalPot: number,
+  toCall: number,
+  futureWinnings: number,
+): ImpliedOddsResult | null {
+  if (toCall <= 0) return null;
+  const ratio = Math.max(0, totalPot + futureWinnings) / toCall;
+  return { ratio, breakeven: 1 / (ratio + 1) };
+}
+
+/**
+ * 隐含赔率里「成牌后还能再赢到的筹码」。
+ *
+ * 取**有效剩余筹码**：我方跟注之后还剩多少，与各未弃牌对手还剩多少，取较小者 ——
+ * 对手不可能输给你超过你还能投入的量。全部对手都已弃牌时是 0（无人可支付）。
+ */
+export function futureWinningsFrom(
+  state: GameState,
+  player: Player,
+  toCall: number,
+): number {
+  const heroRemaining = Math.max(0, player.chips - toCall);
+  const opponents = state.players.filter(
+    (p) => p.id !== player.id && !p.folded,
+  );
+  if (opponents.length === 0) return 0;
+  return Math.max(0, Math.min(heroRemaining, ...opponents.map((p) => p.chips)));
+}

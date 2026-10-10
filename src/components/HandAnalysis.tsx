@@ -38,7 +38,11 @@ import { getPanelRecommendation } from '../utils/panelRecommendation';
 import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
 import { getShadowBotAction } from '../utils/botAI';
 import { formatActionLabel } from '../utils/actionLabel';
-import { formatOddsRatio } from '../utils/potOdds';
+import {
+  formatOddsRatio,
+  futureWinningsFrom,
+  impliedOddsFrom,
+} from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
   callThresholdFor,
@@ -917,6 +921,21 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return (currentPot ?? 0) / toCall;
   }, [currentPot, betToCall]);
 
+  // 隐含赔率：把「成牌后还能再赢到的筹码」折进比率（口径见 `potOdds.impliedOddsFrom`）。
+  //
+  // 只在**还有牌可发**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
+  // 显示出来只会与上一行的赔率重复。缺 hero / 对局状态时（算不出有效剩余筹码）也不显示。
+  const impliedOdds = useMemo(() => {
+    const toCall = betToCall ?? 0;
+    if (toCall <= 0 || cardsToCome <= 0) return null;
+    if (!heroPlayer || !gameState) return null;
+    return impliedOddsFrom(
+      currentPot ?? 0,
+      toCall,
+      futureWinningsFrom(gameState, heroPlayer, toCall),
+    );
+  }, [betToCall, currentPot, cardsToCome, heroPlayer, gameState]);
+
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
   // 得出相反结论时误以为面板算错。
@@ -1078,6 +1097,30 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               color={getRecColor(recommendation)}
             />
           </div>
+
+          {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。
+              河牌 / 无跟注额时不渲染（见上方 `impliedOdds`）。 */}
+          {impliedOdds !== null && (
+            <>
+              <div className="col-span-2">
+                <GridRow
+                  label={translations.handAnalysis.impliedOdds}
+                  value={
+                    <>
+                      {(impliedOdds.breakeven * 100).toFixed(1)}%
+                      <span className="ml-1 text-[9px] text-white/50">
+                        {formatOddsRatio(impliedOdds.ratio)} : 1
+                      </span>
+                    </>
+                  }
+                  color={getPotOddsColor(impliedOdds.breakeven)}
+                />
+              </div>
+              <div className="col-span-2 text-[9px] leading-tight text-gray-400">
+                {translations.handAnalysis.impliedOddsCaveat}
+              </div>
+            </>
+          )}
 
           {/* 我方下注的所需弃牌率：与跟注赔率是两个不同的量，只在加注框有值时出现 */}
           {betRequiredFold !== null && (

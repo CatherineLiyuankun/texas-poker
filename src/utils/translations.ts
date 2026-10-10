@@ -117,6 +117,10 @@ export const translations = {
     rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
+    // 隐含赔率（教材口径）：把「成牌后还能再赢到的筹码」折进比率。
+    // 与直接赔率同行显示会让人分不清，故独占一行，并附一句口径说明。
+    impliedOdds: '隐含赔率 Implied',
+    impliedOddsCaveat: '按「成牌后赢下对手剩余筹码」的上界估算，未计成牌概率',
     // 「这个座位交给机器人会怎么打」——与机器人真实动作（座位气泡）同一条决策路径，
     // 差别只在混合频率的随机抽样（见 botAI.getShadowBotAction）。
     botAction: 'Bot Action',
