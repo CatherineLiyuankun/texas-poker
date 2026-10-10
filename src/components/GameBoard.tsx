@@ -298,8 +298,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
 
     const decision = getBotAction(currentPlayer, state);
     const delay = noRealCanAct
-      ? (decision.action === 'check' ? 800 : 1200)
-      : (decision.action === 'check' ? 2800 : 3800);
+      ? (decision.action === 'check' ? 200 : 400)
+      : (decision.action === 'check' ? 400 : 600);
 
     const timer = setTimeout(() => {
       playerAction(currentPlayer.id, decision.action, decision.amount);
