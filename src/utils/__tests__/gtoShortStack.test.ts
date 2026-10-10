@@ -348,8 +348,11 @@ describe('gtoShortStack', () => {
    * 「翻前 `toCall === 0` 且 `canFoldResult === true`」这个组合在生产里并不存在 ——
    * 用它会让分支可达性判断失真（上面那条「泡沫期 22 → 弃牌」的用例就是被它带偏的：
    * 它走的是**档位块里**的 `Short stack fold:`，而不是这里的按牌力块）。
+   *
+   * 末尾两条是本块**唯一可达**的那条路径的回归用例：大盲在平跟底池里能免费过牌，
+   * 兜底必须给 `check`（#23 之前给的是非法的 `fold`）。
    */
-  describe('「按牌力」兜底的可达性（C2：实测钉住）', () => {
+  describe('「按牌力」兜底的可达性（C2 钉住 · #23 修掉兜底的非法 fold）', () => {
     afterEach(() => resetGtoConfig());
 
     /** 庄家 = 1 ⇒ `getPlayerPosition(3, 1, 6) === 2` = BB。 */
@@ -459,16 +462,46 @@ describe('gtoShortStack', () => {
       expect(rec.reasoning.startsWith('Short stack fallback')).toBe(true);
     });
 
-    it('⚠️ 已知问题（另开一批修）：fallback 在能过牌时返回 fold', () => {
+    it('✅ 已修（#23）：fallback 在能过牌时返回 check，不再返回非法的 fold', () => {
       setGtoConfig({ scenario: 'tournament' });
       const { rec, flags } = run();
 
-      // 大盲本可以免费看牌，却拿到一个弃牌建议 —— 且与自己的权限模型自相矛盾。
-      // `playerAction` 不做权限校验（`canPlayerAct` 只用来禁 UI 按钮），
-      // 所以这个 fold 会被真的执行。
+      // 大盲本可以免费看牌。以前这里返回 `'fold'` —— 与自己的权限模型自相矛盾，
+      // 而且 `playerAction` 不做权限校验（`canPlayerAct` 只用来禁 UI 按钮），
+      // 所以那个非法 fold 会被真的执行。现在兜底改成「能过牌就过牌」。
       expect(flags.canCheckResult).toBe(true);
-      expect(rec.action).toBe('fold');
-      // 修法：rfi 侧补 `check` 兜底（能过牌就过牌）。改这块时这条断言要一起改。
+      expect(flags.canFoldResult).toBe(false);
+      expect(rec.action).toBe('check');
+      expect(rec.reasoning.startsWith('Short stack fallback')).toBe(true);
+      expect(rec.reasoning).toContain('nothing to call');
+    });
+
+    it('兜底动作与权限一致：能过牌 → check；能跟注 → call；只能弃牌 → fold', () => {
+      setGtoConfig({ scenario: 'tournament' });
+
+      // 关掉 `canRaiseResult`，让「按牌力」块里的 `strong → value bet` 不可能抢先返回 ——
+      // 本用例测的是**兜底那几行**的优先级，不该受牌力分档影响。
+      // （生产里也凑不出「`toCall === 0` 且 `canCallResult`」这个组合，
+      //   所以这里必须直接构造 `flags`，不能走 `flagsFor`。）
+      // 返回类型 `ShortStackRecommendation` 是模块私有的，这里用 `ReturnType` 取。
+      const at = (over: Partial<ActionFlags>): ReturnType<typeof getShortStackRecommendation> => {
+        const state = limpAroundState();
+        const hero = state.players[BB_ID - 1];
+        return getShortStackRecommendation(
+          hero,
+          state,
+          { ...flagsFor(state, hero), canRaiseResult: false, ...over },
+          bbCtx(),
+          createMockOpponentAdjustments(),
+        );
+      };
+
+      // 能过牌且无注可弃（生产唯一可达的 rfi 局面）→ 过牌
+      expect(at({}).action).toBe('check');
+
+      // 畸形局面：`lastBet < playerBet` ⇒ 既不能过牌也不能弃牌 → 退到最后一行
+      expect(at({ canCheckResult: false }).action).toBe('fold');
+      expect(at({ canCheckResult: false, canCallResult: true }).action).toBe('call');
     });
   });
 });

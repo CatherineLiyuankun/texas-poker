@@ -61,7 +61,9 @@ const BUBBLE_MAX_TIER = 3;
 type Position = 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
 
 interface ShortStackRecommendation {
-  action: 'allin' | 'raise' | 'call' | 'fold';
+  // `'check'` 是后加的：兜底分支以前只会在 `'call' | 'fold'` 里二选一，于是在
+  // 「无需跟注」（`toCall === 0`）时给出非法的 `'fold'`。详见函数末尾的兜底注释。
+  action: 'allin' | 'raise' | 'call' | 'fold' | 'check';
   sizing?: number;               // 下注尺寸 (bb)
   pushRange?: string;            // 推注范围描述
   callRange?: string;            // 跟注范围描述
@@ -352,8 +354,8 @@ export function getShortStackRecommendation(
   // 21–25bb 于是被送进来却又跳过这段逻辑，落到下面「按牌力」的分支
   // （那本是翻后的成牌逻辑，用在翻前并不合适）。
   //
-  // 注：下面「按牌力」块**并非完全不可达** —— 它的真实可达范围、以及它现在的
-  // 实际后果（能过牌却弃牌），见该块前的长注释，别凭这段历史描述下结论。
+  // 注：下面「按牌力」块**并非完全不可达** —— 它的真实可达范围、以及它原本
+  // 的实际后果（能过牌却弃牌，已修），见该块前的长注释，别凭这段历史描述下结论。
   const band = stackBand(effectiveStack);
 
   if (band === 'push' || band === 'short') {
@@ -451,16 +453,26 @@ export function getShortStackRecommendation(
   //        这四条是**结构上不可达**的（都要求 `canCallResult` 或 `canFoldResult` 为真）；
   //      - `strong→raise`（`value bet`）是**理论上可达、实际够不到**。
   //
-  // 4) ⚠️ 于是实际后果只剩一个，而且是个真 bug：
-  //    `fallback` 返回 `action: flags.canCallResult ? 'call' : 'fold'`，rfi 下
+  // 4) 实际后果原本只剩一个，而且是个真 bug（**已在本批修掉**）：
+  //    `fallback` 以前返回 `action: flags.canCallResult ? 'call' : 'fold'`，rfi 下
   //    `canCallResult` 为假 → **返回 `'fold'`，而此时 `canCheckResult` 为真，
   //    大盲本可以免费过牌**。`playerAction` 不做权限校验（`canPlayerAct` 只用来
   //    禁 UI 按钮），所以这个 fold 会被真的执行。
-  //    （`value bet` 那行 `Math.min(effectiveStack, ctx.totalPot * 0.75)` 的单位也是
-  //    混的：前者 bb、后者筹码。因为该分支实际够不到，一并留到下一批。）
+  //    现在兜底改成「能过牌就过牌」，见函数末尾的注释。
   //
-  // **本块暂不改行为**：修法（rfi 侧补 `check` 兜底、并修 sizing 单位）另开一批。
-  // 这里只把可达范围与两个已知问题钉住。**改这块之前先看那组可达性用例。**
+  // 5) ⚠️ 仍未修（本批不动）：`value bet` 那行
+  //    `Math.min(effectiveStack, ctx.totalPot * 0.75)` 的单位是混的 —— 前者 bb
+  //    （`effectiveStackBB` 的结果），后者**筹码**（`ctx.totalPot` 是
+  //    `mainPot + sidePot`）。同一个 `sizing` 字段在 `ShortStackRecommendation` 上
+  //    标注的却是 bb，而它经 `botAI.decidePreflop` → `BotDecision.amount` →
+  //    `playerAction` 传进 reducer 后，`'raise'` 分支把 `amount` 当成**筹码增量**
+  //    （`additional = action.amount`、`actingPlayer.chips -= additional`）。
+  //    也就是说这个字段的「标注单位」与「实际单位」本来就是错的，只是该分支
+  //    实际够不到（见 3），所以没暴露出后果。**要修就得连 `getShortStackSizing`
+  //    一起定单位，属于跨模块的口径问题，别只改这一行。**
+  //
+  // **可达性用例**：`gtoShortStack.test.ts` 的「按牌力兜底的可达性」一节。
+  // 改这块之前先看那组用例。
   if (strength === 'strong') {
     if (flags.canRaiseResult) {
       const sizing = Math.min(effectiveStack, ctx.totalPot * 0.75);
@@ -499,6 +511,31 @@ export function getShortStackRecommendation(
     return {
       action: 'fold',
       reasoning: `Short stack default fold: ${effectiveStack}bb`,
+    };
+  }
+
+  // ─── 兜底：**能过牌就过牌** ────────────────────────────────────────────────
+  //
+  // 走到这里 `canFoldResult` 为假 ⇒ `toCall === 0`（`canFold` 就是
+  // `lastBet > playerBet`）。此时弃牌是**非法**动作（没有注可弃），而过牌免费。
+  //
+  // 以前这里写的是 `action: flags.canCallResult ? 'call' : 'fold'`，`toCall === 0`
+  // 时 `canCall` 也恒假 → 一律返回 `'fold'`：大盲在「人人平跟」的底池里本可以
+  // 免费看牌，却拿到一个弃牌建议，和自己的权限模型自相矛盾。而且
+  // `playerAction` **不做权限校验**（`canPlayerAct` 只用来禁 UI 按钮），
+  // 所以这个非法 fold 会被真的执行。
+  //
+  // 别的引擎模块的兜底都是 `canCheckResult ? 'check' : 'fold'`，只有本模块漏了：
+  // `gtoDeepStack.ts` / `gtoPostflop.ts` / `gtoRiver.ts` / `gtoPreflop.ts` 以及
+  // `botAI.getBotAction` 的 default 分支。
+  //
+  // `canCheck`（`lastBet === playerBet`）与 `canFold`（`lastBet > playerBet`）
+  // 互斥，所以这里不会和上面的「默认 fold」打架；两者同时为假的畸形局面
+  // （`lastBet < playerBet`）才落到最后那行。
+  if (flags.canCheckResult) {
+    return {
+      action: 'check',
+      reasoning: `Short stack fallback: check (nothing to call): ${effectiveStack}bb`,
     };
   }
 
