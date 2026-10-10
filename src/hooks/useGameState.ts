@@ -274,13 +274,20 @@ export function useGameState() {
           for (let i = 0; i < totalPlayers; i++) {
             const playerId = (i + 1) as PlayerId;
             const isReal = i < action.realPlayerCount;
+            const carriedChips = action.playerChips?.[i] ?? initialChips;
+            const carriedBuyInCount =
+              action.playerBuyInCounts?.[i] ?? state.players[i]?.buyInCount ?? 0;
+            // 0 筹码玩家不能被发牌：现金局须先补码（比赛则等于淘汰）。
+            // 本局统一在开局前自动补码，避免带 0 筹码入局，
+            // 同时兜住 resetRound 中 setTimeout 读到旧 state 的竞态。
+            const needsRebuy = carriedChips <= 0;
             newPlayers.push({
               ...createPlayer(playerId, isReal, initialChips),
               hand: [deck[i * 2], deck[i * 2 + 1]],
-              chips:
-                action.playerChips?.[i] ??
-                initialChips,
-              buyInCount: action.playerBuyInCounts?.[i] ?? state.players[i]?.buyInCount ?? 0,
+              chips: needsRebuy ? initialChips : carriedChips,
+              buyInCount: needsRebuy
+                ? carriedBuyInCount + 1
+                : carriedBuyInCount,
             });
           }
 
@@ -315,14 +322,15 @@ export function useGameState() {
           }
 
           let lastRaiseBet: number;
-          let raiseRightsOpened: boolean;
+
+          // 大盲筹码不足时，bring-in（最低下注额）不降低：其他人仍须按完整大盲跟注，
+          // 加注权保持开放，加注者至少加注到 2×大盲（Robert's Rules Sec.4 / Sec.14）。
+          const raiseRightsOpened = true;
 
           if (bbAmount >= bigBlind) {
             lastRaiseBet = bbAmount - sbAmount;
-            raiseRightsOpened = true;
           } else {
             lastRaiseBet = bigBlind - smallBlind;
-            raiseRightsOpened = false;
           }
 
           const newState = {
@@ -333,7 +341,7 @@ export function useGameState() {
             players: newPlayers,
             currentPlayer: newPlayers[nextPlayerIdx].id,
             dealer: dealer,
-            lastBet: bbAmount,
+            lastBet: bigBlind,
             lastRaiseBet,
             raiseRightsOpened,
             winner: null,

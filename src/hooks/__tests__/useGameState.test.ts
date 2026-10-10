@@ -453,10 +453,10 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(totalChips + totalBets).toBe(10 + 1000);
     });
 
-    it('筹码为0的玩家重置后获得INITIAL_CHIPS并buyInCount+1', () => {
+    it('盲注后筹码归零的玩家，重置后获得INITIAL_CHIPS并buyInCount+1', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
-        result.current.startGame(2, 0, 5, [0, 1000]);
+        result.current.startGame(2, 0, 5, [5, 1000]); // 玩家1只剩 5 筹码，下盲后归零
       });
 
       const playerWithNoChips = result.current.state.players.find(
@@ -474,6 +474,19 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       );
       expect(resetPlayer!.chips).toBe(INITIAL_CHIPS);
       expect(resetPlayer!.buyInCount).toBe(1);
+    });
+
+    it('开局时 0 筹码玩家自动补码，不会带 0 筹码入局', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [0, 1000]);
+      });
+
+      const { players } = result.current.state;
+      expect(players[0].chips + players[0].bet).toBe(INITIAL_CHIPS); // 补码到满额后再下盲
+      expect(players[0].buyInCount).toBe(1);
+      expect(players.every((p) => p.chips > 0)).toBe(true);
+      expect(result.current.state.lastBet).toBe(10);
     });
 
     it('多次破产后buyInCount正确累加', () => {
@@ -632,7 +645,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       expect(result.current.state.raiseRightsOpened).toBe(true);
     });
 
-    it('preflop大盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
+    it('preflop大盲不足：lastRaiseBet使用理论值，raiseRightsOpened=true', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
         result.current.startGame(2, 0, 5, [1000, 8]); // 玩家2只有8筹码
@@ -646,14 +659,38 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       // 只有当短码玩家(P2)是大盲时，才验证大盲不足逻辑
       // 2人局dealer=SB，dealer随机分配，P2可能不是BB
       if (bbPlayer && bbPlayer.id === 2) {
-        expect(state.lastBet).toBe(8);
+        // 大盲筹码不足时，跟注基准不降低，仍为完整大盲 10
+        expect(state.lastBet).toBe(10);
         expect(state.lastRaiseBet).toBe(10 - 5);
-        expect(state.raiseRightsOpened).toBe(false);
+        expect(state.raiseRightsOpened).toBe(true);
       } else {
         // P1是BB（full $20），P2是SB（$10）
         expect(state.lastBet).toBe(10);
         expect(state.raiseRightsOpened).toBe(true);
       }
+    });
+
+    it('大盲筹码不足时，跟注基准仍为完整大盲（bring-in 不降低）', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [8, 8]); // 双方都只剩 8 筹码，大盲必然不足
+      });
+
+      const { players, dealer } = result.current.state;
+      const dealerIdx = dealer - 1;
+      const bigBlindIdx = (dealerIdx + 2) % players.length;
+
+      expect(players[bigBlindIdx].bet).toBe(8); // 大盲全下全部 8 筹码
+      expect(result.current.state.lastBet).toBe(10); // 跟注基准仍为完整大盲
+    });
+
+    it('大盲筹码不足时，加注权保持开放', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [8, 8]); // 大盲必然不足
+      });
+
+      expect(result.current.state.raiseRightsOpened).toBe(true);
     });
 
     it('preflop小盲不足大盲正常：lastRaiseBet = bbAmount - sbAmount', () => {
@@ -673,7 +710,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       }
     });
 
-    it('preflop双盲不足：lastRaiseBet使用理论值，raiseRightsOpened=false', () => {
+    it('preflop双盲不足：lastRaiseBet使用理论值，raiseRightsOpened=true', () => {
       const { result } = renderHook(() => useGameState());
       act(() => {
         result.current.startGame(2, 0, 5, [5, 8]);
@@ -684,7 +721,7 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       
       expect(maxBet).toBeLessThan(10);
       expect(result.current.state.lastRaiseBet).toBe(10 - 5);
-      expect(result.current.state.raiseRightsOpened).toBe(false);
+      expect(result.current.state.raiseRightsOpened).toBe(true);
     });
 
     it('postflop第一人下注：lastRaiseBet = 下注额本身', () => {
