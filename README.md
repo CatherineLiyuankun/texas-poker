@@ -18,10 +18,13 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Postflop AI**: Monte Carlo equity simulation (200-500 iterations) + pot odds comparison
   - **Draw Detection**: Flush draw, open-ended straight, gutshot with outs-based probability
   - **Opponent Modeling**: Profiles opponents as aggressive/passive and adjusts thresholds dynamically
-- **Hand Analysis Panel**: Real-time display of **random-hand equity** and **range-aware equity**, pot odds, draw info, and action recommendations
+- **Hand Analysis Panel**: Real-time display of **random-hand equity** and **range-aware equity**, pot odds, implied odds, draw info, **Bot Action**, and action recommendations
   - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration)
   - **Range equity**: hero vs. an inferred opponent continuing range (preflop role + position tables + card removal + VPIP, then narrowed by the observed postflop action line)
   - Available from preflop onward; the recommendation and EV figures are driven by range equity, falling back to random equity when no range can be inferred
+  - **Bot Action** (above `GTO Math`): what the bot would do **if this real player's seat were bot-controlled** — the same decision path as the live bots (`getShadowBotAction` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below)
+  - **Pot odds**: the percentage plus the same thing as a ratio (`pot : call`), e.g. `33.3% 2 : 1` — 1/4 pot `5 : 1`, 1/2 pot `3 : 1`, 3/4 pot `2.3 : 1`, full pot `2 : 1`, 2 pots `1.5 : 1`, matching the standard table
+  - **Implied odds**: percentage + ratio, `(pot + future winnings) / call`, where future winnings is the effective remaining stack after the call (the optimistic upper bound the textbook uses: `7 500` pot / call `2 500` / `2 500` behind → `4 : 1` → `20.0%`). Hidden on the river, where it degenerates to the plain pot odds
 - **Player Stats Tracking (VPIP/PFR)**: Long-term tracking of real players' preflop behavior across multiple hands
   - **VPIP** (Voluntarily Put Money In Pot): Percentage of hands where a player voluntarily enters the pot preflop
   - **PFR** (Pre-Flop Raise): Percentage of hands where a player raises preflop
@@ -141,6 +144,8 @@ Per-combination breakdown:
 1. **ICM only affects the bot when GTO is OFF.** The risk premium (`gtoICM.riskPremiumFor`), `getICMRecommendation` and `getShortStackRecommendation` are reached only from `botAI.decidePreflop` — the *heuristic* preflop path. When GTO is ON, tournament tightening is expressed solely through the derived range tables in `gtoPreflop` (`TOURNAMENT_*_KEEP`), which do **not** stack a risk premium. So "tournaments adjust by ICM" must be qualified with "under the heuristic engine".
 2. **The panel never applies ICM.** `HandAnalysis` does not import `gtoICM`; none of its numbers (the recommendation row, MDF / Call EV / Raise EV / V:B) is ICM-adjusted. The caveat line therefore starts with *未计 ICM* in both scenarios and only annotates *（机器人已计）* under tournaments. What *does* change under tournaments is the opponent's modelled range (tightened preflop) — and that has its own label, *锦标赛范围收紧*. The quoted strings are the literal UI labels, which are Chinese.
 
+**The panel's `Bot Action` row is not a fifth channel of the table above.** It answers a *hypothetical* — "if this real player's seat were bot-controlled, what would it do?" — by running the bot's decision path on that seat (`getShadowBotAction`). It shares the *code* with ④ (both end in `getBotAction`) but not the *sample*: ④ is the bot's real action, `Bot Action` is one deterministic draw from the same mixed strategy. They may legitimately differ, and neither is a bug. The row is hidden when the hero has folded or is all-in.
+
 ### Tech Stack
 
 - React 19 + TypeScript
@@ -199,10 +204,13 @@ npm run build
   - **翻后 AI**: Monte Carlo 胜率模拟（300-400 次迭代）+ 底池赔率比较
   - **听牌检测**: 同花听牌、两头顺子、卡顺，基于 Outs 概率计算
   - **对手画像**: 自动识别激进/被动型对手，动态调整决策阈值
-- **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、听牌信息和行动建议
+- **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、隐含赔率、听牌信息、**Bot Action** 和行动建议
   - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）
   - **范围权益**: 我方手牌 vs 推断出的对手续玩范围（翻前角色 + 位置表 + 去牌 + VPIP 宽度修正，再按观测到的翻后行动线收窄）
   - 翻前起即可用；行动建议与 EV 数字由范围权益驱动，无法推断范围时回退为随机权益
+  - **Bot Action**（位于 `GTO Math` 之前）: **这个真人座位如果交给机器人**会怎么打 —— 与场上机器人同一条决策路径（`getShadowBotAction` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同
+  - **底池赔率**: 百分比 + 同一件事的**比率形式**（底池 : 跟注），如 `33.3% 2 : 1` —— 1/4 池 `5 : 1`、1/2 池 `3 : 1`、3/4 池 `2.3 : 1`、一个池 `2 : 1`、两个池 `1.5 : 1`，与标准表逐行一致
+  - **隐含赔率**: 百分比 + 比率，`（底池 + 未来可赢筹码）/ 跟注额`，其中「未来可赢筹码」取跟注后的**有效剩余筹码**（教材那个乐观上界：底池 `7 500` / 跟 `2 500` / 对手还剩 `2 500` → `4 : 1` → `20.0%`）。河牌没有后续街、恒等于直接赔率，故该行隐藏
 - **玩家数据统计 (VPIP/PFR)**: 跨多局长期追踪真人玩家的翻牌前行为
   - **VPIP** (主动入池率): 玩家翻牌前自愿入池的手牌百分比
   - **PFR** (翻牌前加注率): 玩家翻牌前加注的手牌百分比
@@ -321,6 +329,8 @@ npm run build
 
 1. **ICM 只在 GTO OFF 时影响机器人。** 风险溢价 `gtoICM.riskPremiumFor`、`getICMRecommendation`、`getShortStackRecommendation` 的唯一调用点都在 `botAI.decidePreflop` —— **启发式**翻前那条路。GTO ON 时锦标赛的收紧全部由 `gtoPreflop` 的派生范围表（`TOURNAMENT_*_KEEP`）表达，**不叠**风险溢价。所以「锦标赛按 ICM 调整」这句话必须限定为「在启发式引擎下」。
 2. **面板从不计 ICM。** `HandAnalysis` 不 import `gtoICM`，它的任何数字（建议行、MDF / Call EV / Raise EV / V:B）都不做 ICM 调整。所以口径标注在两种赛制下都以「未计 ICM」开头，锦标赛那句只是补注「机器人已计」。锦标赛下面板数字**确实**会变，但变的原因是**对手范围被收紧**，那件事有自己的标注「锦标赛范围收紧」。
+
+**面板的 `Bot Action` 行不是上表的第五条通道。** 它回答的是一个**假设性问题** ——「这个真人座位如果交给机器人会怎么打」—— 做法是对该座位跑一次机器人决策路径（`getShadowBotAction`）。它与 ④ **共用代码**（最终都走 `getBotAction`），但不共用**样本**：④ 是机器人的真实动作，`Bot Action` 是从同一套混合策略里抽出的一个确定性样本。两者可以合法地不同，谁都不是 bug。真人已弃牌或已全下时该行隐藏。
 
 ### 技术栈
 

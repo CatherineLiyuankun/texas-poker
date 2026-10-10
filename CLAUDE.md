@@ -45,6 +45,8 @@ Total chips must always equal initial chips; tests enforce this. Rules that prot
 
 `ctx.potOdds` is the **call price**, not the raw pot odds: `getBotAction` computes it once via `rake.callThresholdWithRake(toCall, totalPot, BB)` and every downstream engine reads that field. Never recompute raw odds downstream (that is how the river threshold silently lost rake).
 
+`getShadowBotAction(player, state)` runs the same decision path for a seat that is **not** bot-controlled — the analysis panel asks "what would the bot do in this real player's spot?". It swaps in a PRNG seeded from a hash of the state, then restores the previous source in a `finally`, so a panel render never advances the real bots' mixed-frequency stream (which would both desync the display and break `setRandomSeed` reproducibility). Use it instead of `getBotAction` for anything that runs during render.
+
 ### Strategy configuration — two orthogonal axes (`gtoConfig.ts`)
 
 `engine` (`gto` | `heuristic`) and `scenario` (`cash` | `tournament`) are **separate fields of one object**, deliberately not two module-level `let`s: `GTO OFF + tournament` would otherwise have no single answer for whether the heuristic path should still take ICM. Read it through `getGtoConfig()` / `isGtoEngine()` / `isTournamentScenario()`; write it with the merge-semantics `setGtoConfig(patch)` so the two independent UI toggles do not clobber each other.
@@ -63,7 +65,7 @@ The GTO modules in `src/utils/` are consulted by both the bots and the player-fa
 - `gtoConfig.ts` — the strategy config leaf (engine × scenario). See above.
 - `rake.ts` — rake config leaf: `RakeMode` / `setRakeConfig` / `rakeAmountFor` / `callThresholdFor` (the call price with rake folded into the denominator) / `effectiveRakeConfigFor(scenario)`.
 - `stackDepth.ts` — continuous stack-depth bands (`stackBand`, `effectiveStackBB`); the single source for the 20/150bb-style thresholds.
-- `random.ts` — the only source of strategy randomness (`random`, `setRandomSource`, `setRandomSeed`). Never call `Math.random()` in strategy code; dealing/shuffling and Monte Carlo sampling intentionally stay on `Math.random()`.
+- `random.ts` — the only source of strategy randomness (`random`, `getRandomSource`, `setRandomSource`, `setRandomSeed`). Never call `Math.random()` in strategy code; dealing/shuffling and Monte Carlo sampling intentionally stay on `Math.random()`. `getRandomSource` + `setRandomSource` are the save/restore pair used to run a *hypothetical* bot decision (the panel's `Bot Action` row) without consuming the real bots' mixed-frequency stream.
 - `equityIterations.ts` — the single source for Monte Carlo iteration counts.
 - `handStrength.ts` — made-hand classification shared by postflop modules.
 - `postflopFrequencies.ts` — leaf module holding the shared c-bet / river-barrel frequencies, hand-category bet multipliers and bet sizings. `gtoPostflop.ts` and `postflopRange.ts` both read from here (it exists so range-narrowing never has to import `gtoPostflop.ts`, avoiding an import cycle).
