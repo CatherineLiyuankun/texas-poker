@@ -305,6 +305,10 @@ export function getShortStackRecommendation(
 
   // 锦标赛 ICM 风险溢价（现金局恒为 0）—— 与 `botAI` 的 ICM 分支**同源**，
   // 都出自 `gtoICM.riskPremiumFor`。泡沫期 = 溢价超过显著阈值。
+  //
+  // ⚠️ 本函数的**唯一**调用点是 `botAI.decidePreflop`（启发式翻前），所以这里
+  // 与 ICM 相关的一切（`isTournament` / `isBubble` / 门槛叠溢价）都只在 **GTO OFF**
+  // 时生效；GTO ON 的翻前走 `gtoPreflop.decidePreflopGTO`，用收紧范围表代替。
   const riskPremium = riskPremiumFor(state, player);
   const isBubble = riskPremium > BUBBLE_PREMIUM_THRESHOLD;
 

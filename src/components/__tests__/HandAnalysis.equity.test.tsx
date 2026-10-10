@@ -901,14 +901,24 @@ describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
     expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
   });
 
-  it('锦标赛 + 设了抽水：抽水标注回到「未计抽水」，ICM 变「计 ICM（锦标赛）」，并标注范围收紧', async () => {
+  it('锦标赛 + 设了抽水：抽水标注回到「未计抽水」，ICM 仍标「未计」（补注机器人已计），并标注范围收紧', async () => {
     setRakeConfig({ mode: 'percent', value: 5, capBB: 3 });
     await renderAA('tournament');
     expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
     expect(caveat()).not.toContain(translations.gtoMath.caveat.rake);
+    // 面板**从不**做 ICM 调整，所以两种赛制下都出现「未计 ICM」；锦标赛那句只是
+    // `未计 ICM（机器人已计）`，前半段与现金局完全一致。
+    expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
     expect(caveat()).toContain(translations.gtoMath.caveat.icm);
     // 翻前 + 锦标赛 → 范围收紧也标出来。
     expect(caveat()).toContain(translations.gtoMath.caveat.rangeTightened);
+  });
+
+  it('ICM 文案的契约：两种赛制都以「未计」开头（面板侧永不声称已计入 ICM）', () => {
+    // 面板不 import `gtoICM`，任何「计 ICM」的写法都会被读成「面板数字已含 ICM」。
+    // 这条用例把「面板从不计 ICM」钉成契约，防止文案回退成 `计 ICM（锦标赛）`。
+    expect(translations.gtoMath.caveat.noIcm.startsWith('未计')).toBe(true);
+    expect(translations.gtoMath.caveat.icm.startsWith('未计')).toBe(true);
   });
 
   it('锦标赛 + 翻后：不再标注范围收紧（翻后不查范围表）', async () => {

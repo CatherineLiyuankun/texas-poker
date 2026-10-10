@@ -150,6 +150,13 @@ function decidePreflop(
   // 而本应用是单张 6 人桌，**永远为假**，于是整段 ICM 是死代码。现在改成看
   // **赛制开关**（`gtoConfig` 是单一真相）叠加「溢价是否显著」：
   // `riskPremiumFor` 在现金局恒为 0，所以现金局行为与以前逐位一致（无溢价）。
+  //
+  // ⚠️ **本块只在启发式引擎下生效**：`getBotAction` 是按 `isGtoEngine()` 分派的，
+  // 只有 GTO OFF 才会走到这个 `decidePreflop`；GTO ON 走 `decidePreflopGTO`，那条
+  // 路径**不叠风险溢价**（它用「锦标赛收紧范围表」体现 ICM，见 `gtoPreflop` 的
+  // `TOURNAMENT_*_KEEP`）。所以「锦标赛按 ICM 调整」这句话必须限定在启发式引擎下。
+  // 同理，下面短筹码分支里的 `getShortStackRecommendation`（自带 `isTournament` /
+  // `isBubble` / 门槛叠溢价）也只在 GTO OFF 时被调用。
   const riskPremium = riskPremiumFor(state, player);
   if (riskPremium > BUBBLE_PREMIUM_THRESHOLD) {
     const icmConfig = getICMConfig(state, player);

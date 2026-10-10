@@ -8,6 +8,16 @@
  * | 引擎 | `'gto'` / `'heuristic'`  | 每个街用 GTO 模块还是启发式模块                |
  * | 赛制 | `'cash'` / `'tournament'`| 决策层是否叠加 ICM 风险溢价 / 抽水 / 范围收紧   |
  *
+ * ⚠️ 两个轴的**影响面不同**，别混：
+ *
+ * - **引擎轴只影响机器人**：全仓只有 `botAI.getBotAction` 读 `isGtoEngine()`
+ *   （翻前 / 翻后 / 河牌三处派发）。分析面板（`HandAnalysis`）的任何数字都不随它变
+ *   —— 面板的「GTO preflop」行永远显示 GTO 表的建议，哪怕 GTO 是 OFF。
+ * - **赛制轴两边都影响，但机制不同**：机器人侧 —— GTO OFF 时靠 `gtoICM` 的
+ *   风险溢价（只在启发式翻前）+ `gtoShortStack`，GTO ON 时靠 `gtoPreflop` 的
+ *   收紧范围表；面板侧 —— 只有「对手范围收紧」（`getPreflopRangeClasses`）与
+ *   抽水口径，**面板从不做 ICM 调整**（它不 import `gtoICM`）。
+ *
  * 为什么是一个对象而不是两个模块级 `let`：两个独立的 `let` 会制造出
  * 「GTO OFF + 锦标赛」这类组合下**没有唯一答案**的问题 —— 短筹码走的是启发式引擎，
  * 那它还要不要吃 ICM 风险溢价？调用方只能靠约定去猜，而两个写入点迟早会漂移。

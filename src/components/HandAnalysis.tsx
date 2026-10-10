@@ -69,7 +69,10 @@ interface HandAnalysisProps {
   gameState?: GameState;
   /** 当前面板所属的真人玩家对象 */
   heroPlayer?: Player;
-  /** 赛制。`'tournament'` 时口径标注改为「计 ICM（锦标赛）」。缺省按现金局。 */
+  /**
+   * 赛制。`'tournament'` 时口径标注会补一句「未计 ICM（机器人已计）」并加
+   * 「锦标赛范围收紧」。缺省按现金局。
+   */
   scenario?: GameScenario;
 }
 
@@ -824,12 +827,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
   }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer, rakeConfig, gameState?.smallBlind]);
 
-  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导。抽水与 ICM 各自是否
-  // 计入随「用户设置 / 赛制」变，所以这里把两段都显式标出来，避免把近似值误读成
-  // 完整 GTO 解。
+  // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导。抽水是否计入随
+  // StartPage 的设置变，所以显式标出来，避免把近似值误读成完整 GTO 解。
+  //
+  // **ICM 那一段在两种赛制下都是「未计」** —— 本文件不 import `gtoICM`，面板的
+  // 任何数字（建议行、GTO Math 的 MDF / Call EV / Raise EV / V:B）都不做 ICM
+  // 调整。锦标赛下面板数字确实会变，但变的原因是**对手范围被收紧**
+  // （`getPreflopRangeClasses` 走全局赛制，见 B4 的连带影响），那件事有自己的
+  // 标注「锦标赛范围收紧」。锦标赛那句只补充说明「机器人侧计了 ICM」。
   const gtoMathCaveat = useMemo(() => {
     const street = translations.gtoMath.caveat.street[phase];
-    // ICM 口径随赛制变：现金局不叠加 ICM，锦标赛叠加。
+    // 赛制只影响**文案**：现金局两边都不计，锦标赛补一句机器人已计。
     const icm =
       scenario === 'tournament'
         ? translations.gtoMath.caveat.icm
@@ -1220,8 +1228,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
         </div>
 
-        {/* 口径说明：本区块是单街闭式 + 单挑推导；抽水与 ICM 是否计入随
-            「用户设置 / 赛制」变，由 `gtoMathCaveat` 逐段标出。 */}
+        {/* 口径说明：本区块是单街闭式 + 单挑推导；抽水是否计入随 StartPage 设置变，
+            ICM 则在两种赛制下都不计入（只影响机器人），由 `gtoMathCaveat` 逐段标出。 */}
         <div className="text-[9px] leading-tight text-white/40 mt-1">
           {gtoMathCaveat}
         </div>
