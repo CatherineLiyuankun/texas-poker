@@ -5,6 +5,7 @@ import { HandAnalysis } from './HandAnalysis';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
 import { SMALL_BLIND } from '../utils/constant';
+import { formatActionLabel } from '../utils/actionLabel';
 import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
 import type { GameScenario } from '../utils/gtoConfig';
@@ -219,15 +220,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
             }
           `}
           >
-            {lastAction === 'raise'
-              ? 'Raise'
-              : lastAction === 'call'
-                ? 'Call'
-                : lastAction === 'fold'
-                  ? 'Fold'
-                  : lastAction === 'allin'
-                    ? 'All In'
-                    : 'Check'}
+            {formatActionLabel(lastAction)}
           </span>
         )}
       </div>
