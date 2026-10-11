@@ -69,19 +69,20 @@ The game implements accurate Texas Hold'em pot rules:
 - **Chip Conservation**: Total chips always equal initial chips (verified by tests)
 
 Example: 4 players with bets $20, $50, $80, $80
+
 - Main Pot: $80 (20×4)
 - Side Pot 1: $90 ((50-20)×3)
 - Side Pot 2: $60 ((80-50)×2)
 
 ### Equity Calculation
 
-Equity is the expected **share of the pot** (0–1), not a win probability — split pots count as `1 / (1 + tied)`.
+Equity is the expected **share of the pot** (0–1), not a win probability — split pots count as `1 / (1 + tied)`.  
 The analysis panel shows two estimates side by side:
 
-| | Opponent model | Engine | Role |
-|---|---|---|---|
-| **Random equity** | N uniformly random hands | Monte Carlo (300–400 iterations); heads-up river uses exact enumeration of all C(45,2) villain hands | Baseline / sanity check |
-| **Range equity** | One inferred continuing range (remaining opponents stay random) | Same Monte Carlo engine, with the primary opponent sampled from the weighted combos | Drives the recommendation and the EV figures |
+|                   | Opponent model                                                  | Engine                                                                                               | Role                                         |
+| ----------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| **Random equity** | N uniformly random hands                                        | Monte Carlo (300–400 iterations); heads-up river uses exact enumeration of all C(45,2) villain hands | Baseline / sanity check                      |
+| **Range equity**  | One inferred continuing range (remaining opponents stay random) | Same Monte Carlo engine, with the primary opponent sampled from the weighted combos                  | Drives the recommendation and the EV figures |
 
 **Range inference** (`estimateOpponentCombos` in `src/utils/rangeEquity.ts`):
 
@@ -95,49 +96,50 @@ Iteration counts live in one shared table (`src/utils/equityIterations.ts`): pre
 
 **Known limits**: only the primary opponent is range-modelled (multiway range equity reads high); the postflop line is reconstructed from recorded actions rather than solved, so it is a heuristic; river frequencies are derived from the turn row because the bot's river branch never used the c-bet table; side pots, unequal stacks and ICM are not modelled *inside the equity figure itself* (ICM changes the bot's preflop thresholds only under the heuristic engine — see Strategy Configuration & Advice Channels); the Monte Carlo estimate still carries a few points of variance.
 
+
 ### Strategy Configuration & Advice Channels
 
 Two **orthogonal** switches on the table screen — but their blast radius differs, which is easy to misread:
 
-| Axis | Values | Sole consumer in the repo | Affects the bot | Affects the panel |
-|---|---|---|---|---|
-| **Engine** (GTO toggle) | `gto` / `heuristic` | `botAI.ts` (three dispatch sites: preflop / postflop / river) | ✅ | ❌ **zero** |
-| **Scenario** | `cash` / `tournament` | `gtoICM` (risk premium), `gtoShortStack`, `rake`, `gtoPreflop` (range tables) | ✅ | ✅ 3 sites (range tables / rake / caveat text) |
+| Axis                    | Values                | Sole consumer in the repo                                                     | Affects the bot | Affects the panel                             |
+| ----------------------- | --------------------- | ----------------------------------------------------------------------------- | --------------- | --------------------------------------------- |
+| **Engine** (GTO toggle) | `gto` / `heuristic`   | `botAI.ts` (three dispatch sites: preflop / postflop / river)                 | ✅               | ❌ **zero**                                    |
+| **Scenario**            | `cash` / `tournament` | `gtoICM` (risk premium), `gtoShortStack`, `rake`, `gtoPreflop` (range tables) | ✅               | ✅ 3 sites (range tables / rake / caveat text) |
 
 The analysis panel shows **four** things that all look like "the recommended action". They take different inputs, so they may legitimately disagree — that is a difference of convention, not a bug:
 
-| Dimension | ① `GTO preflop` (preflop only) | ② Recommendation | ③ `Action` (postflop only) | ④ Bot's actual action (seat bubble) |
-|---|---|---|---|---|
-| **Street** | preflop only | preflop + postflop | postflop only (flop/turn/river) | all |
-| **Data source** | the 13×13 hand-authored range tables in `gtoPreflop` (7 RFI / 21 defend / 6 four-bet / 3 cold three-bet); derived tightened tables for tournaments | `rangeEquity` (Monte Carlo over an inferred opponent range, falling back to random equity) + `callThresholdFor` | `gtoPostflop` / `gtoRiver` + `postflopFrequencies` | `botAI.getBotAction`, dispatched by `isGtoEngine()` |
-| **Decision rule** | pick the table by (position, preflop scenario) → look up the hand-class cell → `R`/`C`/`F`; mixed frequencies from `MIX`; sizing from position + stack band | `edge = equity − callThreshold`, graded by street-specific thresholds | board texture + hand class + equity + pot odds + SPR + position + draws | the engine's own rules **+ action-availability filtering** |
-| **Uses equity?** | ❌ never | ✅ **the only input** | ✅ | ✅ |
-| **Uses position?** | ✅ **primary key** | ❌ | ✅ | ✅ |
-| **Uses board / draws?** | ❌ (no board preflop) | ⚠️ indirectly (equity already includes them; the rule does not read texture) | ✅ **primary input** | ✅ (postflop) |
-| **Uses pot odds?** | ❌ never | ✅ **core** | ✅ (`callThreshold`) | ✅ (`ctx.potOdds`) |
-| **Uses an opponent profile?** | ❌ no `adj` parameter | ⚠️ indirectly (the range is narrowed / exploitative) | ❌ no `adj` parameter | ✅ **the only one** |
-| **Uses stack depth / ICM?** | stack ✅ / ICM ❌ | ❌ / ❌ | stack ✅ (SPR) / ICM ❌ | ✅ / ✅ (ICM only when GTO is OFF) |
-| **Output granularity** | `action` + `sizingBB` + `freq{r,c,f}` + `isAllIn` | a single action word (no size, no frequency) | `action` + size + board texture + `reasoning` + `freq` | `{action, amount?, reasoning?}`; the bubble shows only the action |
-| **Randomness** | ❌ deterministic | ⚠️ rule is deterministic; equity is Monte Carlo (seeded) | ✅ yes (seeded) | ✅ yes (seeded via `setRandomSeed`) |
-| **Constrained by action availability?** | ❌ | ❌ | ❌ | ✅ **the only one** (`canXxxResult`) |
-| **Affected by the GTO toggle?** | ❌ | ❌ | ❌ | ✅ **the only one** |
-| **Affected by the scenario?** | ✅ (tightened tables) | ✅ indirectly (rake; preflop equity via tightened opponent ranges) | ⚠️ only via pot odds (rake) | ✅ everything |
-| **Relation to the bot** | shares the tables **and** `detectPreflopScenario` with `decidePreflopGTO` when GTO is on; the bot additionally applies the ICM premium / opponent adjustments / all-in feasibility / randomness | shares only the call-price convention | shares the same functions as `decidePostflopGTO` / `decideRiverGTO` (river shares `getRiverStrategy`); the bot additionally applies ICM / opponent adjustments | it *is* the bot |
-| **Question it answers** | "what does the GTO preflop chart say for this hand in this seat?" | "is this hand's equity enough for this price?" | "on this board at this SPR, how much do we bet / check / call / fold?" | "what did the bot actually do?" |
+| Dimension                               | ① `GTO preflop` (preflop only)                                                                                                                                                                  | ② Recommendation                                                                                                | ③ `Action` (postflop only)                                                                                                                                     | ④ Bot's actual action (seat bubble)                               |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| **Street**                              | preflop only                                                                                                                                                                                    | preflop + postflop                                                                                              | postflop only (flop/turn/river)                                                                                                                                | all                                                               |
+| **Data source**                         | the 13×13 hand-authored range tables in `gtoPreflop` (7 RFI / 21 defend / 6 four-bet / 3 cold three-bet); derived tightened tables for tournaments                                              | `rangeEquity` (Monte Carlo over an inferred opponent range, falling back to random equity) + `callThresholdFor` | `gtoPostflop` / `gtoRiver` + `postflopFrequencies`                                                                                                             | `botAI.getBotAction`, dispatched by `isGtoEngine()`               |
+| **Decision rule**                       | pick the table by (position, preflop scenario) → look up the hand-class cell → `R`/`C`/`F`; mixed frequencies from `MIX`; sizing from position + stack band                                     | `edge = equity − callThreshold`, graded by street-specific thresholds                                           | board texture + hand class + equity + pot odds + SPR + position + draws                                                                                        | the engine's own rules **+ action-availability filtering**        |
+| **Uses equity?**                        | ❌ never                                                                                                                                                                                         | ✅ **the only input**                                                                                            | ✅                                                                                                                                                              | ✅                                                                 |
+| **Uses position?**                      | ✅ **primary key**                                                                                                                                                                               | ❌                                                                                                               | ✅                                                                                                                                                              | ✅                                                                 |
+| **Uses board / draws?**                 | ❌ (no board preflop)                                                                                                                                                                            | ⚠️ indirectly (equity already includes them; the rule does not read texture)                                    | ✅ **primary input**                                                                                                                                            | ✅ (postflop)                                                      |
+| **Uses pot odds?**                      | ❌ never                                                                                                                                                                                         | ✅ **core**                                                                                                      | ✅ (`callThreshold`)                                                                                                                                            | ✅ (`ctx.potOdds`)                                                 |
+| **Uses an opponent profile?**           | ❌ no `adj` parameter                                                                                                                                                                            | ⚠️ indirectly (the range is narrowed / exploitative)                                                            | ❌ no `adj` parameter                                                                                                                                           | ✅ **the only one**                                                |
+| **Uses stack depth / ICM?**             | stack ✅ / ICM ❌                                                                                                                                                                                 | ❌ / ❌                                                                                                           | stack ✅ (SPR) / ICM ❌                                                                                                                                          | ✅ / ✅ (ICM only when GTO is OFF)                                  |
+| **Output granularity**                  | `action` + `sizingBB` + `freq{r,c,f}` + `isAllIn`                                                                                                                                               | a single action word (no size, no frequency)                                                                    | `action` + size + board texture + `reasoning` + `freq`                                                                                                         | `{action, amount?, reasoning?}`; the bubble shows only the action |
+| **Randomness**                          | ❌ deterministic                                                                                                                                                                                 | ⚠️ rule is deterministic; equity is Monte Carlo (seeded)                                                        | ✅ yes (seeded)                                                                                                                                                 | ✅ yes (seeded via `setRandomSeed`)                                |
+| **Constrained by action availability?** | ❌                                                                                                                                                                                               | ❌                                                                                                               | ❌                                                                                                                                                              | ✅ **the only one** (`canXxxResult`)                               |
+| **Affected by the GTO toggle?**         | ❌                                                                                                                                                                                               | ❌                                                                                                               | ❌                                                                                                                                                              | ✅ **the only one**                                                |
+| **Affected by the scenario?**           | ✅ (tightened tables)                                                                                                                                                                            | ✅ indirectly (rake; preflop equity via tightened opponent ranges)                                               | ⚠️ only via pot odds (rake)                                                                                                                                    | ✅ everything                                                      |
+| **Relation to the bot**                 | shares the tables **and** `detectPreflopScenario` with `decidePreflopGTO` when GTO is on; the bot additionally applies the ICM premium / opponent adjustments / all-in feasibility / randomness | shares only the call-price convention                                                                           | shares the same functions as `decidePostflopGTO` / `decideRiverGTO` (river shares `getRiverStrategy`); the bot additionally applies ICM / opponent adjustments | it *is* the bot                                                   |
+| **Question it answers**                 | "what does the GTO preflop chart say for this hand in this seat?"                                                                                                                               | "is this hand's equity enough for this price?"                                                                  | "on this board at this SPR, how much do we bet / check / call / fold?"                                                                                         | "what did the bot actually do?"                                   |
 
 Per-combination breakdown:
 
-| Chain | OFF · cash | OFF · tournament | ON · cash | ON · tournament |
-|---|---|---|---|---|
-| Bot preflop engine | heuristic `decidePreflop` | same, **ICM may take over** | `decidePreflopGTO` (table lookup) | same, **tightened tables** |
-| Bot preflop ICM risk premium | ❌ always 0 | ✅ **yes** (~+16% measured) | ❌ none | ❌ **none** |
-| Bot short-stack push/fold (`gtoShortStack`) | ✅ used | ✅ used + `isBubble` tightening | ❌ **not used** (goes through `jamInsteadOfSizing` / `shouldAllInBySPR`) | ❌ not used |
-| Bot call-threshold rake | per StartPage rake config | ❌ never | per config | ❌ never |
-| Bot postflop / river engine | heuristic | same | `decidePostflopGTO` / `decideRiverGTO` | same |
-| Panel ① `GTO preflop` | ✅ GTO table (**toggle-independent**) | ✅ **tightened table** | same | same |
-| Panel ② Recommendation | equity vs rake-adjusted price | same + preflop equity shifts from tightened ranges | same | same |
-| Panel ③ `Action` | GTO postflop module | same (no rake, ❌ no ICM) | same | same |
-| Panel caveat line | `… · 未计 ICM · 未计抽水` | `… · 未计 ICM（机器人已计） · 未计抽水 · 锦标赛范围收紧` | same | same |
+| Chain                                       | OFF · cash                           | OFF · tournament                                   | ON · cash                                                               | ON · tournament            |
+| ------------------------------------------- | ------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------- |
+| Bot preflop engine                          | heuristic `decidePreflop`            | same, **ICM may take over**                        | `decidePreflopGTO` (table lookup)                                       | same, **tightened tables** |
+| Bot preflop ICM risk premium                | ❌ always 0                           | ✅ **yes** (~+16% measured)                         | ❌ none                                                                  | ❌ **none**                 |
+| Bot short-stack push/fold (`gtoShortStack`) | ✅ used                               | ✅ used + `isBubble` tightening                     | ❌ **not used** (goes through `jamInsteadOfSizing` / `shouldAllInBySPR`) | ❌ not used                 |
+| Bot call-threshold rake                     | per StartPage rake config            | ❌ never                                            | per config                                                              | ❌ never                    |
+| Bot postflop / river engine                 | heuristic                            | same                                               | `decidePostflopGTO` / `decideRiverGTO`                                  | same                       |
+| Panel ① `GTO preflop`                       | ✅ GTO table (**toggle-independent**) | ✅ **tightened table**                              | same                                                                    | same                       |
+| Panel ② Recommendation                      | equity vs rake-adjusted price        | same + preflop equity shifts from tightened ranges | same                                                                    | same                       |
+| Panel ③ `Action`                            | GTO postflop module                  | same (no rake, ❌ no ICM)                           | same                                                                    | same                       |
+| Panel caveat line                           | `… · 未计 ICM · 未计抽水`                  | `… · 未计 ICM（机器人已计） · 未计抽水 · 锦标赛范围收紧`               | same                                                                    | same                       |
 
 **Two asymmetries worth knowing** (each also recorded in the source comments):
 
@@ -255,19 +257,20 @@ npm run build
 - **筹码守恒**: 总筹码始终等于初始筹码（已通过测试验证）
 
 示例：4名玩家下注 $20、$50、$80、$80
+
 - 主池: $80 (20×4)
 - 边池1: $90 ((50-20)×3)
 - 边池2: $60 ((80-50)×2)
 
 ### 权益计算
 
-权益是**底池期望分成比例**（0–1），不是胜率 —— 平分底池按 `1 / (1 + 平分人数)` 计入。
+权益是**底池期望分成比例**（0–1），不是胜率 —— 平分底池按 `1 / (1 + 平分人数)` 计入。  
 分析面板并排显示两个估算值：
 
-| | 对手模型 | 计算引擎 | 作用 |
-|---|---|---|---|
-| **随机权益** | N 手均匀随机牌 | Monte Carlo（300–400 次迭代）；单挑河牌走精确枚举（全部 C(45,2) 对手组合） | 基准值 / 交叉验证 |
-| **范围权益** | 一个推断出的续玩范围（其余对手仍视为随机牌） | 同一 Monte Carlo 引擎，主要对手从估算组合中采样 | 驱动行动建议与 EV 数字 |
+|          | 对手模型                   | 计算引擎                                                | 作用            |
+| -------- | ---------------------- | --------------------------------------------------- | ------------- |
+| **随机权益** | N 手均匀随机牌               | Monte Carlo（300–400 次迭代）；单挑河牌走精确枚举（全部 C(45,2) 对手组合） | 基准值 / 交叉验证    |
+| **范围权益** | 一个推断出的续玩范围（其余对手仍视为随机牌） | 同一 Monte Carlo 引擎，主要对手从估算组合中采样                      | 驱动行动建议与 EV 数字 |
 
 **范围推断**（`src/utils/rangeEquity.ts` 的 `estimateOpponentCombos`）：
 
@@ -285,45 +288,45 @@ npm run build
 
 牌桌上有两个**正交**的开关，但它们的影响面并不相同 —— 这一点最容易误读：
 
-| 轴 | 取值 | 全仓唯一消费者 | 影响机器人 | 影响面板 |
-|---|---|---|---|---|
-| **引擎**（GTO 开关） | `gto` / `heuristic` | `botAI.ts`（翻前 / 翻后 / 河牌三处派发） | ✅ | ❌ **0 处** |
-| **赛制** | `现金局` / `锦标赛` | `gtoICM`（风险溢价）、`gtoShortStack`、`rake`、`gtoPreflop`（范围表） | ✅ | ✅ 3 处（范围表 / 抽水 / 标注文案） |
+| 轴              | 取值                  | 全仓唯一消费者                                                 | 影响机器人 | 影响面板                   |
+| -------------- | ------------------- | ------------------------------------------------------- | ----- | ---------------------- |
+| **引擎**（GTO 开关） | `gto` / `heuristic` | `botAI.ts`（翻前 / 翻后 / 河牌三处派发）                            | ✅     | ❌ **0 处**              |
+| **赛制**         | `现金局` / `锦标赛`       | `gtoICM`（风险溢价）、`gtoShortStack`、`rake`、`gtoPreflop`（范围表） | ✅     | ✅ 3 处（范围表 / 抽水 / 标注文案） |
 
 分析面板上有**四条**看起来都像「建议动作」的通道。它们的输入不同，所以**可以合法地互相矛盾** —— 那不是 bug，是口径不同：
 
-| 维度 | ① `GTO preflop`（仅翻前） | ② 「胜率 vs 赔率 → 建议」 | ③ `Action`（仅翻后） | ④ 机器人真实动作（座位气泡） |
-|---|---|---|---|---|
-| **生效街** | 仅翻前 | 翻前 + 翻后 | 仅翻后（翻牌/转牌/河牌） | 全部 |
-| **数据来源** | `gtoPreflop` 的 13×13 手编范围表（RFI 7 张 / 防守 21 张 / 4bet 6 张 / 冷 3bet 3 张）；锦标赛用派生收紧表 | `rangeEquity`（对推断出的对手范围做 Monte Carlo，退化时用随机权益）+ `callThresholdFor` | `gtoPostflop` / `gtoRiver` + `postflopFrequencies` | `botAI.getBotAction`，按 `isGtoEngine()` 派发 |
-| **判定方式** | 按（位置, 翻前场景）选表 → 查手牌类格子 → `R`/`C`/`F`；混合频率来自 `MIX`；尺寸按位置 + 筹码档 | `edge = equity − callThreshold`，按街用各自的相对阈值分级 | 牌面纹理 + 手牌档 + 权益 + 赔率 + SPR + 位置 + 听牌 | 引擎自身的判据 **+ 行动权限过滤** |
-| **用胜率？** | ❌ 完全不用 | ✅ **唯一主输入** | ✅ | ✅ |
-| **用位置？** | ✅ **主键** | ❌ | ✅ | ✅ |
-| **用牌面 / 听牌？** | ❌（翻前无牌面） | ⚠️ 间接（权益已含，判定不看纹理） | ✅ **主输入之一** | ✅（翻后） |
-| **用底池赔率？** | ❌ 完全不用 | ✅ **核心** | ✅（`callThreshold`） | ✅（`ctx.potOdds`） |
-| **用对手画像？** | ❌ 签名里没有 `adj` | ⚠️ 间接（范围含收窄 / 剥削性调整） | ❌ 签名里没有 `adj` | ✅ **唯一用画像的通道** |
-| **用筹码深度 / ICM？** | 筹码 ✅ / ICM ❌ | ❌ / ❌ | 筹码 ✅（SPR）/ ICM ❌ | ✅ / ✅（ICM 仅在 GTO OFF 时接管翻前） |
-| **输出粒度** | `action` + `sizingBB` + `freq{r,c,f}` + `isAllIn` | 一个动作词（无尺寸、无频率） | `action` + 尺寸 + 牌面纹理 + `reasoning` + `freq` | `{action, amount?, reasoning?}`；气泡只显示动作词 |
-| **随机性** | ❌ 纯确定性 | ⚠️ 判据确定；权益是 Monte Carlo（受 seed 控制） | ✅ 有（受 seed 控制） | ✅ 有（受 `setRandomSeed` 控制） |
-| **受行动权限约束？** | ❌ | ❌ | ❌ | ✅ **唯一受约束**（`canXxxResult`） |
-| **受 GTO 开关影响？** | ❌ | ❌ | ❌ | ✅ **唯一受影响** |
-| **受赛制影响？** | ✅ 查收紧表 | ✅ 间接（抽水；翻前权益因对手范围收紧而变） | ⚠️ 只通过赔率（抽水） | ✅ 全部 |
-| **与机器人的关系** | GTO ON 时与 `decidePreflopGTO` **共用同一套表 + 同一个 `detectPreflopScenario`**；机器人另外还叠 ICM 溢价 / 对手调整 / 全下可行性 / 随机性 | 只共享「跟注价格」这一处口径 | 与 GTO ON 的 `decidePostflopGTO` / `decideRiverGTO` **同源函数**（河牌共用 `getRiverStrategy`）；机器人另外还叠 ICM / 对手调整 | 就是它本身 |
-| **回答的问题** | 「按 GTO 翻前图，这手牌在这个位置该怎么打？」 | 「这手牌的胜率够不够这个价格？」 | 「这个牌面 + 这个 SPR，该下注 / 过牌 / 跟注 / 弃牌多少？」 | 「机器人这手到底怎么打？」 |
+| 维度               | ① `GTO preflop`（仅翻前）                                                                                      | ② 「胜率 vs 赔率 → 建议」                                                  | ③ `Action`（仅翻后）                                                                                        | ④ 机器人真实动作（座位气泡）                           |
+| ---------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| **生效街**          | 仅翻前                                                                                                       | 翻前 + 翻后                                                            | 仅翻后（翻牌/转牌/河牌）                                                                                          | 全部                                        |
+| **数据来源**         | `gtoPreflop` 的 13×13 手编范围表（RFI 7 张 / 防守 21 张 / 4bet 6 张 / 冷 3bet 3 张）；锦标赛用派生收紧表                           | `rangeEquity`（对推断出的对手范围做 Monte Carlo，退化时用随机权益）+ `callThresholdFor` | `gtoPostflop` / `gtoRiver` + `postflopFrequencies`                                                     | `botAI.getBotAction`，按 `isGtoEngine()` 派发 |
+| **判定方式**         | 按（位置, 翻前场景）选表 → 查手牌类格子 → `R`/`C`/`F`；混合频率来自 `MIX`；尺寸按位置 + 筹码档                                             | `edge = equity − callThreshold`，按街用各自的相对阈值分级                       | 牌面纹理 + 手牌档 + 权益 + 赔率 + SPR + 位置 + 听牌                                                                   | 引擎自身的判据 **+ 行动权限过滤**                      |
+| **用胜率？**         | ❌ 完全不用                                                                                                    | ✅ **唯一主输入**                                                        | ✅                                                                                                      | ✅                                         |
+| **用位置？**         | ✅ **主键**                                                                                                  | ❌                                                                  | ✅                                                                                                      | ✅                                         |
+| **用牌面 / 听牌？**    | ❌（翻前无牌面）                                                                                                  | ⚠️ 间接（权益已含，判定不看纹理）                                                 | ✅ **主输入之一**                                                                                            | ✅（翻后）                                     |
+| **用底池赔率？**       | ❌ 完全不用                                                                                                    | ✅ **核心**                                                           | ✅（`callThreshold`）                                                                                     | ✅（`ctx.potOdds`）                          |
+| **用对手画像？**       | ❌ 签名里没有 `adj`                                                                                             | ⚠️ 间接（范围含收窄 / 剥削性调整）                                               | ❌ 签名里没有 `adj`                                                                                          | ✅ **唯一用画像的通道**                            |
+| **用筹码深度 / ICM？** | 筹码 ✅ / ICM ❌                                                                                              | ❌ / ❌                                                              | 筹码 ✅（SPR）/ ICM ❌                                                                                       | ✅ / ✅（ICM 仅在 GTO OFF 时接管翻前）               |
+| **输出粒度**         | `action` + `sizingBB` + `freq{r,c,f}` + `isAllIn`                                                         | 一个动作词（无尺寸、无频率）                                                     | `action` + 尺寸 + 牌面纹理 + `reasoning` + `freq`                                                            | `{action, amount?, reasoning?}`；气泡只显示动作词  |
+| **随机性**          | ❌ 纯确定性                                                                                                    | ⚠️ 判据确定；权益是 Monte Carlo（受 seed 控制）                                 | ✅ 有（受 seed 控制）                                                                                         | ✅ 有（受 `setRandomSeed` 控制）                 |
+| **受行动权限约束？**     | ❌                                                                                                         | ❌                                                                  | ❌                                                                                                      | ✅ **唯一受约束**（`canXxxResult`）               |
+| **受 GTO 开关影响？**  | ❌                                                                                                         | ❌                                                                  | ❌                                                                                                      | ✅ **唯一受影响**                               |
+| **受赛制影响？**       | ✅ 查收紧表                                                                                                    | ✅ 间接（抽水；翻前权益因对手范围收紧而变）                                             | ⚠️ 只通过赔率（抽水）                                                                                           | ✅ 全部                                      |
+| **与机器人的关系**      | GTO ON 时与 `decidePreflopGTO` **共用同一套表 + 同一个 `detectPreflopScenario`**；机器人另外还叠 ICM 溢价 / 对手调整 / 全下可行性 / 随机性 | 只共享「跟注价格」这一处口径                                                     | 与 GTO ON 的 `decidePostflopGTO` / `decideRiverGTO` **同源函数**（河牌共用 `getRiverStrategy`）；机器人另外还叠 ICM / 对手调整 | 就是它本身                                     |
+| **回答的问题**        | 「按 GTO 翻前图，这手牌在这个位置该怎么打？」                                                                                 | 「这手牌的胜率够不够这个价格？」                                                   | 「这个牌面 + 这个 SPR，该下注 / 过牌 / 跟注 / 弃牌多少？」                                                                  | 「机器人这手到底怎么打？」                             |
 
 四种组合逐条对照：
 
-| 链路 | OFF · 现金局 | OFF · 锦标赛 | ON · 现金局 | ON · 锦标赛 |
-|---|---|---|---|---|
-| 机器人翻前引擎 | 启发式 `decidePreflop` | 同左，**ICM 可接管** | `decidePreflopGTO` 查表 | 同左，查**收紧表** |
-| 机器人翻前 ICM 风险溢价 | ❌ 恒为 0 | ✅ **有**（实测 ≈ +16%） | ❌ 无 | ❌ **无** |
-| 机器人短筹码推 / 弃（`gtoShortStack`） | ✅ 走 | ✅ 走 + `isBubble` 收紧 | ❌ **不走**（改走 `jamInsteadOfSizing` / `shouldAllInBySPR`） | ❌ 不走 |
-| 机器人跟注门槛抽水 | 按 StartPage 的抽水配置 | ❌ 恒不抽水 | 按配置 | ❌ 恒不抽水 |
-| 机器人翻后 / 河牌引擎 | 启发式 | 同左 | `decidePostflopGTO` / `decideRiverGTO` | 同左 |
-| 面板 ① `GTO preflop` | ✅ 显示 GTO 表（**不受开关影响**） | ✅ 显示**收紧表** | 同左 | 同左 |
-| 面板 ②「建议」 | 权益 vs 抽水后赔率 | 同左 + 翻前权益因范围收紧而变 | 同左 | 同左 |
-| 面板 ③ `Action` | GTO 翻后模块 | 同左（不抽水、❌ 无 ICM） | 同左 | 同左 |
-| 面板口径标注 | `… · 未计 ICM · 未计抽水` | `… · 未计 ICM（机器人已计） · 未计抽水 · 锦标赛范围收紧` | 同左 | 同左 |
+| 链路                           | OFF · 现金局              | OFF · 锦标赛                            | ON · 现金局                                               | ON · 锦标赛    |
+| ---------------------------- | ---------------------- | ------------------------------------ | ------------------------------------------------------ | ----------- |
+| 机器人翻前引擎                      | 启发式 `decidePreflop`    | 同左，**ICM 可接管**                       | `decidePreflopGTO` 查表                                  | 同左，查**收紧表** |
+| 机器人翻前 ICM 风险溢价               | ❌ 恒为 0                 | ✅ **有**（实测 ≈ +16%）                   | ❌ 无                                                    | ❌ **无**     |
+| 机器人短筹码推 / 弃（`gtoShortStack`） | ✅ 走                    | ✅ 走 + `isBubble` 收紧                  | ❌ **不走**（改走 `jamInsteadOfSizing` / `shouldAllInBySPR`） | ❌ 不走        |
+| 机器人跟注门槛抽水                    | 按 StartPage 的抽水配置      | ❌ 恒不抽水                               | 按配置                                                    | ❌ 恒不抽水      |
+| 机器人翻后 / 河牌引擎                 | 启发式                    | 同左                                   | `decidePostflopGTO` / `decideRiverGTO`                 | 同左          |
+| 面板 ① `GTO preflop`           | ✅ 显示 GTO 表（**不受开关影响**） | ✅ 显示**收紧表**                          | 同左                                                     | 同左          |
+| 面板 ②「建议」                     | 权益 vs 抽水后赔率            | 同左 + 翻前权益因范围收紧而变                     | 同左                                                     | 同左          |
+| 面板 ③ `Action`                | GTO 翻后模块               | 同左（不抽水、❌ 无 ICM）                      | 同左                                                     | 同左          |
+| 面板口径标注                       | `… · 未计 ICM · 未计抽水`    | `… · 未计 ICM（机器人已计） · 未计抽水 · 锦标赛范围收紧` | 同左                                                     | 同左          |
 
 **两处必须知道的不对称**（源码注释里也各记了一份）：
 
