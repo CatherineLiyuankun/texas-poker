@@ -22,7 +22,7 @@ import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
 import {
   saveHand,
-  getAllRealPlayerStats,
+  getAllPlayerLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
 import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
@@ -436,7 +436,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
-  const longStats = realPlayerIds.length > 0 ? getAllRealPlayerStats(realPlayerIds) : undefined;
+  const longStats = realPlayerIds.length > 0 ? getAllPlayerLongStats(realPlayerIds) : undefined;
   const allRealSessionStats = realPlayerIds.length > 1
     ? getRealPlayerSessionStats(realPlayerIds)
     : undefined;

@@ -115,8 +115,13 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerStats {
   return computePlayerStatsFromEvents(playerId, persistentData.hands);
 }
 
-export function getAllRealPlayerStats(realPlayerIds: PlayerId[]): PlayerStats[] {
-  return realPlayerIds.map(id => getPlayerLongStats(id));
+/**
+ * 批量取长期统计。入参是**任意**玩家 id（真人或 Bot 都行）——
+ * 长期库 `persistentData.hands` 存的是**整手**记录（含所有玩家的动作），
+ * 所以 Bot 和真人一样能算，不需要按真人过滤。
+ */
+export function getAllPlayerLongStats(playerIds: PlayerId[]): PlayerStats[] {
+  return playerIds.map(id => getPlayerLongStats(id));
 }
 
 export function resetLongTermStats(): void {
