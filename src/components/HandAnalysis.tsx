@@ -378,6 +378,7 @@ function GridRow({
   color = 'text-white',
   highlight = false,
   title,
+  fullWidth = false,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
@@ -386,10 +387,16 @@ function GridRow({
   highlight?: boolean;
   /** 原生悬停提示：口径说明太长放不下时挂在这里，不占版面 */
   title?: string;
+  /**
+   * 独占整行（`col-span-2`）。面板最窄时是 `min-w-[216px]`，两列各只有约 96px；
+   * 标签长于半列的行（`范围权益 Equity` / `MDF防御频率` / `Current Hand` …）必须
+   * 走整行，否则标签会被从中间折断成两行 —— 那比多占一行更难看。
+   */
+  fullWidth?: boolean;
 }) {
   return (
     <div
-      className={`flex items-center gap-1 ${
+      className={`flex items-center gap-1${fullWidth ? ' col-span-2' : ''} ${
         highlight ? 'border border-green-400/80 rounded' : ''
       }${title ? ' cursor-help' : ''}`}
       title={title}
@@ -957,8 +964,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // ⚠️ `w-54` 在 Tailwind v3 里**不是有效类** —— 间距刻度没有 54 这一档
   // （只有 52 = 13rem / 56 = 14rem），构建产物里根本没有这条规则，所以面板宽度
   // 一直是内容撑出来的。这里用 `min-w` 而不是 `w`：面板是 PlayerArea 里座位框的
-  // flex 兄弟节点，写死宽度会把 VPIP/PFR 那张表挤到换行；`min-w` 只兜底、
-  // 内容更宽时仍可自然撑开，也不会因为数字变宽变窄而抖动。
+  // flex 兄弟节点，写死宽度会把旁边的座位框挤走；`min-w` 只兜底、内容更宽时仍可
+  // 自然撑开，也不会因为数字变宽变窄而抖动。
+  //
+  // **216px 不再加宽**（原先「玩家数据」表挤在面板里时，13 列把面板撑到溢出边界，
+  // 面板又被座位可用空间压到最窄，两边互相挤兑 —— 现在那张表已移到页面右上角）。
+  // 半列放不下的行改走整行（`GridRow` 的 `fullWidth`），所以最窄时也不会把标签
+  // 从中间折断，宽度因此不需要为任何一行让步。
   return (
     <div className="min-w-[216px] bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
       <div className="text-white/50 font-medium text-center mb-1 tracking-wide text-[12px]">
@@ -993,7 +1005,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* SPR (独立计算) + Current hand (需要 community cards) */}
+      {/* SPR (独立计算) + Current hand (独占整行) */}
       <div className="border-t border-white/10 pt-1 mt-1">
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
           {/* Left column: SPR */}
@@ -1016,8 +1028,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             />
           )}
 
-          {/* Right column: Current hand */}
+          {/* Current hand：**独占整行**。牌型名是中英双语的（`一对 Pair` …
+              `皇家同花顺 Royal Flush`），配上 `Current Hand` 这个标签远超半列的约 96px
+              —— 不占整行就会把标签从中间折断。 */}
           <GridRow
+            fullWidth
             label={translations.handAnalysis.currentHand}
             value={shouldCalculate && currentHandRank ? HAND_RANK_NAMES[currentHandRank] : '...'}
             color={getCurrentHandRankColor(currentHandRank ?? '')}
@@ -1029,10 +1044,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       {<div className="border-t border-white/10 pt-1 mt-1">
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
           {/* 随机权益：所有对手都按随机牌建模。口径说明（「vs 随机牌」+ 为什么翻前会
-              系统性高估）挂在这一行的 `title` 上 —— 它解释的正是这一行，而权益列每列
-              实测只有约 134.8px，塞进行内会挤掉数字；单独占一整行又白吃一行版面。
-              tooltip 不占版面，且悬停可见，是这类「解释性文案」最合适的落点。 */}
+              系统性高估）挂在这一行的 `title` 上 —— 它解释的正是这一行，塞进行内会挤掉
+              数字；单独占一整行又白吃一行版面。tooltip 不占版面，且悬停可见，是这类
+              「解释性文案」最合适的落点。
+
+              **独占整行**：半列只有约 96px，而「范围权益 Equity 24% [强度条]」这一行
+              要约 133px —— 不占整行就会把标签折断成「范围权益」/「Equity」两行。 */}
           <GridRow
+            fullWidth
             label={translations.handAnalysis.equity}
             highlight={decisionBasis === 'random'}
             title={translations.handAnalysis.equityVsRandom}
@@ -1051,8 +1070,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
           />
 
-          {/* 范围权益：主要对手按推断的继续范围建模（决策依据） */}
+          {/* 范围权益：主要对手按推断的继续范围建模（决策依据）。与上面「随机权益」
+              同为整行 —— 两行是同一件事的两个口径，必须并排同宽才读得出来对比。 */}
           <GridRow
+            fullWidth
             label={translations.handAnalysis.rangeEquity}
             highlight={decisionBasis === 'range'}
             value={
@@ -1285,88 +1306,92 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* GTO Math: Two-Column Grid  MDF + EV */}
+      {/* GTO Math: 两列网格；标签长于半列的行（MDF / V:B / 牌力分类）走整行 */}
       <div className="border-t border-white/10 pt-1 mt-1">
         <div className="text-white/50 font-medium text-center tracking-wide text-[12px] mb-1">
           {translations.gtoMath.title}
         </div>
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {/* Left column: MDF + Call EV + Raise EV */}
-          <div className="space-y-1">
-            {gtoMath.mdf !== null && (
-              <GridRow
-                label={translations.gtoMath.mdf}
-                value={
-                  <>
-                    {(gtoMath.mdf * 100).toFixed(0)}%
-                    <StrengthBar
-                      value={gtoMath.mdf}
-                      color={getMDFBarColor(gtoMath.mdf)}
-                    />
-                  </>
-                }
-                color={getMDFColor(gtoMath.mdf)}
-              />
-            )}
-            {gtoMath.callEV !== null && (
-              <GridRow
-                label={translations.gtoMath.callEv}
-                value={
-                  <span className={getEVColor(gtoMath.callEV)}>
-                    {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
-                    {gtoMath.bestAction === 'call' && ' ✅call'}
-                    {gtoMath.bestAction === 'fold' && ' ❌fold'}
-                  </span>
-                }
-              />
-            )}
-            {gtoMath.raiseEV !== null && (
-              <GridRow
-                label={translations.gtoMath.raiseEV}
-                value={
-                  <span className={getEVColor(gtoMath.raiseEV)}>
-                    {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
-                    {gtoMath.bestAction === 'raise' && ' ✅'}
-                  </span>
-                }
-              />
-            )}
-          </div>
+          {/* MDF：标签「MDF防御频率」+ 百分比 + 强度条约 119px，半列（约 96px）放不下
+              → 独占整行。 */}
+          {gtoMath.mdf !== null && (
+            <GridRow
+              fullWidth
+              label={translations.gtoMath.mdf}
+              value={
+                <>
+                  {(gtoMath.mdf * 100).toFixed(0)}%
+                  <StrengthBar
+                    value={gtoMath.mdf}
+                    color={getMDFBarColor(gtoMath.mdf)}
+                  />
+                </>
+              }
+              color={getMDFColor(gtoMath.mdf)}
+            />
+          )}
 
-          {/* Right column: V:B ratio + Range classification */}
-          <div className="space-y-1">
-            {/* V:B 是「下注方」的指标，翻牌前没有意义（范围表驱动），不渲染。
-                主值用标准比（3:1），百分比降为副标签便于对照。 */}
-            {phase !== 'preflop' && gtoMath.vbRatio !== null && (
-              <GridRow
-                label={gtoMath.vbSource === 'facing'
-                  ? translations.gtoMath.vbRatioFacing
-                  : translations.gtoMath.vbRatioHero}
-                value={
-                  <>
-                    {gtoMath.vbRatio.ratio}{' '}
-                    <span className="text-[9px] text-white/40">
-                      {Math.round(gtoMath.vbRatio.valuePct * 100)}/
-                      {Math.round(gtoMath.vbRatio.bluffPct * 100)}
-                    </span>
-                  </>
-                }
-              />
-            )}
-            {gtoMath.rangeCat !== null && phase !== 'preflop' && (
-              <GridRow
-                label={translations.gtoMath.rangeCategory}
-                value={
-                  <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
-                    {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
-                    <span className="ml-1 text-[9px] text-white/40">
-                      {translations.gtoMath.heuristic}
-                    </span>
+          {/* 两个 EV 的标签都短（`Call EV` / `Raise EV`），并排各占半列 */}
+          {gtoMath.callEV !== null && (
+            <GridRow
+              label={translations.gtoMath.callEv}
+              value={
+                <span className={getEVColor(gtoMath.callEV)}>
+                  {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
+                  {gtoMath.bestAction === 'call' && ' ✅call'}
+                  {gtoMath.bestAction === 'fold' && ' ❌fold'}
+                </span>
+              }
+            />
+          )}
+          {gtoMath.raiseEV !== null && (
+            <GridRow
+              label={translations.gtoMath.raiseEV}
+              value={
+                <span className={getEVColor(gtoMath.raiseEV)}>
+                  {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
+                  {gtoMath.bestAction === 'raise' && ' ✅'}
+                </span>
+              }
+            />
+          )}
+
+          {/* V:B：标签是「对手下注 V:B」/「我方下注 V:B」，与数值一起超过半列
+              → 独占整行。翻牌前没有意义（范围表驱动），不渲染。
+              主值用标准比（3:1），百分比降为副标签便于对照。 */}
+          {phase !== 'preflop' && gtoMath.vbRatio !== null && (
+            <GridRow
+              fullWidth
+              label={gtoMath.vbSource === 'facing'
+                ? translations.gtoMath.vbRatioFacing
+                : translations.gtoMath.vbRatioHero}
+              value={
+                <>
+                  {gtoMath.vbRatio.ratio}{' '}
+                  <span className="text-[9px] text-white/40">
+                    {Math.round(gtoMath.vbRatio.valuePct * 100)}/
+                    {Math.round(gtoMath.vbRatio.bluffPct * 100)}
                   </span>
-                }
-              />
-            )}
-          </div>
+                </>
+              }
+            />
+          )}
+
+          {/* 牌力分类：值是「🟡 抓诈唬 启发式」，与标签一起超过半列 → 独占整行 */}
+          {gtoMath.rangeCat !== null && phase !== 'preflop' && (
+            <GridRow
+              fullWidth
+              label={translations.gtoMath.rangeCategory}
+              value={
+                <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
+                  {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
+                  <span className="ml-1 text-[9px] text-white/40">
+                    {translations.gtoMath.heuristic}
+                  </span>
+                </span>
+              }
+            />
+          )}
         </div>
 
         {/* 口径说明：本区块是单街闭式 + 单挑推导；抽水是否计入随 StartPage 设置变，
