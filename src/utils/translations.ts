@@ -212,12 +212,12 @@ export const translations = {
   },
   gtoMath: {
     title: 'GTO Math',
-    mdf: 'MDF防御频率:', // Minimum Defense Frequency
-    callEv: 'Call EV:',
-    raiseEV: 'Raise EV:',
-    vbRatioFacing: '对手下注 V:B:', // 面对下注时，描述对手那一注
-    vbRatioHero: '我方下注 V:B:', // 我方主动下注/加注时
-    rangeCategory: '牌力分类:',
+    mdf: 'MDF防御频率', // Minimum Defense Frequency
+    callEv: 'Call EV',
+    raiseEV: 'Raise EV',
+    vbRatioFacing: '对手下注 V:B', // 面对下注时，描述对手那一注
+    vbRatioHero: '我方下注 V:B', // 我方主动下注/加注时
+    rangeCategory: '牌力分类',
     heuristic: '启发式',
     caveat: {
       street: {
@@ -250,10 +250,10 @@ export const translations = {
   },
   nodelock: {
     title: 'Exploit对手漏洞', // 利用对手漏洞
-    leak: 'Leak漏洞:', // 漏洞
-    adjustment: 'Adj调整:', // 调整
-    confidence: 'Conf置信度:', // 置信度
-    reasoning: 'Reason:',
+    leak: 'Leak漏洞', // 漏洞
+    adjustment: 'Adj调整', // 调整
+    confidence: 'Conf置信度', // 置信度
+    reasoning: 'Reason',
     leakTypes: {
       overfold: 'Overfold', // 过度弃牌
       underfold: 'Underfold', // 过度跟注
