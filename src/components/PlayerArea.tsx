@@ -36,6 +36,8 @@ interface PlayerAreaProps {
   } | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
+  /** Bot 玩家的长期（跨会话）统计，与 `longStats` 同口径，只用于面板表格。 */
+  botLongStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
   realPlayerSessionStats?: BotStatsWithAF[];
   smallBlind?: number;
@@ -67,6 +69,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   gtoRecommendation,
   opponentProfile,
   longStats,
+  botLongStats,
   viewingPlayerId,
   realPlayerSessionStats,
   smallBlind = SMALL_BLIND,
@@ -241,6 +244,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           gtoRecommendation={gtoRecommendation}
           opponentProfile={opponentProfile}
           longStats={longStats}
+          botLongStats={botLongStats}
           viewingPlayerId={viewingPlayerId}
           realPlayerSessionStats={realPlayerSessionStats}
           positionLabel={positionLabel}

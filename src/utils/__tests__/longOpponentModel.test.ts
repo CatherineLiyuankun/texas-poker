@@ -7,7 +7,12 @@
  * 「本手最后一个翻前加注者 / 本手第一个动作的人」的成绩，
  * 被算到了目标玩家头上。下面的用例锁住修复后的归属。
  */
-import { getPlayerLongStats, resetLongTermStats, saveHand } from '../longOpponentModel';
+import {
+  getAllPlayerLongStats,
+  getPlayerLongStats,
+  resetLongTermStats,
+  saveHand,
+} from '../longOpponentModel';
 import type { ActionEvent, HandRecord } from '../../types/stats';
 import type { PlayerId, Action, GamePhase } from '../../types/poker';
 
@@ -121,5 +126,31 @@ describe('getPlayerLongStats', () => {
     expect(stats.foldToCbet).toBeNull();
     expect(stats.threeBet).toBeNull();
     expect(stats.wtsd).toBeNull();
+  });
+});
+
+describe('getAllPlayerLongStats', () => {
+  beforeEach(() => {
+    resetLongTermStats();
+    [handL1, handL2, handL3].forEach(saveHand);
+  });
+
+  it('按顺序返回每个 id 的长期统计（真人 / Bot 一视同仁）', () => {
+    const [p1, p2] = getAllPlayerLongStats([P1, P2]);
+
+    expect(p1.playerId).toBe(P1);
+    expect(p2.playerId).toBe(P2);
+    expect(p1.handsDealt).toBe(3);
+    expect(p2.handsDealt).toBe(3);
+    // 与逐个查询等价
+    expect(p1).toEqual(getPlayerLongStats(P1));
+    expect(p2).toEqual(getPlayerLongStats(P2));
+  });
+
+  it('没参与过任何手牌的 id 也返回一条全 null 记录', () => {
+    const [unknown] = getAllPlayerLongStats([9]);
+
+    expect(unknown.playerId).toBe(9);
+    expect(unknown.handsDealt).toBe(0);
   });
 });

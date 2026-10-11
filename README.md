@@ -25,7 +25,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Bot Action** (above `GTO Math`): what the bot would do **if this real player's seat were bot-controlled** — the same decision path as the live bots (`getShadowBotAction` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below)
   - **Pot odds**: the percentage plus the same thing as a ratio (`pot : call`), e.g. `33.3% 2 : 1` — 1/4 pot `5 : 1`, 1/2 pot `3 : 1`, 3/4 pot `2.3 : 1`, full pot `2 : 1`, 2 pots `1.5 : 1`, matching the standard table
   - **Implied odds**: `(pot + future winnings) : (call + my future calls)` — the main figure is a **drawing plan** (what the opponent keeps paying once I improve), with the optimistic textbook read (`上界`) printed next to it. Shown only for a hand that can still improve — a draw, a backdoor flush draw, three of a kind or a preflop pocket pair — and hidden on the river. Full caliber, worked example and edge cases: [Implied Odds](#implied-odds)
-- **Player Stats Tracking (VPIP/PFR)**: Long-term tracking of real players' preflop behavior across multiple hands
+- **Player Stats Tracking (VPIP/PFR)**: Long-term tracking of preflop behavior across multiple hands — the stats table covers bots and real players on the same footing
   - **VPIP** (Voluntarily Put Money In Pot): Percentage of hands where a player voluntarily enters the pot preflop
   - **PFR** (Pre-Flop Raise): Percentage of hands where a player raises preflop
   - **Player Type Classification**: Automatically classifies players based on VPIP/PFR ranges:
@@ -37,7 +37,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
     - **Others**: Does not fit any of the above categories
   - **Persistent Storage**: Data saved in localStorage, survives browser restarts
   - **Export/Import**: Backup stats to JSON file and restore later
-  - **Stats Table**: Displayed in AI Analysis panel showing VPIP, PFR, and player type per real player
+  - **Stats Table**: Displayed in the AI Analysis panel showing VPIP, PFR, and player type per player; bot rows are computed from the same cross-session long-term store as real players (not just the current session)
 - **Strategy Configuration**: two orthogonal axes, toggled on the table screen
   - **Engine**: `GTO` (per-street GTO modules) or `heuristic` (the TAG/LAG hybrid above)
   - **Scenario**: `cash` or `tournament`. Tournaments disable rake, add an ICM risk premium derived from the stack-relative bubble factor, and use preflop ranges tightened relative to the cash tables
@@ -233,7 +233,7 @@ npm run build
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
 - **Component Tests**: `src/components/__tests__/` - UI, settlement, and equity panel tests
-- **Test Coverage**: 1046 tests across 55 test suites (1044 passed, 2 skipped) — run `npm test` for the current figure
+- **Test Coverage**: 1051 tests across 56 test suites (1049 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -258,7 +258,7 @@ npm run build
   - **Bot Action**（位于 `GTO Math` 之前）: **这个真人座位如果交给机器人**会怎么打 —— 与场上机器人同一条决策路径（`getShadowBotAction` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同
   - **底池赔率**: 百分比 + 同一件事的**比率形式**（底池 : 跟注），如 `33.3% 2 : 1` —— 1/4 池 `5 : 1`、1/2 池 `3 : 1`、3/4 池 `2.3 : 1`、一个池 `2 : 1`、两个池 `1.5 : 1`，与标准表逐行一致
   - **隐含赔率**: `（底池 + 对手未来投入）:（跟注 + 我未来跟注）` —— 主值是**追牌计划**口径（成牌之后对手还会付多少），旁边的小号「上界」是教材式乐观对照。只在手牌还有变强路径时显示（听牌 / 后门同花听 / 三条 / 翻前口袋对），河牌隐藏。完整口径、算例与边界见 [隐含赔率](#隐含赔率)
-- **玩家数据统计 (VPIP/PFR)**: 跨多局长期追踪真人玩家的翻牌前行为
+- **玩家数据统计 (VPIP/PFR)**: 跨多局长期追踪翻牌前行为 —— 统计表里 Bot 与真人同一口径
   - **VPIP** (主动入池率): 玩家翻牌前自愿入池的手牌百分比
   - **PFR** (翻牌前加注率): 玩家翻牌前加注的手牌百分比
   - **玩家类型分类**: 基于 VPIP/PFR 区间自动分类：
@@ -270,7 +270,7 @@ npm run build
     - **Others** (其他): 不属于以上类型
   - **持久化存储**: 数据保存在 localStorage，浏览器重启后数据保留
   - **导出/导入**: 支持将统计数据备份为 JSON 文件并恢复
-  - **统计表格**: 在 AI 分析面板中显示每位真人玩家的 VPIP、PFR 和玩家类型
+  - **统计表格**: 在 AI 分析面板中显示每位玩家的 VPIP、PFR 和玩家类型；Bot 与真人一样读跨会话的长期统计（而非只算当前会话）
 - **策略配置**: 牌桌上两个**正交**开关
   - **引擎**: `GTO`（各街走 GTO 模块）或 `启发式`（上面那套 TAG/LAG 混合风格）
   - **赛制**: `现金局` 或 `锦标赛`。锦标赛不抽水、叠加由「筹码相对泡沫因子」算出的 ICM 风险溢价，并使用相对现金局收紧的翻前范围
@@ -464,4 +464,4 @@ npm run build
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
 - **组件测试**: `src/components/__tests__/` - UI、结算和权益面板测试
-- **测试覆盖**: 55 个测试套件，共 1046 个测试用例（1044 通过，2 跳过）—— 以 `npm test` 的实际输出为准
+- **测试覆盖**: 56 个测试套件，共 1051 个测试用例（1049 通过，2 跳过）—— 以 `npm test` 的实际输出为准

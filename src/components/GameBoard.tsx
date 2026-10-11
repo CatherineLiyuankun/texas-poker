@@ -22,7 +22,7 @@ import { evaluateHand } from '../utils/handEvaluator';
 import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
 import {
   saveHand,
-  getAllRealPlayerStats,
+  getAllPlayerLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
 import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
@@ -436,7 +436,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
-  const longStats = realPlayerIds.length > 0 ? getAllRealPlayerStats(realPlayerIds) : undefined;
+  const botPlayerIds = state.players.filter((p) => !p.isRealPlayer).map((p) => p.id);
+  const longStats = realPlayerIds.length > 0 ? getAllPlayerLongStats(realPlayerIds) : undefined;
+  // Bot 行和真人行同口径：都读长期库（跨会话），不再只算当前会话。
+  const botLongStats = botPlayerIds.length > 0 ? getAllPlayerLongStats(botPlayerIds) : undefined;
   const allRealSessionStats = realPlayerIds.length > 1
     ? getRealPlayerSessionStats(realPlayerIds)
     : undefined;
@@ -679,6 +682,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             : undefined
                         }
                         longStats={player.isRealPlayer ? longStats : undefined}
+                        botLongStats={player.isRealPlayer ? botLongStats : undefined}
                         viewingPlayerId={player.isRealPlayer ? player.id : undefined}
                         realPlayerSessionStats={
                           player.isRealPlayer && allRealSessionStats
