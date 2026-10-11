@@ -47,6 +47,7 @@ import {
   impliedOddsFor,
   opponentPayingFactor,
   reverseImpliedFactor,
+  shouldShowImpliedOdds,
 } from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
@@ -994,42 +995,49 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 只在**还有下注街**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
   // 显示出来只会与上一行的赔率重复。无跟注额 / 缺 hero / 缺对局状态时也不显示。
   //
+  // 显示门：**只有「我还能变强」的手牌才显示** —— 四个成员（听牌 / 后门同花听 /
+  // 三条 / 翻前口袋对）与判据见 `potOdds.shouldShowImpliedOdds`。手里已经是顶对、
+  // 两对、顺子这类不会再变强的牌时，这一行算出来的数字只会在同一屏上跟上一行的
+  // 直接赔率打架，不如不显示。
+  //
   // 第 5 参是**剩余下注街数**（`getStreetsLeft`），不是「还要发的牌数」：
   // 两者只在翻牌往后恰好相等，翻前是 3 vs 5 —— 传牌数会把翻前的两条街当成五条。
-  const impliedOdds = useMemo(
-    () =>
-      heroPlayer && gameState
-        ? impliedOddsFor(
-          gameState,
-          heroPlayer,
-          currentPot ?? 0,
-          betToCall ?? 0,
-          streetsLeft,
-          {
-            outs: drawInfo?.totalOuts,
-            reverseImplied,
-            opponentPaying,
-            // 抽水折进「赢到的筹码」—— 与面板建议（`callThreshold`）同口径。
-            // `rakeConfig` 是按 `scenario` prop 推的，所以锦标赛恒为不抽水。
-            rake: {
-              config: rakeConfig,
-              bigBlind: (gameState?.smallBlind ?? 0) * 2,
-            },
-          },
-        )
-        : null,
-    [
-      betToCall,
-      currentPot,
-      streetsLeft,
-      heroPlayer,
+  const impliedOdds = useMemo(() => {
+    if (!heroPlayer || !gameState) return null;
+    if (!shouldShowImpliedOdds(holeCards, community, cardsToCome)) return null;
+
+    return impliedOddsFor(
       gameState,
-      drawInfo,
-      reverseImplied,
-      opponentPaying,
-      rakeConfig,
-    ],
-  );
+      heroPlayer,
+      currentPot ?? 0,
+      betToCall ?? 0,
+      streetsLeft,
+      {
+        outs: drawInfo?.totalOuts,
+        reverseImplied,
+        opponentPaying,
+        // 抽水折进「赢到的筹码」—— 与面板建议（`callThreshold`）同口径。
+        // `rakeConfig` 是按 `scenario` prop 推的，所以锦标赛恒为不抽水。
+        rake: {
+          config: rakeConfig,
+          bigBlind: (gameState.smallBlind ?? 0) * 2,
+        },
+      },
+    );
+  }, [
+    betToCall,
+    currentPot,
+    streetsLeft,
+    holeCards,
+    community,
+    cardsToCome,
+    heroPlayer,
+    gameState,
+    drawInfo,
+    reverseImplied,
+    opponentPaying,
+    rakeConfig,
+  ]);
 
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
@@ -1202,7 +1210,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。
               主值是「按追牌计划展开」的期望口径（成牌后收钱、河牌不再跟），
               后面跟一个小号的上界对照（教材那个例子的乐观读法）。
-              河牌 / 无跟注额时不渲染（见上方 `impliedOdds`）。
+              河牌 / 无跟注额 / 没有变强路径（非听牌、非三条、翻前非口袋对）时
+              不渲染（见上方 `impliedOdds` 的显示门）。
               口径说明整段挪到该行的 title（悬停可见），行内不留说明文字。 */}
           {impliedOdds !== null && (
             <div className="col-span-2">

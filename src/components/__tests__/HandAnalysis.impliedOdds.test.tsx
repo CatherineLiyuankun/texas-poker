@@ -426,4 +426,70 @@ describe('HandAnalysis — 隐含赔率行', () => {
 
     expect(screen.queryByText(translations.handAnalysis.impliedOdds)).toBeNull();
   });
+
+  it('后门同花听也算变强路径 —— 恰好 3 张同花且我持该花色', async () => {
+    // A♥8♦ + 9♥3♥2♣ → 红桃 A 9 3 三张，既不是 4 张的同花听、也没有三条，
+    // 唯一被点亮的成员就是后门同花听（`drawDetector` 不认它）
+    await renderPanel({
+      holeCards: [card('♥', 'A'), card('♦', '8')],
+      community: [
+        card('♥', '9'),
+        card('♥', '3'),
+        card('♣', '2'),
+        card('♠', 'J'),
+        card('♦', '4'),
+      ],
+      heroChips: 100_000,
+      villainChips: 100_000,
+    });
+
+    // 没有真听牌 → `outs` 为 0 → 「我未来跟注」退化成 n−1 = 1 条街 = 5000
+    // → (7500 + 10000) : (2500 + 5000) = 2.3 : 1 → 30.0%
+    expect(rowText(translations.handAnalysis.impliedOdds)).toContain('30.0%');
+  });
+
+  it('空气手牌不显示这一行（无听牌、无后门听、无三条）', async () => {
+    await renderPanel({
+      holeCards: [card('♠', '2'), card('♦', '7')],
+      community: [
+        card('♠', 'K'),
+        card('♥', '9'),
+        card('♣', '4'),
+        card('♦', '3'),
+        card('♠', '8'),
+      ],
+    });
+
+    expect(screen.getByText(translations.handAnalysis.potOdds)).toBeInTheDocument();
+    expect(screen.queryByText(translations.handAnalysis.impliedOdds)).toBeNull();
+  });
+
+  it('已经是两对（成型且不会再变强）时不显示这一行', async () => {
+    // A♠K♦ + A♥K♣4♦ → 两对。这一行算出来的数字只会在同一屏上跟上一行的
+    // 直接赔率打架，所以显示门把它挡掉
+    await renderPanel({
+      holeCards: [card('♠', 'A'), card('♦', 'K')],
+      community: [
+        card('♥', 'A'),
+        card('♣', 'K'),
+        card('♦', '4'),
+        card('♠', '2'),
+        card('♥', '7'),
+      ],
+    });
+
+    expect(screen.queryByText(translations.handAnalysis.impliedOdds)).toBeNull();
+  });
+
+  it('翻前非对子不显示这一行（口袋对那一侧由上面的翻前用例覆盖）', async () => {
+    // 翻前没有牌面 → 听牌、后门听、三条这三条路都不成立；非对子也没有 set mining，
+    // 于是并集为空。默认的 K♥K♥ 是口袋对，所以上面那条翻前用例仍然显示。
+    await renderPanel({
+      phase: 'preflop',
+      holeCards: [card('♠', 'A'), card('♦', 'K')],
+    });
+
+    expect(screen.getByText(translations.handAnalysis.potOdds)).toBeInTheDocument();
+    expect(screen.queryByText(translations.handAnalysis.impliedOdds)).toBeNull();
+  });
 });
