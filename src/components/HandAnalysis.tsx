@@ -940,11 +940,15 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 口径与公式本体见 `potOdds.impliedOddsFor`。
   //
   // 一次拿到两个口径并排显示：
-  // - 主值 `strict`：专业口径。对手在每条剩余街都按他当前的下注尺度下注、
-  //   我也每条街都跟，两项各自受剩余筹码夹住。**「我未来跟注」不是恒为 0** ——
-  //   只有「错过就弃牌」时才是 0（那正是教材那个例子的假设）。
+  // - 主值 `planned`：按**追牌计划**展开的期望口径 —— 成牌后不再跟注而是收钱，
+  //   河牌没成牌就弃牌。**「我未来跟注」不是恒为 0**，只有「错过就弃牌」时才是 0。
   // - 副标签 `upperBound`：教材例子的乐观读法（对手未来投入取满额、我未来跟注记 0）。
   //   两者之差就是「我未来跟注」这一项的影响。
+  //
+  // `outs` 取听牌检测的补牌数：「我未来跟注」在有真听牌时按成牌概率加权（成牌之后
+  // 这条路就结束了，后面不会再跟）；没检测到听牌时 `outs` 为 0，退化成「一直没成牌」
+  // 的确定性计划。注意这里**只喂补牌数、不做门槛** —— 该行对任何需要跟注的牌都照常
+  // 显示（是否只在听牌时显示是另一件事）。
   //
   // 只在**还有牌可发**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
   // 显示出来只会与上一行的赔率重复。无跟注额 / 缺 hero / 缺对局状态时也不显示。
@@ -957,9 +961,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           currentPot ?? 0,
           betToCall ?? 0,
           cardsToCome,
+          drawInfo?.totalOuts,
         )
         : null,
-    [betToCall, currentPot, cardsToCome, heroPlayer, gameState],
+    [betToCall, currentPot, cardsToCome, heroPlayer, gameState, drawInfo],
   );
 
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
@@ -1125,7 +1130,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
 
           {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。
-              主值是专业口径（对手未来投入 + 我未来跟注两项都算），
+              主值是「按追牌计划展开」的期望口径（成牌后收钱、河牌不再跟），
               后面跟一个小号的上界对照（教材那个例子的乐观读法）。
               河牌 / 无跟注额时不渲染（见上方 `impliedOdds`）。
               口径说明整段挪到该行的 title（悬停可见），行内不留说明文字。 */}
@@ -1136,9 +1141,9 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                 title={translations.handAnalysis.impliedOddsTooltip}
                 value={
                   <>
-                    {(impliedOdds.strict.breakeven * 100).toFixed(1)}%
+                    {(impliedOdds.planned.breakeven * 100).toFixed(1)}%
                     <span className={RATIO_LABEL_CLASS}>
-                      {formatOddsRatio(impliedOdds.strict.ratio)} : 1
+                      {formatOddsRatio(impliedOdds.planned.ratio)} : 1
                     </span>
                     <span className={RATIO_LABEL_CLASS}>
                       · {translations.handAnalysis.impliedOddsUpperShort}{' '}
@@ -1146,7 +1151,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                     </span>
                   </>
                 }
-                color={getPotOddsColor(impliedOdds.strict.breakeven)}
+                color={getPotOddsColor(impliedOdds.planned.breakeven)}
               />
             </div>
           )}

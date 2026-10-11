@@ -74,17 +74,19 @@ interface PanelOpts {
   potOdds?: number;
   heroChips?: number;
   villainChips?: number;
+  holeCards?: Card[];
+  community?: Card[];
 }
 
 async function renderPanel(opts: PanelOpts = {}) {
   const phase = opts.phase ?? 'flop';
-  const community = phase === 'preflop' ? [] : FLOP;
+  const community = opts.community ?? (phase === 'preflop' ? [] : FLOP);
   const betToCall = opts.betToCall ?? 2500;
 
   const hero = mkPlayer({
     id: 1,
     isRealPlayer: true,
-    hand: [card('♥', 'K'), card('♥', 'K')],
+    hand: opts.holeCards ?? [card('♥', 'K'), card('♥', 'K')],
     chips: opts.heroChips ?? 5000,
     totalBet: 60,
   });
@@ -130,7 +132,7 @@ describe('HandAnalysis — 隐含赔率行', () => {
     resetRakeConfig();
   });
 
-  it('书中例子：主值按专业口径 33.3% / 2 : 1，上界作对照 20.0%', async () => {
+  it('书中例子：主值按追牌计划 33.3% / 2 : 1，上界作对照 20.0%', async () => {
     await renderPanel({
       currentPot: 7500,
       betToCall: 2500,
@@ -140,8 +142,9 @@ describe('HandAnalysis — 隐含赔率行', () => {
 
     const text = rowText(translations.handAnalysis.impliedOdds);
 
-    // 专业口径：对手再下一注 5000（半个池 × 两条剩余街）、我也跟，但双方身后
-    // 各只有 2500 → (7500+2500):(2500+2500) = 2:1 → 33.3%
+    // 追牌计划：对手未来投入按「成牌后收满 2 条街」= 10000、我未来跟注按「只跟到
+    // 河牌之前」= 1 条街 = 5000，但双方身后各只有 2500
+    // → (7500+2500):(2500+2500) = 2:1 → 33.3%
     expect(text).toContain('33.3%');
     expect(text).toContain('2 : 1');
 
@@ -151,22 +154,54 @@ describe('HandAnalysis — 隐含赔率行', () => {
     );
   });
 
-  it('「我未来跟注」的影响：上界低于直接赔率，专业口径反而更高', async () => {
+  it('「我未来跟注」的影响：上界低于直接赔率，追牌计划反而更高', async () => {
     await renderPanel({ currentPot: 7500, betToCall: 2500 });
 
     const row = rowText(translations.handAnalysis.impliedOdds);
     const direct = Number(
       rowText(translations.handAnalysis.potOdds).match(/([\d.]+)%/)?.[1],
     );
-    const strict = Number(row.match(/([\d.]+)%/)?.[1]);
+    const planned = Number(row.match(/([\d.]+)%/)?.[1]);
     const upper = Number(row.match(/上界\s*([\d.]+)%/)?.[1]);
 
     expect(direct).toBeCloseTo(25, 6);
     // 上界放宽了门槛（隐含赔率该有的方向）
     expect(upper).toBeLessThan(direct);
     // 但一旦打算再跟一注，有效赔率反而比眼前的价格更差 —— 这是这条线的要点
-    expect(strict).toBeGreaterThan(direct);
-    expect(strict).toBeGreaterThan(upper);
+    expect(planned).toBeGreaterThan(direct);
+    expect(planned).toBeGreaterThan(upper);
+  });
+
+  it('检测到听牌时把补牌数喂进加权：同花听（9 outs）的门槛低于无听牌时', async () => {
+    // 手牌 A♥Q♥ + 翻牌 9♥7♥2♣ → 恰好 4 张红桃，detectDraws 认出 9 outs 的同花听。
+    // 深筹码，让「注码外推」而不是「剩余筹码」成为约束：
+    // 下注前 5000、对手下 2500（半个池）→ 下一条街 5000
+    const flop = [
+      card('♥', '9'),
+      card('♥', '7'),
+      card('♣', '2'),
+      card('♠', '3'),
+      card('♦', '4'),
+    ];
+    await renderPanel({
+      currentPot: 7500,
+      betToCall: 2500,
+      heroChips: 100_000,
+      villainChips: 100_000,
+      holeCards: [card('♥', 'A'), card('♥', 'Q')],
+      community: flop,
+    });
+
+    const text = rowText(translations.handAnalysis.impliedOdds);
+
+    // 对手未来投入收满 2 条街 = 10000；
+    // 我未来跟注 = (1 − 9/47) × 5000 = 4042.55（转牌成牌就不再跟了）
+    // → (7500+10000) : (2500+4042.55) = 2.67 : 1 → 27.2%
+    expect(text).toContain('27.2%');
+    expect(text).toContain('2.7 : 1');
+
+    // 没喂补牌数（无听牌）时是 30.0% —— 成牌后不再掏钱，所以加权后门槛更低
+    expect(Number(text.match(/([\d.]+)%/)?.[1])).toBeLessThan(30);
   });
 
   it('口径说明整段挪到行的 title，行内不再留说明文字', async () => {
@@ -180,13 +215,14 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(title).toBe(translations.handAnalysis.impliedOddsTooltip);
     expect(title).toContain('底池 + 对手未来投入');
     expect(title).toContain('跟注 + 我未来跟注');
-    expect(title).toContain('未计成牌概率');
+    expect(title).toContain('成牌概率');
+    expect(title).toContain('河牌');
 
     // 行内只有「标签 + 百分比 + 比率 + 上界对照」，没有说明文字
     expect(row.textContent).toBe(
       `${translations.handAnalysis.impliedOdds}33.3%2 : 1· 上界 20.0%`,
     );
-    expect(row.textContent).not.toContain('未计成牌概率');
+    expect(row.textContent).not.toContain('加权');
 
     // 有提示就要有可发现的入口：悬停时光标变成 help
     expect(row).toHaveClass('cursor-help');

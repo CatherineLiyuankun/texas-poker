@@ -423,7 +423,7 @@ describe('futureWinningsFrom — 隐含赔率里的「未来可赢筹码」', ()
     expect(futureWinningsFrom(state, hero, 500)).toBe(0);
   });
 
-  it('cap 把「还能赢到多少」压到一条街的下注以内（专业口径用）', () => {
+  it('cap 把「还能赢到多少」压到一条街的下注以内（追牌计划口径用）', () => {
     const hero = mkPlayer({ id: 1, chips: 5000 });
     const state = mkState({
       players: [hero, mkPlayer({ id: 2, chips: 9000 })],
@@ -437,7 +437,7 @@ describe('futureWinningsFrom — 隐含赔率里的「未来可赢筹码」', ()
   });
 });
 
-describe('impliedOddsFor — 上界与专业口径成对给出', () => {
+describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
   /** 翻牌圈：底池 7500、对手下 2500（半个池） */
   function scenario(heroChips: number, villainChips: number) {
     const hero = mkPlayer({ id: 1, chips: heroChips });
@@ -450,7 +450,7 @@ describe('impliedOddsFor — 上界与专业口径成对给出', () => {
     return { state, hero };
   }
 
-  it('书中的例子（翻牌）：上界 4:1 / 20%，专业口径 2:1 / 33.3%', () => {
+  it('书中的例子（翻牌）：上界 4:1 / 20%，计划口径 2:1 / 33.3%', () => {
     const { state, hero } = scenario(5000, 2500);
     const pair = impliedOddsFor(state, hero, 7500, 2500, 2)!;
 
@@ -458,15 +458,16 @@ describe('impliedOddsFor — 上界与专业口径成对给出', () => {
     expect(formatOddsRatio(pair.upperBound.ratio)).toBe('4');
     expect(pair.upperBound.breakeven).toBeCloseTo(0.2, 12);
 
-    // 专业口径：下一条街预计 5000（对手半个池）× 两条街 = 10000，
-    // 但双方身后只有 2500 → 两项都被剩余筹码夹到 2500
-    expect(formatOddsRatio(pair.strict.ratio)).toBe('2');
-    expect(pair.strict.breakeven).toBeCloseTo(1 / 3, 12);
+    // 计划口径：下一条街预计 5000（对手半个池）。对手未来投入按「收满 2 条街」= 10000、
+    // 我未来跟注按「只跟到河牌之前」= 1 条街 = 5000；但双方身后只有 2500
+    // → 两项都被剩余筹码夹到 2500
+    expect(formatOddsRatio(pair.planned.ratio)).toBe('2');
+    expect(pair.planned.breakeven).toBeCloseTo(1 / 3, 12);
 
-    expect(pair.strict.breakeven).toBeGreaterThan(pair.upperBound.breakeven);
+    expect(pair.planned.breakeven).toBeGreaterThan(pair.upperBound.breakeven);
   });
 
-  it('专业口径的盈亏平衡不低于上界（加了我未来跟注，门槛只会更严）', () => {
+  it('计划口径的盈亏平衡不低于上界（加了我未来跟注，门槛只会更严）', () => {
     for (const [pot, call, heroChips, villainChips, streets] of [
       [7500, 2500, 5000, 2500, 2],
       [150, 50, 10_000, 10_000, 2],
@@ -480,21 +481,55 @@ describe('impliedOddsFor — 上界与专业口径成对给出', () => {
         players: [hero, mkPlayer({ id: 2, chips: villainChips })],
       });
       const pair = impliedOddsFor(state, hero, pot, call, streets)!;
-      expect(pair.strict.breakeven).toBeGreaterThanOrEqual(
+      expect(pair.planned.breakeven).toBeGreaterThanOrEqual(
         pair.upperBound.breakeven,
       );
     }
   });
 
-  it('转牌只剩一条街时，两项都只算一条街', () => {
+  it('转牌只剩一张牌时「我未来跟注」归零 —— 河牌发完没有下一条街可跟', () => {
     const { state, hero } = scenario(10_000, 10_000);
     // 下注前底池 5000、对手下 2500 → 跟注后底池 10000 → 下一条街预计 5000
     const pair = impliedOddsFor(state, hero, 7500, 2500, 1)!;
 
     // 上界：对手未来投入取满额有效剩余 = min(我方 10000−2500, 对手 10000) = 7500
     expect(pair.upperBound.ratio).toBeCloseTo((7500 + 7500) / 2500, 12);
-    // 专业口径：对手投入 5000、我跟 5000
-    expect(pair.strict.ratio).toBeCloseTo(12_500 / 7500, 12);
+    // 计划口径：只剩一张牌可发 → 成牌就收钱、没成牌就弃牌，对手投入 5000、我跟 0
+    expect(pair.planned.ratio).toBeCloseTo((7500 + 5000) / 2500, 12);
+  });
+
+  it('翻牌圈「我未来跟注」只算一条街，不是两条', () => {
+    // 深筹码，让「注码外推」而不是「剩余筹码」成为约束：
+    // 下注前 5000、对手下 2500（半个池）→ 下一条街 5000
+    const { state, hero } = scenario(100_000, 100_000);
+    const pair = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+
+    // 对手投入收满 2 条街 = 10000；我跟只算河牌之前那 1 条街 = 5000
+    expect(pair.planned.ratio).toBeCloseTo((7500 + 10_000) / (2500 + 5000), 12);
+  });
+
+  it('给了 outs 时「我未来跟注」按成牌概率加权（成牌后这条路就结束了）', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    // 9 outs（同花听）：转牌没成牌的概率 = 1 − 9/47，只有那时才会跟那一条街
+    const pair = impliedOddsFor(state, hero, 7500, 2500, 2, 9)!;
+    const y = (1 - 9 / 47) * 5000;
+
+    expect(pair.planned.ratio).toBeCloseTo((7500 + 10_000) / (2500 + y), 12);
+
+    // 成牌之后就不再掏钱，所以加权后「未来投入」变少 → 门槛比乐观计划更低
+    const optimistic = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+    expect(pair.planned.breakeven).toBeLessThan(optimistic.planned.breakeven);
+    // 但仍然不低于上界
+    expect(pair.planned.breakeven).toBeGreaterThanOrEqual(
+      pair.upperBound.breakeven,
+    );
+  });
+
+  it('outs = 0 与不给 outs 等价 —— 退化点连续，面板上不会出现说不清的跳变', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    const withZero = impliedOddsFor(state, hero, 7500, 2500, 2, 0)!;
+    const without = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+    expect(withZero.planned).toEqual(without.planned);
   });
 
   it('无跟注额 / 河牌（没有剩余街）时返回 null', () => {

@@ -206,12 +206,49 @@ export function futureCallsFrom(
   return Math.max(0, Math.min(heroRemaining, cap));
 }
 
-/** `impliedOddsFor` 的成对结果：乐观上界与专业口径。 */
+/** `impliedOddsFor` 的成对结果：教材上界与「按计划追牌」的期望口径。 */
 export interface ImpliedOddsPair {
   /** 乐观上界：对手未来投入取满额有效剩余筹码，我未来跟注记 0（计划「错过即弃」） */
   upperBound: ImpliedOddsResult;
-  /** 专业口径：两项都算，各自受剩余筹码夹住 */
-  strict: ImpliedOddsResult;
+  /**
+   * 主值：按**追牌计划**展开的期望口径 —— 成牌之后就不再是跟注而是收钱，
+   * 最后一条街（河牌）没成牌就直接弃牌、不会再有跟注。「我未来跟注」按
+   * `impliedCallWeight` 加权（有 `outs` 时按成牌概率），「对手未来投入」仍取
+   * 乐观侧（成牌后收满剩余街数）。
+   */
+  planned: ImpliedOddsResult;
+}
+
+/**
+ * 「我未来跟注」的**加权系数**（单位：单街注码 `b̂`）。
+ *
+ * 原先写成 `b̂ × 剩余街数`，这是把「每条街都跟」当成了计划，同时错在两处：
+ *
+ * - **最后一条街（河牌）不会再有跟注。** 河牌发出来时要么成牌（收钱）、要么没成
+ *   （弃牌），两条路都不产生跟注。所以最多只覆盖 `n − 1` 条街。
+ * - **第 `k` 条街只有在「前 `k` 张都没成牌」时才会跟。** 成牌之后这条路就结束了。
+ *
+ * 给了 `outs`（听牌检测的补牌数）时按成牌概率加权，否则按「一直没成牌」的确定性
+ * 计划即 `n − 1`。两者在 `outs → 0` 处**连续** —— 这是刻意保留的性质。
+ *
+ * 「对手未来投入」**不做这个加权**：它是乐观侧（假定成牌后能收满剩余街数），
+ * 与 `upperBound` 同一取向。两项都加权会让 `outs = 0` 与 `outs = 1` 之间跳一大截
+ * （`outs = 0` 时退化分支假定「第 1 张就成牌」，而 1 张补牌的成牌率只有 2%），
+ * 面板上会出现一个说不清的不连续点。
+ */
+function impliedCallWeight(streetsLeft: number, outs?: number): number {
+  const n = Math.max(0, Math.floor(streetsLeft));
+  if (n <= 1) return 0;
+  if (outs === undefined || outs <= 0) return n - 1;
+
+  // 第 k 张牌的成牌概率：翻牌圈 47 张未见、转牌圈 46 张（与 `drawDetector` 同口径）
+  let calls = 0;
+  let missThrough = 1;
+  for (let k = 1; k <= n - 1; k++) {
+    missThrough *= 1 - Math.min(1, outs / (47 - (k - 1)));
+    calls += missThrough;
+  }
+  return calls;
 }
 
 /**
@@ -222,12 +259,11 @@ export interface ImpliedOddsPair {
  * - `upperBound`：`futureWinnings` 取满额有效剩余筹码、`futureCalls` = 0。教材那个例子
  *   就是这一口径（4:1 / 20%），但它同时假设了「成牌后能把对手剩余筹码全赢过来」和
  *   「错过就弃牌」，是最乐观的读法。
- * - `strict`：两项都按「**每条剩余街对手都下同尺度的注、而我都跟**」估 ——
- *   注码用 `nextStreetBetFrom` 从对手当前的下注尺度外推，乘上剩余街数后各自受
- *   剩余筹码夹住。
+ * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率），
+ *   `futureWinnings` 仍是「成牌后收满剩余街数」的乐观侧；两项各自受剩余筹码夹住。
  *
- * 两者之差就是「我未来跟注」这一项的影响：`strict` 的盈亏平衡**不低于** `upperBound`，
- * 有时甚至高于直接赔率 —— 这正是「打算再付一注时，有效赔率可能比眼前的价格更差」。
+ * `planned` 的盈亏平衡**不低于** `upperBound`，有时甚至高于直接赔率 —— 这正是
+ * 「打算再付一注时，有效赔率可能比眼前的价格更差」。
  *
  * 无跟注额 / 河牌（`streetsLeft <= 0`）时返回 null，调用方应隐藏该行。
  */
@@ -237,21 +273,24 @@ export function impliedOddsFor(
   totalPot: number,
   toCall: number,
   streetsLeft: number,
+  outs?: number,
 ): ImpliedOddsPair | null {
   if (toCall <= 0 || streetsLeft <= 0) return null;
 
-  const perStreet = nextStreetBetFrom(totalPot, toCall) * streetsLeft;
+  const perStreet = nextStreetBetFrom(totalPot, toCall);
+  const callWeight = impliedCallWeight(streetsLeft, outs);
+
   const upperBound = impliedOddsFrom(
     totalPot,
     toCall,
     futureWinningsFrom(state, player, toCall),
   );
-  const strict = impliedOddsFrom(
+  const planned = impliedOddsFrom(
     totalPot,
     toCall,
-    futureWinningsFrom(state, player, toCall, perStreet),
-    futureCallsFrom(player, toCall, perStreet),
+    futureWinningsFrom(state, player, toCall, perStreet * streetsLeft),
+    futureCallsFrom(player, toCall, perStreet * callWeight),
   );
-  if (!upperBound || !strict) return null;
-  return { upperBound, strict };
+  if (!upperBound || !planned) return null;
+  return { upperBound, planned };
 }
