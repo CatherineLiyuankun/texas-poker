@@ -1068,4 +1068,89 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       }
     });
   });
+
+  describe('下注回合完成后不再开放行动权（翻前加注死循环回归）', () => {
+    it('所有人跟注后，最后一个行动者不能再加注', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(3, 0, 5); // 小盲 5 / 大盲 10
+      });
+
+      const total = result.current.state.players.length;
+      const dealerIdx = result.current.state.dealer - 1;
+      const sbIdx = (dealerIdx + 1) % total;
+      const bbIdx = (dealerIdx + 2) % total;
+      const firstIdx = (bbIdx + 1) % total; // 翻前第一个行动者（大盲之后）
+      const ids = result.current.state.players.map((p) => p.id);
+
+      // 前面的人平跟进池
+      act(() => {
+        result.current.playerAction(ids[firstIdx], 'call');
+      });
+      act(() => {
+        result.current.playerAction(ids[sbIdx], 'call');
+      });
+
+      // 大盲加注到 30（额外投入 20）
+      act(() => {
+        result.current.playerAction(ids[bbIdx], 'raise', 20);
+      });
+      expect(result.current.state.lastBet).toBe(30);
+
+      // 其余两人跟注到 30
+      act(() => {
+        result.current.playerAction(ids[firstIdx], 'call');
+      });
+      act(() => {
+        result.current.playerAction(ids[sbIdx], 'call');
+      });
+
+      // 此刻本轮下注已经结束
+      expect(result.current.isBettingComplete()).toBe(true);
+
+      // 大盲（最后一个行动者）此时不应再能加注
+      act(() => {
+        result.current.playerAction(ids[bbIdx], 'raise', 20);
+      });
+
+      expect(result.current.state.lastBet).toBe(30);
+      expect(result.current.state.players[bbIdx].bet).toBe(30);
+      // 其他人不应被重新激活
+      expect(result.current.state.players[firstIdx].hasActed).toBe(true);
+      expect(result.current.state.players[sbIdx].hasActed).toBe(true);
+    });
+
+    it('回合完成后，任何行动都不会改变状态（过牌/跟注/加注）', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(3, 0, 5);
+      });
+
+      const total = result.current.state.players.length;
+      const dealerIdx = result.current.state.dealer - 1;
+      const bbIdx = (dealerIdx + 2) % total;
+      const firstIdx = (bbIdx + 1) % total;
+      const sbIdx = (dealerIdx + 1) % total;
+      const ids = result.current.state.players.map((p) => p.id);
+
+      // 平跟进池，大盲过牌 → 回合结束
+      act(() => {
+        result.current.playerAction(ids[firstIdx], 'call');
+      });
+      act(() => {
+        result.current.playerAction(ids[sbIdx], 'call');
+      });
+      act(() => {
+        result.current.playerAction(ids[bbIdx], 'check');
+      });
+
+      expect(result.current.isBettingComplete()).toBe(true);
+      const snapshot = result.current.state;
+
+      act(() => {
+        result.current.playerAction(ids[bbIdx], 'raise', 20);
+      });
+      expect(result.current.state).toBe(snapshot);
+    });
+  });
 });

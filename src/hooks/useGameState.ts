@@ -359,6 +359,15 @@ export function useGameState() {
         }
 
         case 'PLAYER_ACTION': {
+          // 本轮下注一旦结束，就不能再有人加注。
+          // 否则在街道推进的动画间隙里，最后一个行动者（翻前通常是机器人大盲）
+          // 会再次加注，把其他人的 hasActed 重新清空、逼他们再跟一圈，
+          // 来回拉锯形成死循环。这里是最后一道权威防线 —— UI 侧还会在回合
+          // 结束时同时关掉机器人行动与真人按钮（见 GameBoard.bettingRoundComplete）。
+          if (bettingComplete(state) && action.action === 'raise') {
+            return state;
+          }
+
           const playerIdx = getPlayerIndex(action.player);
           if (playerIdx < 0 || playerIdx >= state.players.length) return state;
 
