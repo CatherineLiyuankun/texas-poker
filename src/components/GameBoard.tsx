@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useGameState } from '../hooks/useGameState';
 import { PlayerArea } from './PlayerArea';
 import { CommunityCards } from './CommunityCards';
@@ -292,9 +292,36 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
   );
 
+  // 本轮下注是否已经结束（口径与原先的 canContinue 完全一致）。
+  // 抽成一个共享值，让「机器人行动 / 真人按钮 / 街道推进」三处用同一个判定：
+  // 回合一旦结束，任何玩家都不该再行动 —— 否则最后一个行动者（翻前通常是
+  // 机器人大盲）会在街道推进的动画间隙里再次加注，把其他人重新拉回行动，
+  // 无限循环（见 #15）。
+  const bettingRoundComplete = useMemo(() => {
+    const activePlayers = state.players.filter((p) => !p.folded);
+    const canActPlayers = state.players.filter(
+      (p) => !p.folded && !p.allIn && p.chips > 0,
+    );
+
+    if (activePlayers.length === 0 || canActPlayers.length === 0) {
+      return true;
+    }
+
+    const allActed = canActPlayers.every((p) => p.hasActed);
+    const allBetsValid = activePlayers.every(
+      (p) =>
+        (p.bet < state.lastBet && (p.chips <= 0 || p.allIn)) ||
+        p.bet === state.lastBet,
+    );
+
+    return allActed && allBetsValid;
+  }, [state]);
+
   useEffect(() => {
     if (!currentPlayer || currentPlayer.folded || roundSettled) return;
     if (currentPlayer.isRealPlayer) return;
+    // 回合已结束：机器人不再行动，等街道推进。
+    if (bettingRoundComplete) return;
 
     const decision = getBotAction(currentPlayer, state);
     const delay = noRealCanAct
@@ -313,7 +340,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }, delay);
 
     return () => clearTimeout(timer);
-  }, [currentPlayer, roundSettled, state, playerAction, noRealCanAct]);
+  }, [
+    currentPlayer,
+    roundSettled,
+    state,
+    playerAction,
+    noRealCanAct,
+    bettingRoundComplete,
+  ]);
 
   const handleAction = (action: Action, amount?: number) => {
     const playerId = state.currentPlayer;
@@ -331,62 +365,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     nextStreet();
   };
 
-  const canContinue = () => {
-    const activePlayers = state.players.filter((p) => !p.folded);
-    const canActPlayers = state.players.filter(
-      (p) => !p.folded && !p.allIn && p.chips > 0,
-    );
-
-    // keep this console.groupCollapsed for debugging purposes
-    // console.groupCollapsed(
-    //   '%c[canContinue] 检查',
-    //   'color: blue; font-weight: bold; font-size: 12px;',
-    // );
-
-    // console.log('状态上下文:', {
-    //   phase: state.phase,
-    //   currentPlayer: state.currentPlayer,
-    //   lastBet: state.lastBet,
-    //   mainPot: state.mainPot,
-    // });
-
-    // console.table(
-    //   activePlayers.map((p) => ({
-    //     ID: p.id,
-    //     筹码: p.chips,
-    //     下注: p.bet,
-    //     已行动: p.hasActed ? '✓' : '✗',
-    //     AllIn: p.allIn ? '✓' : '✗',
-    //   })),
-    // );
-
-    // console.log(
-    //   `统计: ${activePlayers.length}未弃牌 / ${canActPlayers.length}可行动`,
-    // );
-
-    if (activePlayers.length === 0 || canActPlayers.length === 0) {
-      // console.log('✅ 可继续（无活跃玩家）');
-      // console.groupEnd();
-      return true;
-    }
-
-    const allActed = canActPlayers.every((p) => p.hasActed);
-    const allBetsValid = activePlayers.every((p) => {
-      const isValid =
-        (p.bet < state.lastBet && (p.chips <= 0 || p.allIn)) ||
-        p.bet === state.lastBet;
-      return isValid;
-    });
-
-    console.log(`allActed: ${allActed}, allBetsValid: ${allBetsValid}`);
-    console.log(
-      `结果: ${allActed && allBetsValid ? '✅ 可继续' : '⏸️ 不能继续'}`,
-    );
-
-    console.groupEnd();
-    return allActed && allBetsValid;
-  };
-
   useEffect(() => {
     if (roundSettled) {
       wasBettingCompleteRef.current = false;
@@ -397,19 +375,19 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       return;
     }
 
-    const isBettingComplete = canContinue();
-
-    if (isBettingComplete && !wasBettingCompleteRef.current) {
+    if (bettingRoundComplete && !wasBettingCompleteRef.current) {
       wasBettingCompleteRef.current = true;
       if (advanceTimerRef.current !== null) {
         clearTimeout(advanceTimerRef.current);
       }
+      // 街道推进停顿：纯 UX 节奏（让玩家看清最后一次行动 / 底池变化），
+      // 与正确性无关 —— 回合结束后机器人/真人都已被 bettingRoundComplete 拦下。
       advanceTimerRef.current = setTimeout(() => {
         advanceTimerRef.current = null;
         wasBettingCompleteRef.current = false;
         handleNextPhase();
-      }, noRealCanAct ? 500 : 1800);
-    } else if (!isBettingComplete) {
+      }, noRealCanAct ? 500 : 1000);
+    } else if (!bettingRoundComplete) {
       wasBettingCompleteRef.current = false;
       if (advanceTimerRef.current !== null) {
         clearTimeout(advanceTimerRef.current);
@@ -418,12 +396,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   }, [
     state.phase,
-    state.players,
     roundSettled,
-    state.lastBet,
+    bettingRoundComplete,
+    noRealCanAct,
     revealHand,
     nextStreet,
-    noRealCanAct,
   ]);
 
   const currentPhaseCards =
@@ -560,7 +537,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             </div>
           )}
 
-          {!roundSettled && canContinue() && state.phase !== 'showdown' && (
+          {!roundSettled && bettingRoundComplete && state.phase !== 'showdown' && (
             <button
               onClick={handleNextPhase}
               className="px-5 py-2 sm:px-8 sm:py-3 bg-yellow-500 hover:bg-yellow-600 text-black text-sm sm:text-xl font-bold rounded-xl"
@@ -646,7 +623,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                     !player.folded &&
                     !roundSettled;
                   const showActionButtons =
-                    isCurrentRealPlayer && !player.folded && !player.allIn;
+                    isCurrentRealPlayer &&
+                    !player.folded &&
+                    !player.allIn &&
+                    // 回合已结束时不再给真人亮按钮：最后一个行动者若还能点，
+                    // 会因为回合已结束而被忽略，反而让人以为卡住了。
+                    !bettingRoundComplete;
 
                   // 底池 / 跟注额 / 跟注赔率统一口径（见 utils/potOdds.ts）
                   const potOddsInfo = computePotOddsFor(state, player);
