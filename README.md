@@ -24,7 +24,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - Available from preflop onward; the recommendation and EV figures are driven by range equity, falling back to random equity when no range can be inferred
   - **Bot Action** (above `GTO Math`): what the bot would do **if this real player's seat were bot-controlled** — the same decision path as the live bots (`getShadowBotAction` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below)
   - **Pot odds**: the percentage plus the same thing as a ratio (`pot : call`), e.g. `33.3% 2 : 1` — 1/4 pot `5 : 1`, 1/2 pot `3 : 1`, 3/4 pot `2.3 : 1`, full pot `2 : 1`, 2 pots `1.5 : 1`, matching the standard table
-  - **Implied odds**: `(pot + future winnings) : (call + my future calls)`, both terms estimated the professional way — the next street's bet is extrapolated from the opponent's current bet-to-pot fraction and multiplied by the streets left, then each term is capped by the remaining stacks. Shown as the strict figure plus a small upper-bound reference (labelled `上界`), which is the textbook's optimistic read (full effective stack, my future calls = 0): `7 500` pot / call `2 500` / `2 500` behind → strict `2 : 1` → `33.3%`, upper bound `4 : 1` → `20.0%`. Note the strict figure can be **worse** than the plain pot odds — committing to pay another street is what does it. The full formula lives in the row's hover tooltip. Hidden on the river, where it degenerates to the plain pot odds
+  - **Implied odds**: `(pot + future winnings) : (call + my future calls)`. The main figure is a **drawing plan**: the opponent's next-street bet is extrapolated from his current bet-to-pot fraction, his future contribution is that bet × the streets left, and my future calls are weighted by the chance I have **not** hit yet (the river street never produces a call). Each term is capped by the remaining stacks, then the winnings side takes two discounts — **reverse implied odds** (a paired or three-suited board, or a non-nut flush draw: hitting can still lose) and **opponent paying willingness** (WTSD/AF, applied only once the sample is real) — and, in cash games, **rake**. A small `上界` reference gives the textbook's optimistic read (full effective stack, my future calls = 0, no discounts, no rake): `7 500` pot / call `2 500` / `2 500` behind → planned `2 : 1` → `33.3%`, upper bound `4 : 1` → `20.0%`. The planned figure can be **worse** than the plain pot odds — committing to pay another street is what does it. Opponents who are already all-in cannot pay again and are excluded. The full formula lives in the row's hover tooltip. Hidden on the river, where it degenerates to the plain pot odds
 - **Player Stats Tracking (VPIP/PFR)**: Long-term tracking of real players' preflop behavior across multiple hands
   - **VPIP** (Voluntarily Put Money In Pot): Percentage of hands where a player voluntarily enters the pot preflop
   - **PFR** (Pre-Flop Raise): Percentage of hands where a player raises preflop
@@ -186,7 +186,7 @@ npm run build
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
 - **Component Tests**: `src/components/__tests__/` - UI, settlement, and equity panel tests
-- **Test Coverage**: 973 tests across 51 test suites (971 passed, 2 skipped) — run `npm test` for the current figure
+- **Test Coverage**: 1012 tests across 51 test suites (1010 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -210,7 +210,7 @@ npm run build
   - 翻前起即可用；行动建议与 EV 数字由范围权益驱动，无法推断范围时回退为随机权益
   - **Bot Action**（位于 `GTO Math` 之前）: **这个真人座位如果交给机器人**会怎么打 —— 与场上机器人同一条决策路径（`getShadowBotAction` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同
   - **底池赔率**: 百分比 + 同一件事的**比率形式**（底池 : 跟注），如 `33.3% 2 : 1` —— 1/4 池 `5 : 1`、1/2 池 `3 : 1`、3/4 池 `2.3 : 1`、一个池 `2 : 1`、两个池 `1.5 : 1`，与标准表逐行一致
-  - **隐含赔率**: `（底池 + 对手未来投入）:（跟注 + 我未来跟注）`，两项都按专业口径估 —— 下一条街的注码由对手当前的下注尺度外推、再乘上剩余街数，两项各自受剩余筹码夹住。显示为**专业口径主值 + 小号「上界」对照**（上界 = 教材那个例子的乐观读法：对手未来投入取满额、我未来跟注记 0）：底池 `7 500` / 跟 `2 500` / 双方身后各 `2 500` → 专业口径 `2 : 1` → `33.3%`，上界 `4 : 1` → `20.0%`。注意专业口径可能**比直接赔率还差** —— 「打算再付一注」就会这样。完整公式在该行的悬停提示里。河牌没有后续街、恒等于直接赔率，故该行隐藏
+  - **隐含赔率**: `（底池 + 对手未来投入）:（跟注 + 我未来跟注）`。主值是**追牌计划**口径 —— 下一条街的注码由对手当前的下注尺度外推，「对手未来投入」= 该注码 × 剩余街数，「我未来跟注」按**还没成牌**的概率加权（河牌那条街不会再产生跟注）；两项各自受剩余筹码夹住，然后「赢到的筹码」一侧再吃两层折扣：**反隐含赔率**（牌面对子 / 三张同花 / 非坚果同花听 —— 成牌仍可能输）与**对手支付意愿**（WTSD/AF，样本够时才打折），现金局再折**抽水**。小号「上界」是教材那个例子的乐观读法（对手未来投入取满额、我未来跟注记 0、不打折、不折抽水）：底池 `7 500` / 跟 `2 500` / 双方身后各 `2 500` → 计划口径 `2 : 1` → `33.3%`，上界 `4 : 1` → `20.0%`。计划口径可能**比直接赔率还差** —— 「打算再付一注」就会这样。已全下的对手不会再掏钱，不计入。完整公式在该行的悬停提示里。河牌没有后续街、恒等于直接赔率，故该行隐藏
 - **玩家数据统计 (VPIP/PFR)**: 跨多局长期追踪真人玩家的翻牌前行为
   - **VPIP** (主动入池率): 玩家翻牌前自愿入池的手牌百分比
   - **PFR** (翻牌前加注率): 玩家翻牌前加注的手牌百分比
@@ -371,4 +371,4 @@ npm run build
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
 - **组件测试**: `src/components/__tests__/` - UI、结算和权益面板测试
-- **测试覆盖**: 51 个测试套件，共 973 个测试用例（971 通过，2 跳过）—— 以 `npm test` 的实际输出为准
+- **测试覆盖**: 51 个测试套件，共 1012 个测试用例（1010 通过，2 跳过）—— 以 `npm test` 的实际输出为准
