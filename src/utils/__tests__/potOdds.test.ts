@@ -545,7 +545,8 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
     const { state, hero } = scenario(5000, 2500);
     const pair = impliedOddsFor(state, hero, 7500, 2500, 2)!;
 
-    // 上界：对手未来投入取满额有效剩余筹码（双方身后各 2500）、我未来跟注记 0
+    // 上界：对手未来投入取「预计注码 × 剩余街数」= 5000 × 2 = 10000，但我未来跟注记 0，
+    // 且双方身后各只有 2500 → 剩余筹码先夹住 → 2500（与教材的满额口径重合）
     expect(formatOddsRatio(pair.upperBound.ratio)).toBe('4');
     expect(pair.upperBound.breakeven).toBeCloseTo(0.2, 12);
 
@@ -556,6 +557,22 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
     expect(pair.planned.breakeven).toBeCloseTo(1 / 3, 12);
 
     expect(pair.planned.breakeven).toBeGreaterThan(pair.upperBound.breakeven);
+  });
+
+  it('深筹码下上界不再退化成荒谬比价（不再取满额有效剩余筹码）', () => {
+    // 双方各 5 万、下注前底池 5000、对手下 2500（半个池）→ 下一条街预计 5000
+    const { state, hero } = scenario(50_000, 50_000);
+    const pair = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+
+    // 上界 = 「对手再开两枪」= 5000 × 2 = 10000，而不是身后那 47500
+    expect(pair.upperBound.ratio).toBeCloseTo((7500 + 10_000) / 2500, 12); // 7
+    expect(pair.upperBound.breakeven).toBeCloseTo(1 / 8, 12); // 12.5%
+
+    // 旧口径：min(我方 47500, 对手 50000) = 47500 → ratio 22 → 盈亏平衡 4.3%，
+    // 等于宣称「跟这注只要 4% 胜率」—— 那个数只会误导人
+    expect(pair.upperBound.breakeven).toBeGreaterThan(0.1);
+    // 上界仍高于直接赔率（2500 / 10000 = 25%），这条性质不能被改坏
+    expect(pair.upperBound.breakeven).toBeLessThan(2500 / 10_000);
   });
 
   it('计划口径的盈亏平衡不低于上界（加了我未来跟注，门槛只会更严）', () => {
@@ -578,15 +595,17 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
     }
   });
 
-  it('转牌只剩一张牌时「我未来跟注」归零 —— 河牌发完没有下一条街可跟', () => {
+  it('转牌只剩一张牌时两个口径重合 —— 河牌发完没有下一条街可跟', () => {
     const { state, hero } = scenario(10_000, 10_000);
     // 下注前底池 5000、对手下 2500 → 跟注后底池 10000 → 下一条街预计 5000
     const pair = impliedOddsFor(state, hero, 7500, 2500, 1)!;
 
-    // 上界：对手未来投入取满额有效剩余 = min(我方 10000−2500, 对手 10000) = 7500
-    expect(pair.upperBound.ratio).toBeCloseTo((7500 + 7500) / 2500, 12);
-    // 计划口径：只剩一张牌可发 → 成牌就收钱、没成牌就弃牌，对手投入 5000、我跟 0
+    // 只剩一张牌可发：成牌就收钱、没成牌就弃牌 —— 我跟 0 条街、对手收 1 条街。
+    // 上界的 cap（预计注码 × 剩余街数 = 5000 × 1）与计划口径的对手投入同为 5000。
+    expect(pair.upperBound.ratio).toBeCloseTo((7500 + 5000) / 2500, 12);
     expect(pair.planned.ratio).toBeCloseTo((7500 + 5000) / 2500, 12);
+    // 于是转牌上「上界」与「计划」是同一件事：没有后续街可跟，乐观与计划无从分歧
+    expect(pair.planned.breakeven).toBeCloseTo(pair.upperBound.breakeven, 12);
   });
 
   it('翻牌圈「我未来跟注」只算一条街，不是两条', () => {

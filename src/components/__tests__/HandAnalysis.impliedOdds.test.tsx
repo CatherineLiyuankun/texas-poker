@@ -277,9 +277,12 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(text).toContain('36.3%');
     expect(text).toContain('1.8 : 1');
 
-    // 上界是「乐观读法」的锚点，不受反隐含赔率影响
+    // 上界是「乐观读法」的锚点，不受反隐含赔率影响。
+    // 深筹码（双方各 10 万）下上界按「对手再开两枪」= 5000 × 2 = 10000 封顶
+    // → (7500 + 10000) : 2500 = 7 : 1 → 12.5%
+    // （旧口径取满额有效剩余筹码 97500 → 2.3%，那个数只会误导人）
     expect(text).toContain(
-      `${translations.handAnalysis.impliedOddsUpperShort} 2.3%`,
+      `${translations.handAnalysis.impliedOddsUpperShort} 12.5%`,
     );
   });
 

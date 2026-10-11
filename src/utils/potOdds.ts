@@ -237,9 +237,16 @@ export function futureCallsFrom(
   return Math.max(0, Math.min(heroRemaining, cap));
 }
 
-/** `impliedOddsFor` 的成对结果：教材上界与「按计划追牌」的期望口径。 */
+/** `impliedOddsFor` 的成对结果：乐观上界与「按计划追牌」的期望口径。 */
 export interface ImpliedOddsPair {
-  /** 乐观上界：对手未来投入取满额有效剩余筹码，我未来跟注记 0（计划「错过即弃」） */
+  /**
+   * 乐观上界：**对手按同一比例继续下注**（预计注码 × 剩余街数，再受剩余筹码夹住）、
+   * 我未来跟注记 0（计划「错过即弃」）、不打折扣、不折抽水。
+   *
+   * 注意它**不是**「把对手剩余筹码全赢过来」——那个口径在深筹码下会退化成
+   * 荒谬的比价（见 `impliedOddsFor`）。短筹码时两者恰好重合，所以教材那个例子
+   * 仍是 4:1 / 20%。
+   */
   upperBound: ImpliedOddsResult;
   /**
    * 主值：按**追牌计划**展开的期望口径 —— 成牌之后就不再是跟注而是收钱，
@@ -418,9 +425,10 @@ export interface ImpliedOddsContext {
  *
  * `streetsLeft` = 还要发的公共牌数（翻牌 2、转牌 1、河牌 0），也等于**剩余的下注街数**。
  *
- * - `upperBound`：`futureWinnings` 取满额有效剩余筹码、`futureCalls` = 0。教材那个例子
- *   就是这一口径（4:1 / 20%），但它同时假设了「成牌后能把对手剩余筹码全赢过来」和
- *   「错过就弃牌」，是最乐观的读法。
+ * - `upperBound`：`futureWinnings` 取「预计注码 × 剩余街数」再受剩余筹码夹住、
+ *   `futureCalls` = 0、不打折扣。教材那个例子（双方身后各 2500）里剩余筹码先夹住，
+ *   于是仍是 4:1 / 20%。**刻意不取满额有效剩余筹码** —— 那个口径在深筹码下会给出
+ *   荒谬比价（各 5 万、池 5000 → ratio 22 → 盈亏平衡 4.3%）。
  * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率）；
  *   `futureWinnings` 再乘 `ctx.reverseImplied`（反隐含赔率：成牌后仍可能输）与
  *   `ctx.opponentPaying`（对手支付意愿）两层折扣；两项各自受剩余筹码夹住；
@@ -449,10 +457,17 @@ export function impliedOddsFor(
   const reverse = Math.max(0, Math.min(1, ctx.reverseImplied ?? 1));
   const paying = Math.max(0, Math.min(1, ctx.opponentPaying ?? 1));
 
+  // 上界 = 「对手按同一比例继续下注、我未来不再投入」的乐观读法。
+  //
+  // 早先这里取的是**满额有效剩余筹码**（不设 cap），深筹码下会给出荒谬的比价：
+  // 双方各 5 万、下注前底池 5000 时 ratio = 22 → 盈亏平衡 4.3%，等于宣称
+  // 「跟这注只需要 4% 胜率」。改成「预计注码 × 剩余街数」封顶后，
+  // 短筹码（教材那个例子，双方身后各 2500）仍由剩余筹码夹住、数字不变（4:1 / 20%），
+  // 深筹码则落在「对手再开两枪」这个真的可能发生的量级上。
   const upperBound = impliedOddsFrom(
     totalPot,
     toCall,
-    futureWinningsFrom(state, player, toCall),
+    futureWinningsFrom(state, player, toCall, perStreet * streetsLeft),
   );
 
   const x = futureWinningsFrom(
