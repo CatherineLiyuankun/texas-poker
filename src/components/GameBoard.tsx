@@ -436,7 +436,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   };
 
   const realPlayerIds = state.players.filter((p) => p.isRealPlayer).map((p) => p.id);
+  const botPlayerIds = state.players.filter((p) => !p.isRealPlayer).map((p) => p.id);
   const longStats = realPlayerIds.length > 0 ? getAllPlayerLongStats(realPlayerIds) : undefined;
+  // Bot 行和真人行同口径：都读长期库（跨会话），不再只算当前会话。
+  const botLongStats = botPlayerIds.length > 0 ? getAllPlayerLongStats(botPlayerIds) : undefined;
   const allRealSessionStats = realPlayerIds.length > 1
     ? getRealPlayerSessionStats(realPlayerIds)
     : undefined;
@@ -679,6 +682,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                             : undefined
                         }
                         longStats={player.isRealPlayer ? longStats : undefined}
+                        botLongStats={player.isRealPlayer ? botLongStats : undefined}
                         viewingPlayerId={player.isRealPlayer ? player.id : undefined}
                         realPlayerSessionStats={
                           player.isRealPlayer && allRealSessionStats

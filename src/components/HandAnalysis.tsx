@@ -75,6 +75,8 @@ interface HandAnalysisProps {
   } | null;
   opponentProfile?: OpponentProfile;
   longStats?: PlayerLongStats[];
+  /** Bot 玩家的长期（跨会话）统计；「玩家数据」表的 Bot 行读它，而非当前会话。 */
+  botLongStats?: PlayerLongStats[];
   viewingPlayerId?: PlayerId;
   realPlayerSessionStats?: BotStatsWithAF[];
   positionLabel?: string;
@@ -507,6 +509,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   gtoRecommendation,
   opponentProfile,
   longStats,
+  botLongStats,
   viewingPlayerId,
   realPlayerSessionStats,
   positionLabel,
@@ -1525,9 +1528,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* 统一玩家统计 VPIP/PFR/AF 表格 */}
+      {/* 统一玩家统计 VPIP/PFR/AF 表格。Bot 行与真人行同口径：都读长期（跨会话）统计，
+          不再用当前会话数据 —— `opponentProfile.botStats` 仍供 NodeLock 区块使用，
+          但不再驱动这张表。 */}
       {(() => {
-        const botStats: BotStatsWithAF[] = opponentProfile?.botStats ?? [];
+        const botStats: PlayerLongStats[] = botLongStats ?? [];
         const realStats: PlayerLongStats[] = longStats ?? [];
         if (botStats.length === 0 && realStats.length === 0) return null;
         return (
