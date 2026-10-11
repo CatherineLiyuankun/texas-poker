@@ -93,7 +93,10 @@ export function decidePostflopGTO(
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
-  adj: OpponentAdjustments,
+  // 对手画像调整目前**未参与**本函数的决策：它原先只被下面那段「河牌」分支使用，
+  // 而那段是不可达的死代码（`botAI` 的河牌走 `decideRiverGTO`，翻后只调本函数处理
+  // flop / turn）。死代码已删，参数保留是为了不改动调用契约，用 `_` 前缀标注未使用。
+  _adj: OpponentAdjustments,
 ): BotDecision {
   const community = getCommunityByPhase(state.communityCards, state.phase);
   if (community.length < 3) {
@@ -122,63 +125,6 @@ export function decidePostflopGTO(
 
   const facingBet = ctx.toCall > 0;
   const facingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
-
-  // 对手调整因子
-  const stealBoost = adj.raiseBonus > 0 ? 0.05 : 0;
-  const callTighten = adj.callPenalty > 0 ? 0.03 : 0;
-
-  // River: polarized strategy
-  if (state.phase === 'river') {
-    if (facingBet) {
-      if (facingBigRaise) {
-        if (strength === 'strong' && flags.canCallResult) return { action: 'call' };
-        if (flags.canFoldResult) return { action: 'fold' };
-        if (flags.canCheckResult) return { action: 'check' };
-        return { action: 'call' };
-      }
-      if (strength === 'strong') {
-        if (flags.canRaiseResult) {
-          const target = Math.floor(ctx.totalPot * 0.75);
-          return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
-        }
-        if (flags.canCallResult) return { action: 'call' };
-      }
-      if (strength === 'medium') {
-        if (equity >= ctx.potOdds + 0.05 - callTighten && flags.canCallResult) return { action: 'call' };
-        if (flags.canFoldResult) return { action: 'fold' };
-      }
-      if (strength === 'weak' || strength === 'air') {
-        if (equity >= ctx.potOdds && flags.canCallResult) return { action: 'call' };
-        if (flags.canFoldResult) return { action: 'fold' };
-      }
-      if (flags.canFoldResult) return { action: 'fold' };
-      if (flags.canCheckResult) return { action: 'check' };
-      return { action: 'call' };
-    }
-
-    // River: not facing bet
-    if (strength === 'strong') {
-      const sizing = getBetSizing(texture.classification, spr);
-      const target = Math.floor(ctx.totalPot * Math.max(sizing, 0.75));
-      if (flags.canAllInResult && shouldAllInBySPR(
-        player.chips, 0, ctx.totalPot, player.bet, target,
-      )) return { action: 'allin' };
-      if (flags.canRaiseResult) {
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
-      }
-    }
-    if (strength === 'air' && ip && ctx.numOpponents <= 2) {
-      // 对手弃牌率高时，增加诈唬频率
-      const bluffProb = 0.30 + stealBoost;
-      if (flags.canRaiseResult && random() < bluffProb) {
-        const target = Math.floor(ctx.totalPot * 0.75);
-        return { action: 'raise', amount: calculateRaiseAmount(player, state, target) };
-      }
-    }
-    if (flags.canCheckResult) return { action: 'check' };
-    if (flags.canFoldResult) return { action: 'fold' };
-    return { action: 'call' };
-  }
 
   // Flop/Turn: facing bet
   if (facingBet) {

@@ -674,6 +674,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         toCall: betToCall ?? 0,
         totalPot: currentPot ?? 0,
         smallBlind: gameState?.smallBlind ?? SMALL_BLIND,
+        // 与机器人 decideRiverGTO 同口径：面板 SPR 行那个值（有效筹码 / 底池）。
+        spr: spr ?? 999,
       });
     }
 
