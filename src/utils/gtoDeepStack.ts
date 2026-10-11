@@ -19,6 +19,13 @@ import { drawCallEquityThreshold } from './gtoMath';
 import { effectiveStackBB } from './stackDepth';
 // SPR / 有效筹码的唯一来源：本文件不再自己写 `player.chips / totalPot`。
 import { sprFromState } from './spr';
+// SPR 决策表（commit / control / cautious）与尺度表的唯一来源 —— 与 `gtoPostflop` 共用。
+import {
+  adjustSizingByHand,
+  sprBetSizing,
+  sprDecisionOf,
+  type SprDecision,
+} from './sprStrategy';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
 import { equityIterations } from './equityIterations';
 
@@ -54,31 +61,15 @@ interface DeepStackConfig {
 }
 
 type HandAdjustment = 'upgrade' | 'downgrade' | 'neutral';
-type SPRDecision = 'commit' | 'control' | 'cautious';
 
 interface DeepStackRecommendation {
   action: Action;
   amount?: number;
   sizing?: number;               // 下注尺寸百分比
   handAdjustment: HandAdjustment;
-  sprDecision: SPRDecision;
+  sprDecision: SprDecision;
   reasoning: string;
 }
-
-
-
-const SPR_DECISION_TABLE: Record<string, SPRDecision> = {
-  shallow: 'commit',    // SPR < 4
-  medium: 'control',    // SPR 4-8
-  deep: 'cautious',     // SPR 8-15
-  very_deep: 'cautious', // SPR > 15
-};
-
-const DEEP_STACK_SIZING: Record<string, Record<string, number>> = {
-  dry: { commit: 0.66, control: 0.50, cautious: 0.33 },
-  wet: { commit: 0.75, control: 0.66, cautious: 0.50 },
-  very_wet: { commit: 0.85, control: 0.75, cautious: 0.66 },
-};
 
 function isSmallPair(hand: Card[]): boolean {
   if (hand.length !== 2) return false;
@@ -146,29 +137,22 @@ function getHandAdjustment(hand: Card[], effectiveStack: number): HandAdjustment
   return 'neutral';
 }
 
-function getSPRDecision(spr: number): SPRDecision {
-  if (spr < 4) return SPR_DECISION_TABLE.shallow;
-  if (spr <= 8) return SPR_DECISION_TABLE.medium;
-  if (spr <= 15) return SPR_DECISION_TABLE.deep;
-  return SPR_DECISION_TABLE.very_deep;
-}
-
+/**
+ * 价值下注尺度：牌面纹理 × SPR 承诺档，再按手牌调整方向微调。
+ *
+ * 实现全在 `sprStrategy`（与 `gtoPostflop` 共用），本文件不再自带尺度表 ——
+ * 以前这里有一份 `DEEP_STACK_SIZING` 与一套 4/8/15 的 SPR 分档，与
+ * `postflopFrequencies` 的 1.5/3 长期并存，现统一到 `spr.sprBand`。
+ */
 function getDeepStackSizing(
   texture: BoardTexture,
-  sprDecision: SPRDecision,
+  sprDecision: SprDecision,
   handAdjustment: HandAdjustment,
 ): number {
-  const classification = texture.classification;
-  const baseSizing = DEEP_STACK_SIZING[classification]?.[sprDecision] ?? 0.50;
-
-  if (handAdjustment === 'upgrade') {
-    return Math.min(baseSizing * 1.1, 0.85);
-  }
-  if (handAdjustment === 'downgrade') {
-    return Math.max(baseSizing * 0.9, 0.25);
-  }
-
-  return baseSizing;
+  return adjustSizingByHand(
+    sprBetSizing(texture.classification, sprDecision),
+    handAdjustment,
+  );
 }
 
 function getCommunityByPhase(state: GameState): Card[] {
@@ -206,7 +190,7 @@ function handleDeepStackFacingBet(
   hand: Card[],
   equity: number,
   handAdjustment: HandAdjustment,
-  sprDecision: SPRDecision,
+  sprDecision: SprDecision,
 ): DeepStackRecommendation {
   const { boardTexture, potOdds } = config;
   const sizing = getDeepStackSizing(boardTexture, sprDecision, handAdjustment);
@@ -425,7 +409,7 @@ function handleDeepStackNoBet(
   hand: Card[],
   equity: number,
   handAdjustment: HandAdjustment,
-  sprDecision: SPRDecision,
+  sprDecision: SprDecision,
 ): DeepStackRecommendation {
   const { spr, boardTexture } = config;
   const sizing = getDeepStackSizing(boardTexture, sprDecision, handAdjustment);
@@ -590,7 +574,7 @@ export function getDeepStackRecommendation(
   const spr = sprFromState(player, state.players, ctx.totalPot);
 
   const handAdjustment = getHandAdjustment(player.hand, effectiveStack);
-  const sprDecision = getSPRDecision(spr);
+  const sprDecision = sprDecisionOf(spr);
 
   // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
   const stealBoost = adj.raiseBonus > 0 ? 0.05 : 0;
@@ -648,10 +632,10 @@ export function getDeepStackRecommendation(
 export function getDeepStackAdjustments(
   hand: Card[],
   effectiveStack: number,
-): { handAdjustment: HandAdjustment; sprDecision: SPRDecision; spr: number } {
+): { handAdjustment: HandAdjustment; sprDecision: SprDecision; spr: number } {
   const handAdjustment = getHandAdjustment(hand, effectiveStack);
   const spr = effectiveStack > 0 ? effectiveStack / 10 : 999; // Simplified SPR calculation
-  const sprDecision = getSPRDecision(spr);
+  const sprDecision = sprDecisionOf(spr);
 
   return { handAdjustment, sprDecision, spr };
 }

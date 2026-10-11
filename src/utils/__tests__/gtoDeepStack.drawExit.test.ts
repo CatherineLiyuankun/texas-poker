@@ -118,10 +118,10 @@ describe('gtoDeepStack 的 draw 出口（A2：分档顺序调整后必须显式�
     mockEquity = 0.54;
   });
 
-  it('commit 档（SPR < 4）面对下注：组合听牌跟注，而不是掉到默认弃牌', () => {
-    // chips 300 / totalPot 90 ⇒ SPR 3.3 ⇒ commit
+  it('commit 档（SPR < 3）面对下注：组合听牌跟注，而不是掉到默认弃牌', () => {
+    // chips 200 / totalPot 90 ⇒ SPR 2.2 ⇒ commit（分档已统一到 spr.sprBand：<3 为 commit）
     const decision = getDeepStackRecommendation(
-      createMockPlayer(300),
+      createMockPlayer(200),
       createMockGameState(30, 30),
       flags,
       createMockContext(30, 90),
@@ -133,7 +133,7 @@ describe('gtoDeepStack 的 draw 出口（A2：分档顺序调整后必须显式�
     expect(decision.reasoning).toContain('draw');
   });
 
-  it('cautious 档（SPR 8–15）面对下注：组合听牌跟注，而不是掉到默认弃牌', () => {
+  it('cautious 档（SPR ≥ 6）面对下注：组合听牌跟注，而不是掉到默认弃牌', () => {
     // chips 1000 / totalPot 90 ⇒ SPR 11.1 ⇒ cautious
     const decision = getDeepStackRecommendation(
       createMockPlayer(1000),
@@ -150,7 +150,7 @@ describe('gtoDeepStack 的 draw 出口（A2：分档顺序调整后必须显式�
 
   it('commit 档不面对下注：组合听牌半诈唬下注，而不是退化成过牌', () => {
     const decision = getDeepStackRecommendation(
-      createMockPlayer(300),
+      createMockPlayer(200),
       createMockGameState(0, 0),
       flags,
       createMockContext(0, 90),
@@ -162,10 +162,10 @@ describe('gtoDeepStack 的 draw 出口（A2：分档顺序调整后必须显式�
     expect(decision.reasoning).toContain('semi-bluff');
   });
 
-  it('control 档（SPR 4–8）不面对下注：组合听牌半诈唬下注（原有出口，锁住不丢）', () => {
-    // chips 600 / totalPot 90 ⇒ SPR 6.7 ⇒ control
+  it('control 档（SPR 3–6）不面对下注：组合听牌半诈唬下注（原有出口，锁住不丢）', () => {
+    // chips 450 / totalPot 90 ⇒ SPR 5.0 ⇒ control
     const decision = getDeepStackRecommendation(
-      createMockPlayer(600),
+      createMockPlayer(450),
       createMockGameState(0, 0),
       flags,
       createMockContext(0, 90),
@@ -181,7 +181,7 @@ describe('gtoDeepStack 的 draw 出口（A2：分档顺序调整后必须显式�
     // 同一手牌、同一赔率（门槛 = 0.25 − 0.06 = 0.19），只把权益压到 0.10。
     mockEquity = 0.10;
     const decision = getDeepStackRecommendation(
-      createMockPlayer(300),
+      createMockPlayer(200),
       createMockGameState(30, 30),
       flags,
       createMockContext(30, 90),
