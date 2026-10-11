@@ -35,7 +35,11 @@ import {
 } from '../utils/gtoMath';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 import { getPanelRecommendation } from '../utils/panelRecommendation';
-import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
+import {
+  getCardsToCome,
+  getCommunityByPhase,
+  getStreetsLeft,
+} from '../utils/communityByPhase';
 import { getShadowBotAction } from '../utils/botAI';
 import { formatActionLabel } from '../utils/actionLabel';
 import {
@@ -520,7 +524,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     () => getCommunityByPhase(communityCards, phase),
     [communityCards, phase],
   );
+  // 「还要发几张牌」与「还剩几条下注街」是两个不同的数，只在翻牌往后恰好相等。
+  // 补牌概率用前者，隐含赔率的按街展开用后者 —— 见 getStreetsLeft 的注释。
   const cardsToCome = getCardsToCome(phase);
+  const streetsLeft = getStreetsLeft(phase);
 
   const preflopStrength = useMemo(
     () => (phase === 'preflop' ? getPreflopStrength(holeCards) : null),
@@ -984,8 +991,11 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 面板建议同口径；上面那行「赔率」显示的是**原始**赔率，差异由 GTO Math 的
   // 口径标注说明。
   //
-  // 只在**还有牌可发**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
+  // 只在**还有下注街**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
   // 显示出来只会与上一行的赔率重复。无跟注额 / 缺 hero / 缺对局状态时也不显示。
+  //
+  // 第 5 参是**剩余下注街数**（`getStreetsLeft`），不是「还要发的牌数」：
+  // 两者只在翻牌往后恰好相等，翻前是 3 vs 5 —— 传牌数会把翻前的两条街当成五条。
   const impliedOdds = useMemo(
     () =>
       heroPlayer && gameState
@@ -994,7 +1004,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           heroPlayer,
           currentPot ?? 0,
           betToCall ?? 0,
-          cardsToCome,
+          streetsLeft,
           {
             outs: drawInfo?.totalOuts,
             reverseImplied,
@@ -1011,7 +1021,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     [
       betToCall,
       currentPot,
-      cardsToCome,
+      streetsLeft,
       heroPlayer,
       gameState,
       drawInfo,

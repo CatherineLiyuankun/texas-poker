@@ -391,6 +391,29 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(impliedRatioEl.className).toBe(potOddsRatioEl.className);
   });
 
+  it('翻前按 3 条剩余街展开，不是「还要发的 5 张牌」', async () => {
+    // 深筹码，让「注码外推」而不是「剩余筹码」成为约束 —— 浅筹码下两条路都被
+    // 夹住，街数错了也看不出来
+    await renderPanel({
+      phase: 'preflop',
+      heroChips: 100_000,
+      villainChips: 100_000,
+    });
+
+    const text = rowText(translations.handAnalysis.impliedOdds);
+
+    // 下一条街预计 5000：3 条街 → 对手再开 3 枪 = 15000、我跟到河牌之前 = 2 条街 = 10000
+    // → (7500 + 15000) : (2500 + 10000) = 1.8 : 1 → 35.7%
+    // 若误传「还要发的 5 张牌」会是 25000 : 20000 = 1.4 : 1 → 40.9%
+    expect(text).toContain('35.7%');
+    expect(text).toContain('1.8 : 1');
+
+    // 上界同样按 3 条街：7500 + 15000 = 22500 : 2500 = 9 : 1 → 10.0%
+    expect(text).toContain(
+      `${translations.handAnalysis.impliedOddsUpperShort} 10.0%`,
+    );
+  });
+
   it('河牌不显示隐含赔率行（没有后续街，恒等于直接赔率）', async () => {
     await renderPanel({ phase: 'river' });
 

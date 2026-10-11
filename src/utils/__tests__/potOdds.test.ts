@@ -575,6 +575,50 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
     expect(pair.upperBound.breakeven).toBeLessThan(2500 / 10_000);
   });
 
+  it('翻前按 3 条剩余街展开 —— 不是「还要发的 5 张牌」', () => {
+    // 翻前：底池 30（盲注）、对手下 20（2 倍池）、双方身后 1000
+    // 下注前底池 = 30 − 20 = 10 → 下一条街预计 = (20 / 10) × 50 = 100
+    const hero = mkPlayer({ id: 1, chips: 1000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 1000 })],
+    });
+    const pair = impliedOddsFor(state, hero, 30, 20, 3)!;
+
+    // 上界 = 对手再开 3 枪 = 300（不是 5 枪的 500）
+    expect(pair.upperBound.ratio).toBeCloseTo((30 + 300) / 20, 12);
+    // 计划：「我未来跟注」只算到河牌之前 = 2 条街 = 200（不是 4 条街的 400）
+    expect(pair.planned.ratio).toBeCloseTo((30 + 300) / (20 + 200), 12);
+    expect(pair.planned.breakeven).toBeCloseTo(0.4, 12);
+  });
+
+  it('把「还要发的牌数」当街数喂进来会显著放大结果（翻前 5 vs 3）', () => {
+    // 这条钉住的是**调用方的陷阱**：getCardsToCome('preflop') = 5，但只剩 3 条街。
+    // 两者只在翻牌往后恰好相等，所以这个错在翻前之外看不出来。
+    const hero = mkPlayer({ id: 1, chips: 1000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 1000 })],
+    });
+    const correct = impliedOddsFor(state, hero, 30, 20, 3)!;
+    const wrong = impliedOddsFor(state, hero, 30, 20, 5)!;
+
+    // 上界：正确 (30 + 300) / 20 = 16.5；错值 (30 + 500) / 20 = 26.5 —— 比价被撑大 1.6 倍
+    expect(correct.upperBound.ratio).toBeCloseTo(330 / 20, 12);
+    expect(wrong.upperBound.ratio).toBeCloseTo(530 / 20, 12);
+
+    // ⚠️ 两侧受影响的方向**相反**，所以不能只钉一个数：
+    // 「对手未来投入」被放大 → 上界更乐观（盈亏平衡更低）；
+    // 「我未来跟注」被放大 → 计划口径更悲观（盈亏平衡更高）。
+    // 错值不报错、不越界，只会给出一个「更便宜」的假象 —— 这才是它难发现的原因。
+    expect(wrong.upperBound.breakeven).toBeLessThan(correct.upperBound.breakeven);
+    expect(wrong.planned.breakeven).toBeGreaterThan(correct.planned.breakeven);
+
+    // 差距不是小数点级别：5 条街把「我未来跟注」从 2 街（200）拉到 4 街（400），
+    // 门槛被抬高 4 个百分点以上（0.400 → 0.442）
+    expect(wrong.planned.breakeven - correct.planned.breakeven).toBeGreaterThan(
+      0.03,
+    );
+  });
+
   it('计划口径的盈亏平衡不低于上界（加了我未来跟注，门槛只会更严）', () => {
     for (const [pot, call, heroChips, villainChips, streets] of [
       [7500, 2500, 5000, 2500, 2],
