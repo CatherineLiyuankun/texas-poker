@@ -41,6 +41,7 @@ import { formatActionLabel } from '../utils/actionLabel';
 import {
   formatOddsRatio,
   impliedOddsFor,
+  reverseImpliedFactor,
 } from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
@@ -936,6 +937,21 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return (currentPot ?? 0) / toCall;
   }, [currentPot, betToCall]);
 
+  // 反隐含赔率折扣：成花 / 成顺之后**仍然会输**的那部分 —— 牌面对子可能撞葫芦、
+  // 牌面已有三张同花时顺子可能输给同花、成花但不是坚果可能输给更大的同花。
+  // 口径见 `potOdds.reverseImpliedFactor`；没有听牌时恒为 1，不影响这一行。
+  const reverseImplied = useMemo(
+    () =>
+      drawInfo
+        ? reverseImpliedFactor(
+          holeCards,
+          community,
+          drawInfo.draws.map((d) => d.type),
+        )
+        : 1,
+    [drawInfo, holeCards, community],
+  );
+
   // 隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来跟注），两项都算 ——
   // 口径与公式本体见 `potOdds.impliedOddsFor`。
   //
@@ -961,10 +977,18 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           currentPot ?? 0,
           betToCall ?? 0,
           cardsToCome,
-          drawInfo?.totalOuts,
+          { outs: drawInfo?.totalOuts, reverseImplied },
         )
         : null,
-    [betToCall, currentPot, cardsToCome, heroPlayer, gameState, drawInfo],
+    [
+      betToCall,
+      currentPot,
+      cardsToCome,
+      heroPlayer,
+      gameState,
+      drawInfo,
+      reverseImplied,
+    ],
   );
 
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出

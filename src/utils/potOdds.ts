@@ -1,4 +1,6 @@
-import type { GameState, Player } from '../types/poker';
+import type { Card, GameState, Player } from '../types/poker';
+import { hasThreeSuitedBoard, isBoardPaired } from './boardTexture';
+import type { DrawType } from './drawDetector';
 import { mdfFrom } from './gtoMath';
 
 /**
@@ -252,6 +254,86 @@ function impliedCallWeight(streetsLeft: number, outs?: number): number {
 }
 
 /**
+ * 反隐含赔率折扣的下限 —— 再怎么扣也不把「对手未来投入」扣到 0 以下太多。
+ * 三层折扣（对子 × 三张同花 × 非坚果）叠起来是 0.4 × 0.5 × 0.6 = 0.12，
+ * 取 0.15 作为地板，保证结果仍是个有意义的正数。
+ */
+const REVERSE_IMPLIED_FLOOR = 0.15;
+
+/**
+ * 是否持有「我们正在追的那个花色」的 A —— 也就是坚果同花。
+ *
+ * 只有拿 A 才能保证成花即坚果；否则对手可能拿着更大的同花。这正是反隐含赔率里
+ * 最典型的一种：你成花了，但成的是第二坚果。
+ *
+ * 「正在追的花色」= 手牌 + 公共牌里恰好出现 4 次的那个花色（与 `drawDetector`
+ * 的 `hasFlushDraw` 同一判据）。
+ */
+function holdsNutFlushCard(holeCards: Card[], community: Card[]): boolean {
+  const counts = new Map<string, number>();
+  for (const c of [...holeCards, ...community]) {
+    counts.set(c.suit, (counts.get(c.suit) ?? 0) + 1);
+  }
+  for (const [suit, n] of counts) {
+    if (n !== 4) continue;
+    return holeCards.some((c) => c.suit === suit && c.rank === 'A');
+  }
+  return false;
+}
+
+/**
+ * **反隐含赔率折扣**：成牌之后仍然会输的那部分，要从「对手未来投入」里扣掉。
+ *
+ * 隐含赔率默认「成牌 = 赢」，但两条牌面事实会让这个前提破掉：
+ *
+ * - **牌面对子** → 你成同花 / 成顺，对手可能已经或即将成葫芦（甚至四条）。
+ * - **牌面已有 ≥3 张同花** → 你成顺，对手可能成花；你成花但**不是坚果**，
+ *   可能输给更大的同花。
+ *
+ * 返回 `(0, 1]` 的乘数，由调用方乘在「对手未来投入」上。
+ *
+ * ⚠️ 这是**粗粒度启发式**：它只看牌面结构，不看对手的实际范围，也不看我们已经
+ * 成型的部分。真正量化「到底会不会赢」是权益行的事 —— 这里只负责把「成牌 ≠ 赢」
+ * 这件事从隐含赔率里扣掉一层。折扣**只作用在「对手未来投入」上**，不作用在底池
+ * 本身：底池的输赢由权益行负责，本行只管「成牌后还能多赢多少」。
+ */
+export function reverseImpliedFactor(
+  holeCards: Card[],
+  community: Card[],
+  drawTypes: readonly DrawType[],
+): number {
+  if (community.length < 3) return 1;
+
+  const hasFlushDraw = drawTypes.includes('flush_draw');
+  const hasStraightDraw =
+    drawTypes.includes('open_ended_straight') || drawTypes.includes('gutshot');
+  if (!hasFlushDraw && !hasStraightDraw) return 1;
+
+  let factor = 1;
+  if (isBoardPaired(community)) factor *= 0.4;
+  if (hasThreeSuitedBoard(community)) {
+    if (hasStraightDraw) factor *= 0.5;
+    if (hasFlushDraw && !holdsNutFlushCard(holeCards, community)) factor *= 0.6;
+  }
+
+  return Math.max(REVERSE_IMPLIED_FLOOR, factor);
+}
+
+/** `impliedOddsFor` 的可选输入 —— 三项都由调用方从各自的数据源算好再喂进来。 */
+export interface ImpliedOddsContext {
+  /**
+   * 听牌检测给出的补牌数（0 / 缺省 = 未检测到听牌）。
+   * 只影响「我未来跟注」的加权，见 `impliedCallWeight`。
+   */
+  outs?: number;
+  /**
+   * 反隐含赔率折扣，`(0, 1]`，乘在「对手未来投入」上。缺省 1（不折扣）。
+   * 由 `reverseImpliedFactor(holeCards, community, drawTypes)` 算出。
+   */
+  reverseImplied?: number;
+}
+
+/**
  * 一次算出隐含赔率的两个口径，供面板并排对照。
  *
  * `streetsLeft` = 还要发的公共牌数（翻牌 2、转牌 1、河牌 0），也等于**剩余的下注街数**。
@@ -260,7 +342,8 @@ function impliedCallWeight(streetsLeft: number, outs?: number): number {
  *   就是这一口径（4:1 / 20%），但它同时假设了「成牌后能把对手剩余筹码全赢过来」和
  *   「错过就弃牌」，是最乐观的读法。
  * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率），
- *   `futureWinnings` 仍是「成牌后收满剩余街数」的乐观侧；两项各自受剩余筹码夹住。
+ *   `futureWinnings` 再乘 `ctx.reverseImplied` 的反隐含赔率折扣；两项各自受剩余筹码
+ *   夹住。
  *
  * `planned` 的盈亏平衡**不低于** `upperBound`，有时甚至高于直接赔率 —— 这正是
  * 「打算再付一注时，有效赔率可能比眼前的价格更差」。
@@ -273,12 +356,13 @@ export function impliedOddsFor(
   totalPot: number,
   toCall: number,
   streetsLeft: number,
-  outs?: number,
+  ctx: ImpliedOddsContext = {},
 ): ImpliedOddsPair | null {
   if (toCall <= 0 || streetsLeft <= 0) return null;
 
   const perStreet = nextStreetBetFrom(totalPot, toCall);
-  const callWeight = impliedCallWeight(streetsLeft, outs);
+  const callWeight = impliedCallWeight(streetsLeft, ctx.outs);
+  const reverse = Math.max(0, Math.min(1, ctx.reverseImplied ?? 1));
 
   const upperBound = impliedOddsFrom(
     totalPot,
@@ -288,7 +372,7 @@ export function impliedOddsFor(
   const planned = impliedOddsFrom(
     totalPot,
     toCall,
-    futureWinningsFrom(state, player, toCall, perStreet * streetsLeft),
+    futureWinningsFrom(state, player, toCall, perStreet * streetsLeft * reverse),
     futureCallsFrom(player, toCall, perStreet * callWeight),
   );
   if (!upperBound || !planned) return null;

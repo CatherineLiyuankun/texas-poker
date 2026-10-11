@@ -204,6 +204,39 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(Number(text.match(/([\d.]+)%/)?.[1])).toBeLessThan(30);
   });
 
+  it('牌面对子时把反隐含赔率折扣算进去（成花可能撞葫芦）', async () => {
+    // 手牌 A♥Q♥ + 翻牌 K♥7♠7♥：恰好 4 张红桃（9 outs 同花听）+ 牌面对子。
+    // 折扣 ×0.4 只作用在「对手未来投入」上。
+    const pairedFlop = [
+      card('♥', 'K'),
+      card('♠', '7'),
+      card('♥', '7'),
+      card('♠', '3'),
+      card('♦', '4'),
+    ];
+    await renderPanel({
+      currentPot: 7500,
+      betToCall: 2500,
+      heroChips: 100_000,
+      villainChips: 100_000,
+      holeCards: [card('♥', 'A'), card('♥', 'Q')],
+      community: pairedFlop,
+    });
+
+    const text = rowText(translations.handAnalysis.impliedOdds);
+
+    // 对手未来投入 = 2 条街 × 5000 × 0.4 = 4000；
+    // 我未来跟注 = (1 − 9/47) × 5000 = 4042.55
+    // → (7500+4000) : (2500+4042.55) = 1.76 : 1 → 36.3%
+    expect(text).toContain('36.3%');
+    expect(text).toContain('1.8 : 1');
+
+    // 上界是「乐观读法」的锚点，不受反隐含赔率影响
+    expect(text).toContain(
+      `${translations.handAnalysis.impliedOddsUpperShort} 2.3%`,
+    );
+  });
+
   it('口径说明整段挪到行的 title，行内不再留说明文字', async () => {
     await renderPanel();
 

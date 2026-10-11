@@ -8,6 +8,7 @@ import {
   nextStreetBetFrom,
   futureCallsFrom,
   futureWinningsFrom,
+  reverseImpliedFactor,
 } from '../potOdds';
 import {
   calculateCallEV,
@@ -15,7 +16,12 @@ import {
   calculateRequiredFoldEquity,
   mdfFrom,
 } from '../gtoMath';
-import type { GameState, Player } from '../../types/poker';
+import type { Card, GameState, Player } from '../../types/poker';
+import type { DrawType } from '../drawDetector';
+
+function card(suit: string, rank: string): Card {
+  return { suit, rank } as Card;
+}
 
 function mkPlayer(partial: Partial<Player> & { id: number }): Player {
   return {
@@ -511,7 +517,7 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
   it('给了 outs 时「我未来跟注」按成牌概率加权（成牌后这条路就结束了）', () => {
     const { state, hero } = scenario(100_000, 100_000);
     // 9 outs（同花听）：转牌没成牌的概率 = 1 − 9/47，只有那时才会跟那一条街
-    const pair = impliedOddsFor(state, hero, 7500, 2500, 2, 9)!;
+    const pair = impliedOddsFor(state, hero, 7500, 2500, 2, { outs: 9 })!;
     const y = (1 - 9 / 47) * 5000;
 
     expect(pair.planned.ratio).toBeCloseTo((7500 + 10_000) / (2500 + y), 12);
@@ -527,15 +533,149 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
 
   it('outs = 0 与不给 outs 等价 —— 退化点连续，面板上不会出现说不清的跳变', () => {
     const { state, hero } = scenario(100_000, 100_000);
-    const withZero = impliedOddsFor(state, hero, 7500, 2500, 2, 0)!;
+    const withZero = impliedOddsFor(state, hero, 7500, 2500, 2, { outs: 0 })!;
     const without = impliedOddsFor(state, hero, 7500, 2500, 2)!;
     expect(withZero.planned).toEqual(without.planned);
+  });
+
+  it('reverseImplied 折扣只作用在「对手未来投入」上', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    const plain = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+    const discounted = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      reverseImplied: 0.5,
+    })!;
+
+    // 对手未来投入 10000 → 5000；我未来跟注不变（1 条街 = 5000）
+    expect(discounted.planned.ratio).toBeCloseTo(
+      (7500 + 5000) / (2500 + 5000),
+      12,
+    );
+    // 折扣后赢得更少 → 门槛更高
+    expect(discounted.planned.breakeven).toBeGreaterThan(
+      plain.planned.breakeven,
+    );
+    // 上界不受影响 —— 它本来就是「乐观读法」的锚点
+    expect(discounted.upperBound).toEqual(plain.upperBound);
   });
 
   it('无跟注额 / 河牌（没有剩余街）时返回 null', () => {
     const { state, hero } = scenario(5000, 2500);
     expect(impliedOddsFor(state, hero, 7500, 0, 2)).toBeNull();
     expect(impliedOddsFor(state, hero, 7500, 2500, 0)).toBeNull();
+  });
+});
+
+describe('reverseImpliedFactor — 反隐含赔率折扣（成牌之后仍然会输）', () => {
+  /** 干净牌面：无对子、无三张同花 */
+  const CLEAN = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
+  /** 牌面对子（K 一对） */
+  const PAIRED = [card('♠', 'K'), card('♦', '7'), card('♣', 'K')];
+  /** 三张同花面（红桃） */
+  const THREE_HEARTS = [card('♥', 'K'), card('♥', '7'), card('♥', '2')];
+  /**
+   * 转牌的四张牌面：**同时对子又三张同花**。
+   * 翻牌只有三张时这两件事互斥（三张同花色必然三张不同点数），所以叠加只能从转牌起。
+   */
+  const PAIRED_HEARTS = [
+    card('♥', 'K'),
+    card('♠', 'K'),
+    card('♥', '7'),
+    card('♥', '2'),
+  ];
+
+  const FLUSH: DrawType[] = ['flush_draw'];
+  const STRAIGHT: DrawType[] = ['open_ended_straight'];
+  const GUTSHOT: DrawType[] = ['gutshot'];
+
+  it('没有听牌时恒为 1 —— 这个折扣只对听牌有意义', () => {
+    expect(
+      reverseImpliedFactor([card('♥', 'A'), card('♥', 'Q')], PAIRED, []),
+    ).toBe(1);
+  });
+
+  it('牌面不足三张时恒为 1（翻牌前没有牌面可言）', () => {
+    expect(
+      reverseImpliedFactor([card('♥', 'A'), card('♥', 'Q')], [], FLUSH),
+    ).toBe(1);
+  });
+
+  it('干净牌面上的同花听 / 两头顺不打折', () => {
+    expect(
+      reverseImpliedFactor([card('♥', 'A'), card('♥', 'Q')], CLEAN, FLUSH),
+    ).toBe(1);
+    expect(
+      reverseImpliedFactor([card('♠', 'A'), card('♦', 'Q')], CLEAN, STRAIGHT),
+    ).toBe(1);
+  });
+
+  it('牌面对子 → ×0.4（成花 / 成顺都可能输给葫芦）', () => {
+    expect(
+      reverseImpliedFactor([card('♥', 'A'), card('♥', 'Q')], PAIRED, FLUSH),
+    ).toBeCloseTo(0.4, 12);
+    expect(
+      reverseImpliedFactor([card('♠', 'A'), card('♦', 'Q')], PAIRED, GUTSHOT),
+    ).toBeCloseTo(0.4, 12);
+  });
+
+  it('三张同花面：顺子听 ×0.5（成顺可能输给同花）', () => {
+    expect(
+      reverseImpliedFactor([card('♠', 'A'), card('♦', 'Q')], THREE_HEARTS, [
+        ...STRAIGHT,
+      ]),
+    ).toBeCloseTo(0.5, 12);
+  });
+
+  it('三张同花面：同花听但不是坚果 → ×0.6；拿着 A 同花则不折', () => {
+    // 追红桃但手里不是 A♥ → 可能输给更大的同花
+    expect(
+      reverseImpliedFactor([card('♥', 'Q'), card('♠', 'A')], THREE_HEARTS, FLUSH),
+    ).toBeCloseTo(0.6, 12);
+    // 拿着 A♥ 就是坚果同花
+    expect(
+      reverseImpliedFactor([card('♥', 'A'), card('♠', 'Q')], THREE_HEARTS, FLUSH),
+    ).toBe(1);
+  });
+
+  it('对子 + 三张同花叠加：×0.4 × ×0.5 = 0.2', () => {
+    expect(
+      reverseImpliedFactor([card('♠', 'A'), card('♦', 'Q')], PAIRED_HEARTS, [
+        ...STRAIGHT,
+      ]),
+    ).toBeCloseTo(0.2, 12);
+  });
+
+  it('三层折扣叠满时夹在地板上，不归零', () => {
+    // 对子 ×0.4、三张同花顺子听 ×0.5、非坚果同花听 ×0.6 = 0.12 → 地板 0.15
+    const f = reverseImpliedFactor(
+      [card('♥', 'Q'), card('♠', 'A')],
+      PAIRED_HEARTS,
+      ['flush_draw', 'gutshot'],
+    );
+    expect(f).toBeCloseTo(0.15, 12);
+    expect(f).toBeGreaterThan(0);
+  });
+
+  it('折扣恒在 (0, 1] 内', () => {
+    const boards = [CLEAN, PAIRED, THREE_HEARTS, PAIRED_HEARTS];
+    const hands = [
+      [card('♥', 'A'), card('♥', 'Q')],
+      [card('♥', 'Q'), card('♠', 'A')],
+      [card('♠', 'A'), card('♦', 'Q')],
+    ];
+    const drawSets: DrawType[][] = [[], FLUSH, STRAIGHT, GUTSHOT, [
+      'flush_draw',
+      'open_ended_straight',
+      'gutshot',
+    ]];
+    for (const b of boards) {
+      for (const h of hands) {
+        for (const d of drawSets) {
+          const f = reverseImpliedFactor(h, b, d);
+          expect(f).toBeGreaterThan(0);
+          expect(f).toBeLessThanOrEqual(1);
+        }
+      }
+    }
   });
 });
 
