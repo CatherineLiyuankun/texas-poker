@@ -980,6 +980,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // 的确定性计划。注意这里**只喂补牌数、不做门槛** —— 该行对任何需要跟注的牌都照常
   // 显示（是否只在听牌时显示是另一件事）。
   //
+  // 抽水按 `scenario` 折进「赢到的筹码」（见上方 `rakeConfig`）—— 这样这一行与
+  // 面板建议同口径；上面那行「赔率」显示的是**原始**赔率，差异由 GTO Math 的
+  // 口径标注说明。
+  //
   // 只在**还有牌可发**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
   // 显示出来只会与上一行的赔率重复。无跟注额 / 缺 hero / 缺对局状态时也不显示。
   const impliedOdds = useMemo(
@@ -991,7 +995,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           currentPot ?? 0,
           betToCall ?? 0,
           cardsToCome,
-          { outs: drawInfo?.totalOuts, reverseImplied, opponentPaying },
+          {
+            outs: drawInfo?.totalOuts,
+            reverseImplied,
+            opponentPaying,
+            // 抽水折进「赢到的筹码」—— 与面板建议（`callThreshold`）同口径。
+            // `rakeConfig` 是按 `scenario` prop 推的，所以锦标赛恒为不抽水。
+            rake: {
+              config: rakeConfig,
+              bigBlind: (gameState?.smallBlind ?? 0) * 2,
+            },
+          },
         )
         : null,
     [
@@ -1003,6 +1017,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       drawInfo,
       reverseImplied,
       opponentPaying,
+      rakeConfig,
     ],
   );
 

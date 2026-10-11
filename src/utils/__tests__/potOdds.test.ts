@@ -19,6 +19,7 @@ import {
 } from '../gtoMath';
 import type { Card, GameState, Player } from '../../types/poker';
 import type { DrawType } from '../drawDetector';
+import { NO_RAKE } from '../rake';
 
 function card(suit: string, rank: string): Card {
   return { suit, rank } as Card;
@@ -350,6 +351,34 @@ describe('impliedOddsFrom — 隐含赔率（教材口径）', () => {
     expect(r.breakeven).toBeCloseTo(0.2, 12);
   });
 
+  it('抽水减的是分子（赢到手的筹码），不是分母（我掏出去的钱）', () => {
+    // 摊牌底池 7500 + 2500 = 10000，抽 500 → 赢到手 10000 − 500 = 9500
+    const paid = impliedOddsFrom(7500, 2500, 2500, 0, 500)!;
+    const free = impliedOddsFrom(7500, 2500, 2500, 0, 0)!;
+
+    expect(paid.ratio).toBeCloseTo(9500 / 2500, 12); // 3.8
+    // 风险仍是 2500 —— 抽水不会让「我要投的钱」变少
+    expect(paid.breakeven).toBeCloseTo(2500 / (9500 + 2500), 12);
+    // 赢得更少 → 门槛更严，这正是抽水的方向
+    expect(paid.breakeven).toBeGreaterThan(free.breakeven);
+  });
+
+  it('不传抽水与抽水为 0 逐位一致（缺省值向后兼容）', () => {
+    expect(impliedOddsFrom(7500, 2500, 2500, 0, 0)).toEqual(
+      impliedOddsFrom(7500, 2500, 2500, 0),
+    );
+  });
+
+  it('抽水为负时按 0 处理；抽水超过底池时夹到 0，不产生负赔率', () => {
+    const negative = impliedOddsFrom(7500, 2500, 2500, 0, -100)!;
+    expect(negative.ratio).toBeCloseTo(4, 12);
+
+    // 畸形输入：抽水大于全部可赢筹码 → 分子夹到 0，而不是负数
+    const absurd = impliedOddsFrom(7500, 2500, 2500, 0, 99_999)!;
+    expect(absurd.ratio).toBe(0);
+    expect(absurd.breakeven).toBe(1);
+  });
+
   it('无跟注额（可免费过牌）时返回 null', () => {
     expect(impliedOddsFrom(100, 0, 50)).toBeNull();
     expect(impliedOddsFrom(100, -5, 50)).toBeNull();
@@ -580,6 +609,46 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
     })!;
     // 10000 × 0.4 × 0.5 = 2000
     expect(both.planned.ratio).toBeCloseTo((7500 + 2000) / (2500 + 5000), 12);
+  });
+
+  it('ctx.rake 从「赢到的筹码」里扣抽水：planned 变严，上界不动', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    const free = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+    const paid = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      rake: { config: { mode: 'percent', value: 5, capBB: 0 }, bigBlind: 100 },
+    })!;
+
+    // 摊牌底池 = 7500（含对手本轮注）+ 2500（我跟）+ 10000（对手未来）+ 5000（我未来）
+    //            = 25000；抽 5% = 1250
+    // planned 分子 17500 − 1250 = 16250，分母仍是 2500 + 5000
+    expect(paid.planned.ratio).toBeCloseTo(16_250 / 7500, 12);
+    expect(paid.planned.breakeven).toBeGreaterThan(free.planned.breakeven);
+
+    // 上界是教材那个例子的锚点，教材里没有抽水 —— 折进去就失去对照价值
+    expect(paid.upperBound).toEqual(free.upperBound);
+  });
+
+  it('NO_RAKE 与不传 ctx.rake 逐位一致（锦标赛路径不会被动到）', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    const omitted = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+    const explicit = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      rake: { config: NO_RAKE, bigBlind: 100 },
+    })!;
+    expect(explicit).toEqual(omitted);
+  });
+
+  it('抽水封顶生效：capBB 把抽水压到大盲数以内', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    // 不封顶：25000 × 5% = 1250；封 2BB（=200）后只抽 200
+    const capped = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      rake: { config: { mode: 'percent', value: 5, capBB: 2 }, bigBlind: 100 },
+    })!;
+    expect(capped.planned.ratio).toBeCloseTo((17_500 - 200) / 7500, 12);
+    // 抽得少 → 比不封顶那一档宽松
+    const uncapped = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      rake: { config: { mode: 'percent', value: 5, capBB: 0 }, bigBlind: 100 },
+    })!;
+    expect(capped.planned.breakeven).toBeLessThan(uncapped.planned.breakeven);
   });
 
   it('无跟注额 / 河牌（没有剩余街）时返回 null', () => {

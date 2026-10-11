@@ -2,6 +2,8 @@ import type { Card, GameState, Player } from '../types/poker';
 import { hasThreeSuitedBoard, isBoardPaired } from './boardTexture';
 import type { DrawType } from './drawDetector';
 import { mdfFrom } from './gtoMath';
+import { rakeAmountFor } from './rake';
+import type { RakeConfig } from './rake';
 
 /**
  * potOdds 口径的唯一来源 —— **只放「赔率」相关的量**。
@@ -137,17 +139,24 @@ export interface ImpliedOddsResult {
 /**
  * `futureCalls` 缺省 0 = 计划「错过就弃牌」，也就是教材那个例子的假设。
  * 只要你会再跟一注，这一项就是正的，赔率随之变差 —— 见 `impliedOddsFor`。
+ *
+ * `rake` 缺省 0 = 不抽水。抽水是**从摊牌底池里扣**的，所以它减的是分子
+ * （「赢到手的筹码」），不是分母。分母（`跟注 + 我未来跟注`）是「我掏出去的钱」，
+ * 与抽水无关。
  */
 export function impliedOddsFrom(
   totalPot: number,
   toCall: number,
   futureWinnings: number,
   futureCalls = 0,
+  rake = 0,
 ): ImpliedOddsResult | null {
   if (toCall <= 0) return null;
   // 分母是「我总共要投进去的钱」，只包含没成牌那条路上的追加跟注
   const risk = toCall + Math.max(0, futureCalls);
-  const ratio = Math.max(0, totalPot + futureWinnings) / risk;
+  // 分子是「赢到手的筹码」—— 抽水先从这里扣掉
+  const reward = Math.max(0, totalPot + futureWinnings - Math.max(0, rake));
+  const ratio = reward / risk;
   return { ratio, breakeven: 1 / (ratio + 1) };
 }
 
@@ -374,6 +383,14 @@ export interface ImpliedOddsContext {
    * 由 `opponentPayingFactor(stats)` 算出。
    */
   opponentPaying?: number;
+  /**
+   * 抽水配置与大盲。给了就从「赢到的筹码」里扣掉抽水，使这一行与面板建议
+   * （`rake.callThresholdFor`）同口径。缺省不抽水。
+   *
+   * ⚠️ 渲染层若已持有赛制值，请传 `effectiveRakeConfigFor(scenario)` 的结果
+   * ——锦标赛恒为不抽水，与 ICM 互斥。
+   */
+  rake?: { config: Readonly<RakeConfig>; bigBlind: number };
 }
 
 /**
@@ -386,7 +403,11 @@ export interface ImpliedOddsContext {
  *   「错过就弃牌」，是最乐观的读法。
  * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率）；
  *   `futureWinnings` 再乘 `ctx.reverseImplied`（反隐含赔率：成牌后仍可能输）与
- *   `ctx.opponentPaying`（对手支付意愿）两层折扣；两项各自受剩余筹码夹住。
+ *   `ctx.opponentPaying`（对手支付意愿）两层折扣；两项各自受剩余筹码夹住；
+ *   最后按 `ctx.rake` 从「赢到的筹码」里扣掉抽水。
+ *
+ * `upperBound` **不折抽水** —— 它是教材那个例子的锚点，教材里没有抽水这回事，
+ * 折进去就失去对照价值了。要看抽水后的口径请看 `planned`。
  *
  * `planned` 的盈亏平衡**不低于** `upperBound`，有时甚至高于直接赔率 —— 这正是
  * 「打算再付一注时，有效赔率可能比眼前的价格更差」。
@@ -413,17 +434,26 @@ export function impliedOddsFor(
     toCall,
     futureWinningsFrom(state, player, toCall),
   );
-  const planned = impliedOddsFrom(
-    totalPot,
+
+  const x = futureWinningsFrom(
+    state,
+    player,
     toCall,
-    futureWinningsFrom(
-      state,
-      player,
-      toCall,
-      perStreet * streetsLeft * reverse * paying,
-    ),
-    futureCallsFrom(player, toCall, perStreet * callWeight),
+    perStreet * streetsLeft * reverse * paying,
   );
+  const y = futureCallsFrom(player, toCall, perStreet * callWeight);
+
+  // 抽水从**摊牌时的整个底池**里扣 —— 用双方最终投入合计估：底池（含对手本轮注）
+  // + 我的跟注 + 对手未来投入 + 我未来跟注。封顶由 `rakeAmountFor` 内部处理。
+  const rake = ctx.rake
+    ? rakeAmountFor(
+      totalPot + toCall + x + y,
+      ctx.rake.bigBlind,
+      ctx.rake.config,
+    )
+    : 0;
+
+  const planned = impliedOddsFrom(totalPot, toCall, x, y, rake);
   if (!upperBound || !planned) return null;
   return { upperBound, planned };
 }
