@@ -1025,8 +1025,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
   // 得出相反结论时误以为面板算错。
 
+  // 宽度：`min-w-[216px]` = 原先想写的 `w-54`（54 × 0.25rem = 216px）。
+  // ⚠️ `w-54` 在 Tailwind v3 里**不是有效类** —— 间距刻度没有 54 这一档
+  // （只有 52 = 13rem / 56 = 14rem），构建产物里根本没有这条规则，所以面板宽度
+  // 一直是内容撑出来的。这里用 `min-w` 而不是 `w`：面板是 PlayerArea 里座位框的
+  // flex 兄弟节点，写死宽度会把 VPIP/PFR 那张表挤到换行；`min-w` 只兜底、
+  // 内容更宽时仍可自然撑开，也不会因为数字变宽变窄而抖动。
   return (
-    <div className="w-54 bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
+    <div className="min-w-[216px] bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
       <div className="text-white/50 font-medium text-center mb-1 tracking-wide text-[12px]">
         {translations.handAnalysis.aiTitle}
       </div>
