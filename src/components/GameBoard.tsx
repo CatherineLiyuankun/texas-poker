@@ -380,11 +380,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       if (advanceTimerRef.current !== null) {
         clearTimeout(advanceTimerRef.current);
       }
+      // 街道推进停顿：纯 UX 节奏（让玩家看清最后一次行动 / 底池变化），
+      // 与正确性无关 —— 回合结束后机器人/真人都已被 bettingRoundComplete 拦下。
       advanceTimerRef.current = setTimeout(() => {
         advanceTimerRef.current = null;
         wasBettingCompleteRef.current = false;
         handleNextPhase();
-      }, noRealCanAct ? 500 : 1800);
+      }, noRealCanAct ? 500 : 1000);
     } else if (!bettingRoundComplete) {
       wasBettingCompleteRef.current = false;
       if (advanceTimerRef.current !== null) {
