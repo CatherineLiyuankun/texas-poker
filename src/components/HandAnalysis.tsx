@@ -362,8 +362,11 @@ function getPotOddsColor(odds: number | null): string {
  * 透明度按用户反馈两轮提亮：`white/50` → `white/70` → `white/85`。9px 的字号
  * 本身已经很弱，再压透明度就只剩一层灰雾；`white/85` 仍略低于纯白，
  * 但已经能一眼读清 —— 副标签该靠**字号**（9px vs 主值）拉开层次，而不是靠压暗。
+ *
+ * `whitespace-nowrap`：比率是个整体（`1.5 : 1`），断行会把它拆成 `1.5 :` 和 `1`
+ * 两个数字 —— 面板窄的时候真的会这样。宁可整块换到下一行，也不能在数字中间断。
  */
-const RATIO_LABEL_CLASS = 'ml-1 text-[9px] text-white/85';
+const RATIO_LABEL_CLASS = 'ml-1 text-[9px] text-white/85 whitespace-nowrap';
 
 // MDF 分档阈值。MDF = 下注前底池 / 含注底池，所以阈值直接对应标准下注尺度：
 //   ≥ 2/3（对手下注 ≤ 半个底池）→ 绿：防守大部分范围
@@ -1176,35 +1179,42 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             {translations.handAnalysis.equityVsRandom}
           </div>
 
-          {/* 底池赔率：显示**原始赔率**（不含抽水）。机器人与面板建议用的是
+          {/* 底池赔率 + 建议：**独占整行**（`col-span-2`）。
+              这一行有三段（标签 + 百分比 + 比率），半列（216px 面板下约 96px）放不下
+              —— 原先会被折成两行：标签变 `赔率 Pot` / `Odds`、数值变 `40.0% 1.5 :` /
+              `1`，读起来像四个数字。隐含赔率行早就因为同样的原因占整行，这里对齐。
+              建议（Fold / Call …）贴右，与赔率同处一行 —— 它本来就是「拿胜率比这一行的
+              赔率」得出的结论，同一行读最顺；也省掉原先那个 `label={' '}` 占位格。
+
+              口径：显示的是**原始赔率**（不含抽水）。机器人与面板建议用的是
               `callThreshold`（现金局已折进抽水），差异由口径标注说明。
               主值是百分比，副标签是同一件事的**比率形式**（底池 : 跟注）。 */}
-          <GridRow
-            label={translations.handAnalysis.potOdds}
-            value={
-              callPotOdds !== null ? (
-                <>
-                  {(callPotOdds * 100).toFixed(1)}%
-                  {potOddsRatio !== null && (
-                    <span className={RATIO_LABEL_CLASS}>
-                      {formatOddsRatio(potOddsRatio)} : 1
-                    </span>
-                  )}
-                </>
-              ) : (
-                '—'
-              )
-            }
-            color={getPotOddsColor(callPotOdds)}
-          />
-
-          {/* 胜率 vs 赔率 → 建议 */}
-          <div className="justify-self-end">
+          <div className="col-span-2 flex items-center justify-between gap-2">
             <GridRow
-              label={' '}
-              value={recommendation}
-              color={getRecColor(recommendation)}
+              label={translations.handAnalysis.potOdds}
+              value={
+                callPotOdds !== null ? (
+                  <>
+                    {(callPotOdds * 100).toFixed(1)}%
+                    {potOddsRatio !== null && (
+                      <span className={RATIO_LABEL_CLASS}>
+                        {formatOddsRatio(potOddsRatio)} : 1
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  '—'
+                )
+              }
+              color={getPotOddsColor(callPotOdds)}
             />
+
+            {/* 胜率 vs 赔率 → 建议 */}
+            {recommendation !== '' && (
+              <span className={`font-medium ${getRecColor(recommendation)}`}>
+                {recommendation}
+              </span>
+            )}
           </div>
 
           {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。

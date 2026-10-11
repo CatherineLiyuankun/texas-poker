@@ -160,4 +160,25 @@ describe('HandAnalysis — 赔率行的比率形式', () => {
     expect(ratio).not.toHaveClass('text-white/70');
     expect(ratio).not.toHaveClass('text-white/50');
   });
+
+  it('赔率行独占整行、与建议同处一行 —— 标签 / 百分比 / 比率 不在中间折行', async () => {
+    // 面板最窄 216px，半列只有约 96px，放不下「标签 + 百分比 + 比率」三段：
+    // 之前会被折成「赔率 Pot」/「Odds」和「40.0% 1.5 :」/「1」，读起来像四个数字。
+    // 隐含赔率行早就因为同样的原因占整行，这里对齐。
+    await renderPanel({ currentPot: 300, betToCall: 200, potOdds: 0.4 });
+
+    const row = screen
+      .getByText(translations.handAnalysis.potOdds)
+      .closest('.col-span-2') as HTMLElement;
+    expect(row).not.toBeNull();
+
+    // 建议（Raise / Call / Fold …）跟赔率同一行 —— 原本它是右侧半列 + 空标签占位
+    expect(row.children).toHaveLength(2);
+    const rec = row.lastElementChild as HTMLElement;
+    expect(rec.className).toContain('font-medium');
+    expect(rec.textContent).toBeTruthy();
+
+    // 比率是个整体：`1.5 : 1` 不能断成 `1.5 :` 和 `1`
+    expect(screen.getByText('1.5 : 1')).toHaveClass('whitespace-nowrap');
+  });
 });
