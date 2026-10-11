@@ -104,20 +104,26 @@ export function formatOddsRatio(ratio: number): string {
 /**
  * 隐含赔率（implied odds）。
  *
- * 教材口径：隐含赔率 =（彩池 + 对手未来可能投入的筹码）/（我现在要跟注的筹码 +
- * 我未来可能投入的筹码），同样归一化成 `x : 1`，盈亏平衡百分比 = `1 / (ratio + 1)`。
+ * 教材口径：隐含赔率 =（彩池 + 对手未来投入）/（跟注 + 我未来跟注），
+ * 归一化成 `x : 1`，盈亏平衡百分比 = `1 / (ratio + 1)`。
  *
- * 本仓库采用那页书里的**乐观**假设：
- * - 「对手未来可能投入的筹码」= 跟注后双方还能继续投入的**有效剩余筹码**
- *   （`futureWinningsFrom`：取「我方跟注后剩余」与「各未弃牌对手剩余」的较小值）；
- * - 「我未来可能投入的筹码」= 0 —— 书里明说：错过就不再往彩池里投钱。
+ * **两项分属不同分支**，这是最容易算错的地方：
+ * - 成牌那一支净得「底池 + 对手未来投入」—— 我自己后续投进去的筹码会随底池一起
+ *   回到手上，相互抵消，所以成牌分支的净得与「我未来跟注」无关；
+ * - 未成牌那一支损失「跟注 + 我未来跟注」。
  *
- * 校验（书中的例子）：彩池 7500、跟 2500、双方各剩 2500 →
+ * 令 EV = 0 解出
+ *   `breakeven = (跟注 + 我未来跟注) / (底池 + 对手未来投入 + 跟注 + 我未来跟注)`。
+ * 所以 `futureCalls` 指的是**没成牌那条路上还会投多少**，不是「以后总共投多少」；
+ * 成牌之后再加注打进去的钱属于 `futureWinnings`，不属于 `futureCalls`。
+ *
+ * 校验（书中的例子）：彩池 7500、跟 2500、双方各剩 2500、`futureCalls` = 0 →
  * ratio = (7500 + 2500) / 2500 = 4（4:1）、盈亏平衡 = 1/5 = 20%，与书上一致。
  *
- * ⚠️ 这是**上界**：它假设成牌后能把对手的剩余筹码全部赢过来，真实牌局里对手
- * 未必支付；而且它完全不看成牌概率（面板另有权益行）。河牌没有后续街可发，
- * 调用方应直接隐藏该行（那时隐含赔率恒等于直接赔率）。
+ * ⚠️ 这是**估算**不是闭式解：两项都是对未来的估计（对手会不会支付、我会不会再跟）。
+ * GTO 求解器根本不显式算这两个量 —— 它把整棵博弈树解出来，未来街的 EV 自然浮现。
+ * 这套是给人在牌桌上心算用的启发式。河牌没有后续街可发，调用方应直接隐藏该行
+ * （那时隐含赔率恒等于直接赔率）。
  */
 export interface ImpliedOddsResult {
   /** 隐含赔率比率（表示 `ratio : 1`） */
@@ -126,31 +132,126 @@ export interface ImpliedOddsResult {
   breakeven: number;
 }
 
+/**
+ * `futureCalls` 缺省 0 = 计划「错过就弃牌」，也就是教材那个例子的假设。
+ * 只要你会再跟一注，这一项就是正的，赔率随之变差 —— 见 `impliedOddsFor`。
+ */
 export function impliedOddsFrom(
   totalPot: number,
   toCall: number,
   futureWinnings: number,
+  futureCalls = 0,
 ): ImpliedOddsResult | null {
   if (toCall <= 0) return null;
-  const ratio = Math.max(0, totalPot + futureWinnings) / toCall;
+  // 分母是「我总共要投进去的钱」，只包含没成牌那条路上的追加跟注
+  const risk = toCall + Math.max(0, futureCalls);
+  const ratio = Math.max(0, totalPot + futureWinnings) / risk;
   return { ratio, breakeven: 1 / (ratio + 1) };
 }
 
 /**
- * 隐含赔率里「成牌后还能再赢到的筹码」。
+ * 下一条街的**预计注码**：假设对手延续他当前这一注相对底池的尺度。
+ *
+ * 用「对手实际下出的比例」外推，而不是拍一个固定的 2/3 池 —— 这个数是从牌局本身
+ * 读出来的，不需要另立一个假设。
+ *
+ * 例：下注前底池 5000、对手下 2500（半个池）→ 我跟注后底池 10000
+ * → 下一条街预计 5000。
+ */
+export function nextStreetBetFrom(totalPot: number, toCall: number): number {
+  const potBeforeBet = Math.max(0, totalPot - toCall);
+  if (toCall <= 0 || potBeforeBet <= 0) return 0;
+  return (toCall / potBeforeBet) * (totalPot + toCall);
+}
+
+/**
+ * 隐含赔率里「成牌后还能再赢到的筹码」（对手未来投入）。
  *
  * 取**有效剩余筹码**：我方跟注之后还剩多少，与各未弃牌对手还剩多少，取较小者 ——
  * 对手不可能输给你超过你还能投入的量。全部对手都已弃牌时是 0（无人可支付）。
+ *
+ * `cap` 是「还能赢到多少」的上限。专业上不会把对手的整个剩余筹码都算成隐含赔率
+ * （他不一定支付），通行假设是「还能再赢一条街的下注」。缺省不设上限
+ * （= 取满额有效剩余筹码），那是乐观上界，见 `impliedOddsFor`。
  */
 export function futureWinningsFrom(
   state: GameState,
   player: Player,
   toCall: number,
+  cap = Number.POSITIVE_INFINITY,
 ): number {
   const heroRemaining = Math.max(0, player.chips - toCall);
   const opponents = state.players.filter(
     (p) => p.id !== player.id && !p.folded,
   );
   if (opponents.length === 0) return 0;
-  return Math.max(0, Math.min(heroRemaining, ...opponents.map((p) => p.chips)));
+  return Math.max(
+    0,
+    Math.min(heroRemaining, cap, ...opponents.map((p) => p.chips)),
+  );
+}
+
+/**
+ * 隐含赔率里「我未来跟注」—— **只在没成牌那条路上**还会投进去的筹码。
+ *
+ * 成牌之后投进去的钱会随底池回到手上、相互抵消，不计在这里（见 `impliedOddsFrom`）。
+ * 受「跟注后我手里还剩多少」夹住：掏不出的钱不算成本。
+ */
+export function futureCallsFrom(
+  player: Player,
+  toCall: number,
+  cap: number,
+): number {
+  const heroRemaining = Math.max(0, player.chips - toCall);
+  return Math.max(0, Math.min(heroRemaining, cap));
+}
+
+/** `impliedOddsFor` 的成对结果：乐观上界与专业口径。 */
+export interface ImpliedOddsPair {
+  /** 乐观上界：对手未来投入取满额有效剩余筹码，我未来跟注记 0（计划「错过即弃」） */
+  upperBound: ImpliedOddsResult;
+  /** 专业口径：两项都算，各自受剩余筹码夹住 */
+  strict: ImpliedOddsResult;
+}
+
+/**
+ * 一次算出隐含赔率的两个口径，供面板并排对照。
+ *
+ * `streetsLeft` = 还要发的公共牌数（翻牌 2、转牌 1、河牌 0），也等于**剩余的下注街数**。
+ *
+ * - `upperBound`：`futureWinnings` 取满额有效剩余筹码、`futureCalls` = 0。教材那个例子
+ *   就是这一口径（4:1 / 20%），但它同时假设了「成牌后能把对手剩余筹码全赢过来」和
+ *   「错过就弃牌」，是最乐观的读法。
+ * - `strict`：两项都按「**每条剩余街对手都下同尺度的注、而我都跟**」估 ——
+ *   注码用 `nextStreetBetFrom` 从对手当前的下注尺度外推，乘上剩余街数后各自受
+ *   剩余筹码夹住。
+ *
+ * 两者之差就是「我未来跟注」这一项的影响：`strict` 的盈亏平衡**不低于** `upperBound`，
+ * 有时甚至高于直接赔率 —— 这正是「打算再付一注时，有效赔率可能比眼前的价格更差」。
+ *
+ * 无跟注额 / 河牌（`streetsLeft <= 0`）时返回 null，调用方应隐藏该行。
+ */
+export function impliedOddsFor(
+  state: GameState,
+  player: Player,
+  totalPot: number,
+  toCall: number,
+  streetsLeft: number,
+): ImpliedOddsPair | null {
+  if (toCall <= 0 || streetsLeft <= 0) return null;
+
+  const perStreet = nextStreetBetFrom(totalPot, toCall) * streetsLeft;
+  const upperBound = impliedOddsFrom(
+    totalPot,
+    toCall,
+    futureWinningsFrom(state, player, toCall),
+  );
+  const strict = impliedOddsFrom(
+    totalPot,
+    toCall,
+    futureWinningsFrom(state, player, toCall, perStreet),
+    futureCallsFrom(player, toCall, perStreet),
+  );
+  if (!upperBound || !strict) return null;
+  return { upperBound, strict };
 }

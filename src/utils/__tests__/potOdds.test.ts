@@ -4,6 +4,9 @@ import {
   callPotOddsFrom,
   formatOddsRatio,
   impliedOddsFrom,
+  impliedOddsFor,
+  nextStreetBetFrom,
+  futureCallsFrom,
   futureWinningsFrom,
 } from '../potOdds';
 import {
@@ -293,14 +296,95 @@ describe('impliedOddsFrom — 隐含赔率（教材口径）', () => {
     expect(r!.breakeven).toBeCloseTo(direct.callPotOdds, 12);
   });
 
-  it('隐含赔率的盈亏平衡**不高于**直接赔率（放宽才叫隐含赔率）', () => {
+  it('（我未来跟注 = 0 时）盈亏平衡不高于直接赔率 —— 放宽才叫隐含赔率', () => {
     const r = impliedOddsFrom(150, 50, 100);
     expect(r!.breakeven).toBeLessThan(50 / 200);
+  });
+
+  it('「我未来跟注」为正时赔率变差：同一个例子 Y=0 → Y=2500', () => {
+    // 书里那个例子 Y=0 → (7500+2500):2500 = 4:1 / 20%
+    const upper = impliedOddsFrom(7500, 2500, 2500)!;
+    // 打算再跟一注（Y=2500）→ (7500+2500):(2500+2500) = 10000:5000 = 2:1 / 33.3%
+    const strict = impliedOddsFrom(7500, 2500, 2500, 2500)!;
+
+    expect(upper.ratio).toBeCloseTo(4, 12);
+    expect(upper.breakeven).toBeCloseTo(0.2, 12);
+    expect(strict.ratio).toBeCloseTo(2, 12);
+    expect(strict.breakeven).toBeCloseTo(1 / 3, 12);
+
+    // 严格口径门槛更严 = 赔率更差
+    expect(strict.breakeven).toBeGreaterThan(upper.breakeven);
+    // 而且比直接赔率（2500 / 10000 = 25%）还差 ——
+    // 「打算再付一注时，有效赔率可能比眼前的价格更差」正是这条线的要点
+    expect(strict.breakeven).toBeGreaterThan(2500 / 10000);
+  });
+
+  it('恒等式：breakeven = (跟注 + 我未来跟注) / (底池 + 对手未来投入 + 跟注 + 我未来跟注)', () => {
+    for (const [pot, call, win, mine] of [
+      [7500, 2500, 2500, 2500],
+      [150, 50, 100, 0],
+      [200, 100, 400, 300],
+      [1000, 200, 0, 0],
+      [400, 400, 5000, 1200],
+    ] as const) {
+      const r = impliedOddsFrom(pot, call, win, mine)!;
+      expect(r.breakeven).toBeCloseTo(
+        (call + mine) / (pot + win + call + mine),
+        12,
+      );
+      // 比率与百分比仍是同一件事
+      expect(r.breakeven).toBeCloseTo(1 / (r.ratio + 1), 12);
+    }
+  });
+
+  it('「我未来跟注」为负时按 0 处理，不产生负成本', () => {
+    const r = impliedOddsFrom(7500, 2500, 2500, -1000)!;
+    expect(r.ratio).toBeCloseTo(4, 12);
+    expect(r.breakeven).toBeCloseTo(0.2, 12);
   });
 
   it('无跟注额（可免费过牌）时返回 null', () => {
     expect(impliedOddsFrom(100, 0, 50)).toBeNull();
     expect(impliedOddsFrom(100, -5, 50)).toBeNull();
+    expect(impliedOddsFrom(100, 0, 50, 200)).toBeNull();
+  });
+});
+
+describe('nextStreetBetFrom — 下一条街的预计注码', () => {
+  it('按对手当前这一注占「下注前底池」的比例外推', () => {
+    // 下注前底池 5000、对手下 2500（半个池）→ 我跟注后底池 10000 → 预计 5000
+    expect(nextStreetBetFrom(7500, 2500)).toBeCloseTo(5000, 12);
+    // 下注前底池 100、对手下 50（半个池）→ 跟注后底池 200 → 预计 100
+    expect(nextStreetBetFrom(150, 50)).toBeCloseTo(100, 12);
+    // 下注前底池 100、对手下一个池 → 跟注后底池 300 → 预计 300
+    expect(nextStreetBetFrom(200, 100)).toBeCloseTo(300, 12);
+  });
+
+  it('无跟注额 / 下注前底池为 0 时返回 0，不产生 NaN 或负数', () => {
+    expect(nextStreetBetFrom(150, 0)).toBe(0);
+    expect(nextStreetBetFrom(0, 0)).toBe(0);
+    // toCall 大于底池（不可达状态）→ 下注前底池夹到 0
+    expect(nextStreetBetFrom(30, 50)).toBe(0);
+  });
+});
+
+describe('futureCallsFrom — 我未来跟注', () => {
+  it('取「跟注后剩余筹码」与上限的较小值', () => {
+    const hero = mkPlayer({ id: 1, chips: 5000 });
+    // 跟 2500 后剩 2500；上限 10000 时以剩余为准
+    expect(futureCallsFrom(hero, 2500, 10000)).toBe(2500);
+    // 上限更小时以上限为准
+    expect(futureCallsFrom(hero, 2500, 1000)).toBe(1000);
+  });
+
+  it('跟完就全下（剩余 0）时是 0 —— 教材例子里的 Y 就是这么来的', () => {
+    const hero = mkPlayer({ id: 1, chips: 2500 });
+    expect(futureCallsFrom(hero, 2500, 10000)).toBe(0);
+  });
+
+  it('跟注额超过自身筹码时不产生负数', () => {
+    const hero = mkPlayer({ id: 1, chips: 100 });
+    expect(futureCallsFrom(hero, 500, 10000)).toBe(0);
   });
 });
 
@@ -337,6 +421,86 @@ describe('futureWinningsFrom — 隐含赔率里的「未来可赢筹码」', ()
     const hero = mkPlayer({ id: 1, chips: 100 });
     const state = mkState({ players: [hero, mkPlayer({ id: 2, chips: 9000 })] });
     expect(futureWinningsFrom(state, hero, 500)).toBe(0);
+  });
+
+  it('cap 把「还能赢到多少」压到一条街的下注以内（专业口径用）', () => {
+    const hero = mkPlayer({ id: 1, chips: 5000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 9000 })],
+    });
+    // 不设 cap：受我方跟注后剩余（5000 − 1000 = 4000）限制
+    expect(futureWinningsFrom(state, hero, 1000)).toBe(4000);
+    // 设 cap 后取更小者
+    expect(futureWinningsFrom(state, hero, 1000, 1500)).toBe(1500);
+    // cap 大于其它边界时无影响
+    expect(futureWinningsFrom(state, hero, 1000, 999_999)).toBe(4000);
+  });
+});
+
+describe('impliedOddsFor — 上界与专业口径成对给出', () => {
+  /** 翻牌圈：底池 7500、对手下 2500（半个池） */
+  function scenario(heroChips: number, villainChips: number) {
+    const hero = mkPlayer({ id: 1, chips: heroChips });
+    const state = mkState({
+      players: [
+        hero,
+        mkPlayer({ id: 2, chips: villainChips, bet: 2500, totalBet: 2500 }),
+      ],
+    });
+    return { state, hero };
+  }
+
+  it('书中的例子（翻牌）：上界 4:1 / 20%，专业口径 2:1 / 33.3%', () => {
+    const { state, hero } = scenario(5000, 2500);
+    const pair = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+
+    // 上界：对手未来投入取满额有效剩余筹码（双方身后各 2500）、我未来跟注记 0
+    expect(formatOddsRatio(pair.upperBound.ratio)).toBe('4');
+    expect(pair.upperBound.breakeven).toBeCloseTo(0.2, 12);
+
+    // 专业口径：下一条街预计 5000（对手半个池）× 两条街 = 10000，
+    // 但双方身后只有 2500 → 两项都被剩余筹码夹到 2500
+    expect(formatOddsRatio(pair.strict.ratio)).toBe('2');
+    expect(pair.strict.breakeven).toBeCloseTo(1 / 3, 12);
+
+    expect(pair.strict.breakeven).toBeGreaterThan(pair.upperBound.breakeven);
+  });
+
+  it('专业口径的盈亏平衡不低于上界（加了我未来跟注，门槛只会更严）', () => {
+    for (const [pot, call, heroChips, villainChips, streets] of [
+      [7500, 2500, 5000, 2500, 2],
+      [150, 50, 10_000, 10_000, 2],
+      [200, 100, 10_000, 10_000, 1],
+      [1000, 200, 3000, 8000, 2],
+      // 下注前底池为 0 的退化输入：预计注码 0 → 两项都归零
+      [400, 400, 20_000, 20_000, 1],
+    ] as const) {
+      const hero = mkPlayer({ id: 1, chips: heroChips });
+      const state = mkState({
+        players: [hero, mkPlayer({ id: 2, chips: villainChips })],
+      });
+      const pair = impliedOddsFor(state, hero, pot, call, streets)!;
+      expect(pair.strict.breakeven).toBeGreaterThanOrEqual(
+        pair.upperBound.breakeven,
+      );
+    }
+  });
+
+  it('转牌只剩一条街时，两项都只算一条街', () => {
+    const { state, hero } = scenario(10_000, 10_000);
+    // 下注前底池 5000、对手下 2500 → 跟注后底池 10000 → 下一条街预计 5000
+    const pair = impliedOddsFor(state, hero, 7500, 2500, 1)!;
+
+    // 上界：对手未来投入取满额有效剩余 = min(我方 10000−2500, 对手 10000) = 7500
+    expect(pair.upperBound.ratio).toBeCloseTo((7500 + 7500) / 2500, 12);
+    // 专业口径：对手投入 5000、我跟 5000
+    expect(pair.strict.ratio).toBeCloseTo(12_500 / 7500, 12);
+  });
+
+  it('无跟注额 / 河牌（没有剩余街）时返回 null', () => {
+    const { state, hero } = scenario(5000, 2500);
+    expect(impliedOddsFor(state, hero, 7500, 0, 2)).toBeNull();
+    expect(impliedOddsFor(state, hero, 7500, 2500, 0)).toBeNull();
   });
 });
 
