@@ -29,6 +29,9 @@ import {
   type HandStrengthRules,
 } from './handStrength';
 import { drawCallEquityThreshold } from './gtoMath';
+// SPR / 有效筹码的唯一来源：本文件不再自己写 `player.chips / totalPot`，
+// 也不再有第二份 `shouldAllInBySPR`（见 spr.ts 文件头）。
+import { sprFromState, shouldAllInBySPR } from './spr';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -72,21 +75,6 @@ function calculateRaiseAmount(
   return Math.min(Math.max(baseRaise, targetAmount), player.chips);
 }
 
-function shouldAllInBySPR(
-  playerChips: number,
-  toCall: number,
-  totalPot: number,
-  playerBet: number,
-  raiseTarget: number,
-): boolean {
-  if (raiseTarget >= playerChips) return true;
-  const potAfterCall = totalPot + toCall + playerBet + toCall;
-  const remainingAfterCall = playerChips - toCall;
-  if (remainingAfterCall <= 0) return true;
-  const spr = potAfterCall > 0 ? remainingAfterCall / potAfterCall : 999;
-  return spr < 2.0 || raiseTarget >= playerChips * 0.5;
-}
-
 function getHandRankName(rank: HandRank | null): string {
   if (!rank) return 'High Card';
   const names: Record<HandRank, string> = {
@@ -122,8 +110,10 @@ export function decidePostflopGTO(
   );
   const ip = isIP(ctx);
   const street: 'flop' | 'turn' = state.phase === 'turn' ? 'turn' : 'flop';
-  // SPR = 身后筹码 / 当前底池。低 SPR 下小尺度不成立，用它约束下注尺度。
-  const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;
+  // SPR = 有效筹码 / 当前底池。低 SPR 下小尺度不成立，用它约束下注尺度。
+  // 有效筹码由 spr.ts 统一取「自己与未弃牌对手里最小的一堆」—— 以前这里用的是
+  // **自己**筹码，与面板（GameBoard）口径不一致，两边会给出不同建议。
+  const spr = sprFromState(player, state.players, ctx.totalPot);
 
   const facingBet = ctx.toCall > 0;
   const facingBigRaise = ctx.toCall > state.lastRaiseBet * 2;

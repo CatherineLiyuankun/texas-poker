@@ -17,6 +17,8 @@ import {
 import { drawCallEquityThreshold } from './gtoMath';
 // 筹码深度的唯一来源：bb 换算从 stackDepth 取（本文件曾硬编码 `/10`）。
 import { effectiveStackBB } from './stackDepth';
+// SPR / 有效筹码的唯一来源：本文件不再自己写 `player.chips / totalPot`。
+import { sprFromState } from './spr';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
 import { equityIterations } from './equityIterations';
 
@@ -583,7 +585,9 @@ export function getDeepStackRecommendation(
     equityIterations(state.phase));
 
   const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
-  const spr = ctx.totalPot > 0 ? player.chips / ctx.totalPot : 999;
+  // SPR 由 spr.ts 统一取「有效筹码 / 底池」—— 以前这里用的是**自己**筹码，
+  // 与面板口径不一致（见 spr.ts 文件头）。
+  const spr = sprFromState(player, state.players, ctx.totalPot);
 
   const handAdjustment = getHandAdjustment(player.hand, effectiveStack);
   const sprDecision = getSPRDecision(spr);
