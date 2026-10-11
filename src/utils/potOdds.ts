@@ -1,6 +1,8 @@
 import type { Card, GameState, Player } from '../types/poker';
 import { hasThreeSuitedBoard, isBoardPaired } from './boardTexture';
+import { detectDraws } from './drawDetector';
 import type { DrawType } from './drawDetector';
+import { evaluateHand } from './handEvaluator';
 import { mdfFrom } from './gtoMath';
 import { rakeAmountFor } from './rake';
 import type { RakeConfig } from './rake';
@@ -496,4 +498,89 @@ export function impliedOddsFor(
   const planned = impliedOddsFrom(totalPot, toCall, x, y, rake);
   if (!upperBound || !planned) return null;
   return { upperBound, planned };
+}
+
+/**
+ * 后门同花听：手牌 + 公共牌里**恰好** 3 张同一花色，且**我手里至少有一张**。
+ *
+ * - 「恰好 3 张」而不是「≥ 3 张」：4 张是同花听（`drawDetector.hasFlushDraw` 已认），
+ *   5 张以上我已经成花了 —— 两种都不该由这个函数重复认领。
+ * - 「我手里至少有一张」：牌面自己摆着 3 张同花时，再发两张**谁都能**成花，
+ *   那不是我一个人的变强路径，成了也赢不到钱。
+ * - 需要再发**两张**，所以 `cardsToCome < 2` 时不可能成立（转牌只剩一张可发）。
+ */
+function hasBackdoorFlushDraw(
+  holeCards: Card[],
+  communityCards: Card[],
+  cardsToCome: number,
+): boolean {
+  if (cardsToCome < 2) return false;
+
+  const counts = new Map<string, number>();
+  for (const c of [...holeCards, ...communityCards]) {
+    counts.set(c.suit, (counts.get(c.suit) ?? 0) + 1);
+  }
+  for (const [suit, n] of counts) {
+    if (n === 3 && holeCards.some((c) => c.suit === suit)) return true;
+  }
+  return false;
+}
+
+/**
+ * 我当前的成品种类是否为三条 —— 暗三条（口袋对中牌面）/ 明三条（牌面对子 + 我一张）/
+ * 牌面三条（公共牌自己三张同点）三种来源都算。
+ *
+ * `evaluateHand` 要 5 张牌起步，所以翻前（没有牌面）恒为 false。
+ */
+function isThreeOfAKind(holeCards: Card[], communityCards: Card[]): boolean {
+  if (holeCards.length < 2 || communityCards.length < 3) return false;
+  return evaluateHand(holeCards, communityCards).rank === 'three_of_kind';
+}
+
+/** 口袋对：恰好两张手牌同点数。 */
+function isPocketPair(holeCards: Card[]): boolean {
+  return holeCards.length === 2 && holeCards[0].rank === holeCards[1].rank;
+}
+
+/**
+ * 隐含赔率行的**显示门**：只在「我有机会变强」时才显示这一行。
+ *
+ * 隐含赔率的语义是「这一注投下去，成牌之后还能再赢多少」—— 只有**还能变强**的牌
+ * 才有这个量。手里已经是顶对 / 两对 / 顺子这类「成型且不会再变强」的牌，这一行算出来
+ * 的数字只会在同一屏上跟上一行的直接赔率打架，不如不显示。
+ *
+ * 四个成员取并集（任一成立即显示）：
+ *
+ * 1. **`drawDetector` 认的听牌** —— 同花听 / 两头顺 / 卡顺。
+ * 2. **后门同花听** —— 见 `hasBackdoorFlushDraw`。`drawDetector` 不认它
+ *    （它只认「恰好 4 张」），但后门同花确实是一条变强路径，而且它恰恰是
+ *    隐含赔率最该管的场景：成了没人信，能赢到的钱比表面赔率多。
+ * 3. **三条** —— 见 `isThreeOfAKind`。三条还能变葫芦、变四条，是最典型的
+ *    「已经很强、但还能更强」，所以尽管 `drawDetector` 不认它是听牌，这里要收进来。
+ *    **葫芦 / 四条不算**：那已经要么赢到底、要么只剩 1 张补牌，不构成一条可依赖的
+ *    变强路径（葫芦追四条是 1 个补牌，跟「空气追对子」是一个量级）。
+ * 4. **翻前口袋对** —— set mining。翻前拿小对子跟一注、指望翻牌中三条（约 12%），
+ *    是德州里最经典的隐含赔率场景；少了这一条，翻前那一行会整个消失。
+ *    ⚠️ 只在**翻前**算：翻后已经错过牌面的口袋对只剩 2 张补牌，撑不起一整行。
+ *
+ * 河牌（`cardsToCome <= 0`）恒为 false —— 没有下一条街，隐含赔率就等于直接赔率。
+ *
+ * ⚠️ 这是**显示门**，不是数学的一部分：它只决定这一行显不显示，
+ * 不参与 `impliedOddsFor` 的任何计算。
+ */
+export function shouldShowImpliedOdds(
+  holeCards: Card[],
+  communityCards: Card[],
+  cardsToCome: number,
+): boolean {
+  if (cardsToCome <= 0) return false;
+
+  if (detectDraws(holeCards, communityCards, cardsToCome).draws.length > 0) {
+    return true;
+  }
+  if (hasBackdoorFlushDraw(holeCards, communityCards, cardsToCome)) return true;
+  if (isThreeOfAKind(holeCards, communityCards)) return true;
+  if (communityCards.length === 0 && isPocketPair(holeCards)) return true;
+
+  return false;
 }
