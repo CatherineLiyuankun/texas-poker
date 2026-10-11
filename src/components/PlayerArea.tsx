@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
-import type { Player, GamePhase, GameState, Action, Card as CardType, PlayerId } from '../types/poker';
+import type { Player, GamePhase, GameState, Action, Card as CardType } from '../types/poker';
 import { Card } from './Card';
 import { HandAnalysis } from './HandAnalysis';
 import { HAND_RANK_NAMES, type HandRank } from '../types/poker';
 import { translations } from '../utils/translations';
 import { SMALL_BLIND } from '../utils/constant';
 import { formatActionLabel } from '../utils/actionLabel';
-import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
-import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { OpponentProfile } from '../utils/opponentModel';
 import type { GameScenario } from '../utils/gtoConfig';
 
 interface PlayerAreaProps {
@@ -35,11 +34,6 @@ interface PlayerAreaProps {
     isAllIn?: boolean;
   } | null;
   opponentProfile?: OpponentProfile;
-  longStats?: PlayerLongStats[];
-  /** Bot 玩家的长期（跨会话）统计，与 `longStats` 同口径，只用于面板表格。 */
-  botLongStats?: PlayerLongStats[];
-  viewingPlayerId?: PlayerId;
-  realPlayerSessionStats?: BotStatsWithAF[];
   smallBlind?: number;
   adminRevealAll?: boolean;
   /** 完整对局状态，透传给 HandAnalysis 用于推断对手范围 */
@@ -68,10 +62,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   playerRaiseAmount,
   gtoRecommendation,
   opponentProfile,
-  longStats,
-  botLongStats,
-  viewingPlayerId,
-  realPlayerSessionStats,
   smallBlind = SMALL_BLIND,
   adminRevealAll = false,
   gameState,
@@ -243,10 +233,6 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
           playerRaiseAmount={playerRaiseAmount}
           gtoRecommendation={gtoRecommendation}
           opponentProfile={opponentProfile}
-          longStats={longStats}
-          botLongStats={botLongStats}
-          viewingPlayerId={viewingPlayerId}
-          realPlayerSessionStats={realPlayerSessionStats}
           positionLabel={positionLabel}
           gameState={gameState}
           heroPlayer={player}

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import type { Action, Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
+import type { Action, Card, GamePhase, GameState, Player } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
@@ -7,8 +7,7 @@ import { calculateEquity } from '../utils/equityCalculator';
 import { estimateOpponentCombos, currentHandEventSignature } from '../utils/rangeEquity';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
-import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
-import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { OpponentProfile } from '../utils/opponentModel';
 import {
   getGtoPostflopRecommendation,
   analyzeBoardWithEquity,
@@ -74,11 +73,6 @@ interface HandAnalysisProps {
     isAllIn?: boolean;
   } | null;
   opponentProfile?: OpponentProfile;
-  longStats?: PlayerLongStats[];
-  /** Bot 玩家的长期（跨会话）统计；「玩家数据」表的 Bot 行读它，而非当前会话。 */
-  botLongStats?: PlayerLongStats[];
-  viewingPlayerId?: PlayerId;
-  realPlayerSessionStats?: BotStatsWithAF[];
   positionLabel?: string;
   /** 完整对局状态，用于推断对手继续范围（范围权益） */
   gameState?: GameState;
@@ -110,96 +104,6 @@ function getRecColor(rec: string): string {
   if (rec.includes('Check')) return 'text-yellow-400';
   if (rec.includes('Fold')) return 'text-red-400';
   return 'text-white';
-}
-
-
-function getPlayerTypeColor(playerType: string): string {
-  switch (playerType) {
-    case 'TAG': return 'text-green-400';
-    case 'LAG': return 'text-orange-400';
-    case 'Nit': return 'text-blue-400';
-    case 'Calling Station': return 'text-red-400';
-    case 'Maniac': return 'text-purple-400';
-    case 'Others': return 'text-white';
-    default: return 'text-white/50';
-  }
-}
-
-function getVpipColor(v: number): string {
-  if (v <= 20) return 'text-red-400';
-  if (v <= 28) return 'text-orange-400';
-  if (v <= 35) return 'text-green-400';
-  return 'text-blue-400';
-}
-
-function getPfrColor(v: number): string {
-  if (v <= 17) return 'text-blue-400';
-  if (v <= 25) return 'text-green-400';
-  if (v <= 30) return 'text-orange-400';
-  return 'text-purple-400';
-}
-
-function getAfColor(v: number): string {
-  if (v < 1) return 'text-blue-400';
-  if (v <= 1.5) return 'text-green-400';
-  if (v <= 2.5) return 'text-orange-400';
-  if (v <= 3) return 'text-red-400';
-  return 'text-purple-400';
-}
-
-function getCbetColor(v: number): string {
-  if (v < 30) return 'text-blue-400';
-  if (v <= 55) return 'text-green-400';
-  if (v <= 77) return 'text-yellow-400';
-  return 'text-red-400';
-}
-
-function getWtsdColor(v: number): string {
-  if (v < 24) return 'text-red-400';
-  if (v <= 26) return 'text-orange-400';
-  if (v <= 32) return 'text-green-400';
-  if (v <= 38) return 'text-blue-400';
-  return 'text-purple-400';
-}
-
-function getCrColor(v: number): string {
-  if (v <= 4) return 'text-blue-400';
-  if (v <= 9) return 'text-green-400';
-  if (v <= 11) return 'text-orange-400';
-  if (v <= 18) return 'text-orange-400';
-  return 'text-red-400';
-}
-
-function getWsdColor(v: number): string {
-  if (v < 46) return 'text-red-400';
-  if (v < 48) return 'text-orange-400';
-  if (v <= 54) return 'text-green-400';
-  return 'text-blue-400';
-}
-
-function get3BetColor(v: number): string {
-  if (v < 5) return 'text-blue-400';
-  if (v <= 10) return 'text-green-400';
-  if (v <= 12) return 'text-orange-400';
-  return 'text-red-400';
-}
-
-function getFoldToCbetColor(v: number): string {
-  if (v < 40) return 'text-red-400';
-  if (v <= 60) return 'text-green-400';
-  return 'text-blue-400';
-}
-
-function getAFqColor(v: number): string {
-  if (v < 35) return 'text-blue-400';
-  if (v <= 55) return 'text-green-400';
-  return 'text-red-400';
-}
-
-function getTurnCbetColor(v: number): string {
-  if (v < 40) return 'text-blue-400';
-  if (v <= 65) return 'text-green-400';
-  return 'text-red-400';
 }
 
 function getGtoActionLabel(
@@ -508,10 +412,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   playerRaiseAmount,
   gtoRecommendation,
   opponentProfile,
-  longStats,
-  botLongStats,
-  viewingPlayerId,
-  realPlayerSessionStats,
   positionLabel,
   gameState,
   heroPlayer,
@@ -1527,148 +1427,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
         </div>
       )}
-
-      {/* 统一玩家统计 VPIP/PFR/AF 表格。Bot 行与真人行同口径：都读长期（跨会话）统计，
-          不再用当前会话数据 —— `opponentProfile.botStats` 仍供 NodeLock 区块使用，
-          但不再驱动这张表。 */}
-      {(() => {
-        const botStats: PlayerLongStats[] = botLongStats ?? [];
-        const realStats: PlayerLongStats[] = longStats ?? [];
-        if (botStats.length === 0 && realStats.length === 0) return null;
-        return (
-          <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
-            <div className="text-white/50 font-medium text-center tracking-wide text-[12px]">
-              {translations.playerStats.title}
-            </div>
-            <table className="w-full text-[10px]">
-              <thead>
-                <tr className="text-white/30 text-[10px]">
-                  <th className="text-left" />
-                  <th colSpan={4} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
-                  <th colSpan={6} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
-                  <th colSpan={2} className="text-center border-b border-white/10">{translations.playerStats.showdown}</th>
-                </tr>
-                <tr className="text-white/50 text-[8px]">
-                  <th className="text-left">{translations.playerStats.name}</th>
-                  <th className="text-right">{translations.playerStats.vpip}</th>
-                  <th className="text-right">{translations.playerStats.pfr}</th>
-                  <th className="text-right">{translations.playerStats.threeBet}</th>
-                  <th className="text-right border-r border-white/10">{translations.playerStats.type}</th>
-                  <th className="text-right">{translations.playerStats.af}</th>
-                  <th className="text-right">{translations.playerStats.afq}</th>
-                  <th className="text-right">{translations.playerStats.cbet}</th>
-                  <th className="text-right">{translations.playerStats.foldToCbet}</th>
-                  <th className="text-right">{translations.playerStats.turnCbet}</th>
-                  <th className="text-right border-r border-white/10">{translations.playerStats.checkRaise}</th>
-                  <th className="text-right">{translations.playerStats.wtsd}</th>
-                  <th className="text-right">{translations.playerStats.wsd}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {botStats.map((stat) => {
-                  const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
-                  const typeColor = getPlayerTypeColor(stat.playerType);
-                  return (
-                    <tr key={`bot-${stat.playerId}`} className="text-white">
-                      <td className="text-left">{translations.playerArea.bot}{stat.playerId}</td>
-                      <td className={`text-right ${stat.handsDealt > 0 ? getVpipColor(stat.vpip * 100) : ''}`}>
-                        {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.handsDealt > 0 ? getPfrColor(stat.pfr * 100) : ''}`}>
-                        {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.threeBet !== null ? get3BetColor(stat.threeBet) : ''}`}>
-                        {stat.threeBet !== null ? `${stat.threeBet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
-                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
-                          ? translations.playerStats.insufficientData
-                          : typeLabel}
-                      </td>
-                      <td className={`text-right ${stat.af !== null ? getAfColor(stat.af) : ''}`}>
-                        {stat.af !== null ? stat.af.toFixed(1) : '—'}
-                      </td>
-                      <td className={`text-right ${stat.afq !== null ? getAFqColor(stat.afq) : ''}`}>
-                        {stat.afq !== null ? `${stat.afq.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.cbet !== null ? getCbetColor(stat.cbet) : ''}`}>
-                        {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.foldToCbet !== null ? getFoldToCbetColor(stat.foldToCbet) : ''}`}>
-                        {stat.foldToCbet !== null ? `${stat.foldToCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.turnCbet !== null ? getTurnCbetColor(stat.turnCbet) : ''}`}>
-                        {stat.turnCbet !== null ? `${stat.turnCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right border-r border-white/10 ${stat.checkRaise !== null ? getCrColor(stat.checkRaise) : ''}`}>
-                        {stat.checkRaise !== null ? `${stat.checkRaise.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.wtsd !== null ? getWtsdColor(stat.wtsd) : ''}`}>
-                        {stat.wtsd !== null ? `${stat.wtsd.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.wsd !== null ? getWsdColor(stat.wsd) : ''}`}>
-                        {stat.wsd !== null ? `${stat.wsd.toFixed(0)}%` : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {realStats.map((stat) => {
-                  const isViewing = stat.playerId === viewingPlayerId;
-                  const sessionStat = realPlayerSessionStats?.find(
-                    (s) => s.playerId === stat.playerId,
-                  );
-                  const display = isViewing || !sessionStat ? stat : sessionStat;
-                  const typeLabel = translations.playerStats.types[display.playerType] || display.playerType;
-                  const typeColor = getPlayerTypeColor(display.playerType);
-                  return (
-                    <tr key={`real-${stat.playerId}`} className="text-white">
-                      <td className="text-left">P{stat.playerId}</td>
-                      <td className={`text-right ${display.handsDealt > 0 ? getVpipColor(display.vpip * 100) : ''}`}>
-                        {display.handsDealt > 0 ? `${(display.vpip * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.handsDealt > 0 ? getPfrColor(display.pfr * 100) : ''}`}>
-                        {display.handsDealt > 0 ? `${(display.pfr * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.threeBet !== null ? get3BetColor(display.threeBet) : ''}`}>
-                        {display.threeBet !== null ? `${display.threeBet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
-                        {display.playerType === 'Unknown' && display.handsDealt < 10
-                          ? translations.playerStats.insufficientData
-                          : typeLabel}
-                      </td>
-                      <td className={`text-right ${display.af !== null ? getAfColor(display.af) : ''}`}>
-                        {display.af !== null ? display.af.toFixed(1) : '—'}
-                      </td>
-                      <td className={`text-right ${display.afq !== null ? getAFqColor(display.afq) : ''}`}>
-                        {display.afq !== null ? `${display.afq.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.cbet !== null ? getCbetColor(display.cbet) : ''}`}>
-                        {display.cbet !== null ? `${display.cbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.foldToCbet !== null ? getFoldToCbetColor(display.foldToCbet) : ''}`}>
-                        {display.foldToCbet !== null ? `${display.foldToCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.turnCbet !== null ? getTurnCbetColor(display.turnCbet) : ''}`}>
-                        {display.turnCbet !== null ? `${display.turnCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right border-r border-white/10 ${display.checkRaise !== null ? getCrColor(display.checkRaise) : ''}`}>
-                        {display.checkRaise !== null ? `${display.checkRaise.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.wtsd !== null ? getWtsdColor(display.wtsd) : ''}`}>
-                        {display.wtsd !== null ? `${display.wtsd.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.wsd !== null ? getWsdColor(display.wsd) : ''}`}>
-                        {display.wsd !== null ? `${display.wsd.toFixed(0)}%` : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })()}
     </div>
   );
 };
