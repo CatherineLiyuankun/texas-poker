@@ -19,7 +19,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Draw Detection**: Flush draw, open-ended straight, gutshot with outs-based probability
   - **Opponent Modeling**: Profiles opponents as aggressive/passive and adjusts thresholds dynamically
 - **Hand Analysis Panel**: Real-time display of **random-hand equity** and **range-aware equity**, pot odds, implied odds, draw info, **Bot Action**, and action recommendations
-  - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration)
+  - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration) — its "vs random hands" caveat sits in that row's **hover tooltip**, not inline (the equity columns are only ~134.8px wide)
   - **Range equity**: hero vs. an inferred opponent continuing range (preflop role + position tables + card removal + VPIP, then narrowed by the observed postflop action line)
   - Available from preflop onward; the recommendation and EV figures are driven by range equity, falling back to random equity when no range can be inferred
   - **Bot Action** (above `GTO Math`): what the bot would do **if this real player's seat were bot-controlled** — the same decision path as the live bots (`getShadowBotAction` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below)
@@ -99,47 +99,47 @@ Iteration counts live in one shared table (`src/utils/equityIterations.ts`): pre
 
 ### Implied Odds
 
-`(pot + future winnings) : (call + my future calls)` — *"if I call now, how much more can I win once I improve?"*
+`(pot + future winnings) : (call + my future calls)` — *"if I call now, how much more can I win once I improve?"*  
 The row prints two calibers side by side: the main figure is the **drawing plan**, the small `上界` reference is the optimistic textbook read. The same formula lives in the row's hover tooltip.
 
 **1. When the row appears** (`potOdds.shouldShowImpliedOdds`) — only for a hand that can still improve. It is a pure **display gate**: it never feeds the arithmetic. Any one member is enough.
 
-| Member                   | Test                                                  | Why it counts                                                                                                                                                                                  |
-| ------------------------ | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Draw                     | `drawDetector` reports a flush draw / OESD / gutshot   | Requires **exactly** 4 of a suit — a made flush and a 3-card backdoor draw are both excluded                                                                                                    |
-| Backdoor flush draw      | Exactly 3 of a suit, **at least one of them in my hand** | `drawDetector` does not report these. Needs 2 more cards, so it is off from the turn on. A three-suited *board* does not count: two more of that suit make a flush for everyone, so nobody pays |
-| Three of a kind          | `evaluateHand(...).rank === 'three_of_kind'`           | Set / trips / board trips. Already a made hand (so `drawDetector` ignores it), but it can still become a full house or quads. A full house or quads does **not** qualify — 1 out is the same order as drawing to a pair with air |
-| Preflop pocket pair      | `phase === 'preflop'`                                  | Set mining — the classic implied-odds spot (≈12% to flop a set). Postflop, a pocket pair that missed has 2 outs and does not qualify                                                            |
+| Member              | Test                                                     | Why it counts                                                                                                                                                                                                                    |
+| ------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Draw                | `drawDetector` reports a flush draw / OESD / gutshot     | Requires **exactly** 4 of a suit — a made flush and a 3-card backdoor draw are both excluded                                                                                                                                     |
+| Backdoor flush draw | Exactly 3 of a suit, **at least one of them in my hand** | `drawDetector` does not report these. Needs 2 more cards, so it is off from the turn on. A three-suited *board* does not count: two more of that suit make a flush for everyone, so nobody pays                                  |
+| Three of a kind     | `evaluateHand(...).rank === 'three_of_kind'`             | Set / trips / board trips. Already a made hand (so `drawDetector` ignores it), but it can still become a full house or quads. A full house or quads does **not** qualify — 1 out is the same order as drawing to a pair with air |
+| Preflop pocket pair | `phase === 'preflop'`                                    | Set mining — the classic implied-odds spot (≈12% to flop a set). Postflop, a pocket pair that missed has 2 outs and does not qualify                                                                                             |
 
 Top pair, two pair, a made straight or flush, and a pocket pair that missed the flop show **nothing**: the figure would only contradict the plain pot odds on the same screen.
 
 **2. The main figure — drawing plan** (`potOdds.impliedOddsFor`)
 
-| Term                            | Caliber                                                                                     | Notes                                                                                                                                                                                                                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Opponent's future contribution  | Next-street bet × **betting streets left**, then capped by his remaining stack               | The next-street bet is extrapolated from his *actual* bet-to-pot fraction (`nextStreetBetFrom`) — no invented "2/3 pot" assumption. Streets left: preflop 3 / flop 2 / turn 1. **Deliberately not the cards still to come**: the two agree only from the flop on (preflop is 5 vs 3), and passing 5 inflates the preflop figure by ~1.7× while still looking plausible |
-| My future calls                 | That bet × `impliedCallWeight(streetsLeft, outs)`                                            | Weighted by the chance I have **not** hit yet, so `outs → 0` stays continuous. The river street never produces a call ⇒ `n − 1`                                                                                                                                             |
-| Reverse implied-odds discount   | ×0.4 paired board, ×0.5 three-suited board + straight draw, ×0.6 non-nut flush draw; floor `0.15` | Applies to the **winnings** side only — hitting can still lose                                                                                                                                                                                                            |
-| Opponent paying willingness     | ×0.7 when `WTSD < 20`, ×0.85 when `AF < 1`; gate 20 hands; never scales up                    | Applied only once the sample is real; missing stats are skipped, not read as 0                                                                                                                                                                                             |
-| Rake                            | Subtracted from the **numerator** (winnings), never the denominator (risk)                    | Cash games only — a tournament is `NO_RAKE` (`effectiveRakeConfigFor`)                                                                                                                                                                                                      |
+| Term                           | Caliber                                                                                           | Notes                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Opponent's future contribution | Next-street bet × **betting streets left**, then capped by his remaining stack                    | The next-street bet is extrapolated from his *actual* bet-to-pot fraction (`nextStreetBetFrom`) — no invented "2/3 pot" assumption. Streets left: preflop 3 / flop 2 / turn 1. **Deliberately not the cards still to come**: the two agree only from the flop on (preflop is 5 vs 3), and passing 5 inflates the preflop figure by ~1.7× while still looking plausible |
+| My future calls                | That bet × `impliedCallWeight(streetsLeft, outs)`                                                 | Weighted by the chance I have **not** hit yet, so `outs → 0` stays continuous. The river street never produces a call ⇒ `n − 1`                                                                                                                                                                                                                                        |
+| Reverse implied-odds discount  | ×0.4 paired board, ×0.5 three-suited board + straight draw, ×0.6 non-nut flush draw; floor `0.15` | Applies to the **winnings** side only — hitting can still lose                                                                                                                                                                                                                                                                                                         |
+| Opponent paying willingness    | ×0.7 when `WTSD < 20`, ×0.85 when `AF < 1`; gate 20 hands; never scales up                        | Applied only once the sample is real; missing stats are skipped, not read as 0                                                                                                                                                                                                                                                                                         |
+| Rake                           | Subtracted from the **numerator** (winnings), never the denominator (risk)                        | Cash games only — a tournament is `NO_RAKE` (`effectiveRakeConfigFor`)                                                                                                                                                                                                                                                                                                 |
 
 **3. The `上界` reference** — the optimistic read: the opponent keeps betting the same fraction for every remaining street (× streets left), my future calls = 0, no discounts, no rake. It deliberately does **not** assume "he stacks off": in deep stacks that caliber degenerates into absurd ratios (two 50 000 stacks, 5 000 pot → a **4.3%** breakeven, i.e. "call with 4% equity"). Capping it at one bet per remaining street keeps the textbook example intact and the deep-stack figure sane (the paired-board case in the tests: 2.3% → **12.5%**).
 
 **4. Worked example** — the book's short stack: pot `7 500`, call `2 500`, both players `2 500` behind.
 
-| Caliber                 | Reward : risk                                        | Breakeven  |
-| ----------------------- | ---------------------------------------------------- | ---------- |
-| Drawing plan (main)     | `(7 500 + 2 500) : (2 500 + 2 500)` = **2 : 1**       | **33.3%**  |
-| `上界` (optimistic)      | `(7 500 + 2 500) : 2 500` = **4 : 1**                 | **20.0%**  |
+| Caliber             | Reward : risk                                   | Breakeven |
+| ------------------- | ----------------------------------------------- | --------- |
+| Drawing plan (main) | `(7 500 + 2 500) : (2 500 + 2 500)` = **2 : 1** | **33.3%** |
+| `上界` (optimistic)   | `(7 500 + 2 500) : 2 500` = **4 : 1**           | **20.0%** |
 
 **5. Properties worth knowing**
 
-| Property                                         | Detail                                                                                                            |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| The plan can be **worse** than the plain pot odds | Committing to pay another street is what does it — the upper bound relaxes the bar, the plan raises it             |
-| Already all-in opponents are excluded            | Their `chips = 0` would otherwise drag the whole `Math.min` to 0 in a multi-way pot                                |
-| Hidden on the river                              | No street left ⇒ the figure is identical to the plain pot odds                                                     |
-| Deep stacks                                      | "Full effective stack" is never assumed, so the ratio does not collapse (see §3)                                   |
+| Property                                          | Detail                                                                                                 |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| The plan can be **worse** than the plain pot odds | Committing to pay another street is what does it — the upper bound relaxes the bar, the plan raises it |
+| Already all-in opponents are excluded             | Their `chips = 0` would otherwise drag the whole `Math.min` to 0 in a multi-way pot                    |
+| Hidden on the river                               | No street left ⇒ the figure is identical to the plain pot odds                                         |
+| Deep stacks                                       | "Full effective stack" is never assumed, so the ratio does not collapse (see §3)                       |
 
 
 ### Strategy Configuration & Advice Channels
@@ -233,7 +233,7 @@ npm run build
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
 - **Component Tests**: `src/components/__tests__/` - UI, settlement, and equity panel tests
-- **Test Coverage**: 1047 tests across 55 test suites (1045 passed, 2 skipped) — run `npm test` for the current figure
+- **Test Coverage**: 1046 tests across 55 test suites (1044 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -252,7 +252,7 @@ npm run build
   - **听牌检测**: 同花听牌、两头顺子、卡顺，基于 Outs 概率计算
   - **对手画像**: 自动识别激进/被动型对手，动态调整决策阈值
 - **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、隐含赔率、听牌信息、**Bot Action** 和行动建议
-  - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）
+  - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）—— 「vs 随机牌」的口径说明挂在该行的**悬停提示**里，不占版面（权益列每列仅约 134.8px）
   - **范围权益**: 我方手牌 vs 推断出的对手续玩范围（翻前角色 + 位置表 + 去牌 + VPIP 宽度修正，再按观测到的翻后行动线收窄）
   - 翻前起即可用；行动建议与 EV 数字由范围权益驱动，无法推断范围时回退为随机权益
   - **Bot Action**（位于 `GTO Math` 之前）: **这个真人座位如果交给机器人**会怎么打 —— 与场上机器人同一条决策路径（`getShadowBotAction` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同
@@ -331,47 +331,47 @@ npm run build
 
 ### 隐含赔率
 
-`（底池 + 对手未来投入）:（跟注 + 我未来跟注）` —— *「我现在跟这一注，成牌之后还能再赢多少？」*
+`（底池 + 对手未来投入）:（跟注 + 我未来跟注）` —— *「我现在跟这一注，成牌之后还能再赢多少？」*  
 这一行并排给出两个口径：主值是**追牌计划**，小号「上界」是教材式的乐观读法。同一套公式也挂在该行的悬停提示里。
 
 **1. 什么时候显示这一行**（`potOdds.shouldShowImpliedOdds`）—— 只有「手牌还能变强」时才显示。它是一道**纯显示门**，不参与任何赔率计算；下列任一成员成立即显示。
 
-| 成员         | 判据                                            | 为什么算                                                                                                                                     |
-| ------------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| 听牌         | `drawDetector` 认出同花听 / 两头顺 / 卡顺        | 要求**恰好** 4 张同花 —— 已成同花与 3 张的后门听都不算                                                                                        |
-| 后门同花听   | 恰好 3 张同花，且**我手里至少有一张**            | `drawDetector` 不认它。需要再发 2 张，所以转牌之后不成立。**牌面自己三张同花不算**：再发两张谁都成花，成了也赢不到钱                       |
-| 三条         | `evaluateHand(...).rank === 'three_of_kind'`     | 暗三条 / 明三条 / 牌面三条都算。它已经是成牌（所以 `drawDetector` 不认它是听牌），但还能变葫芦、变四条。葫芦 / 四条**不算** —— 只剩 1 张补牌，跟「空气追对子」一个量级 |
-| 翻前口袋对   | `phase === 'preflop'`                            | set mining，最经典的隐含赔率场景（约 12% 中三条）。翻后已错过牌面的口袋对只剩 2 张补牌，不算                                                      |
+| 成员    | 判据                                           | 为什么算                                                                                                  |
+| ----- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 听牌    | `drawDetector` 认出同花听 / 两头顺 / 卡顺              | 要求**恰好** 4 张同花 —— 已成同花与 3 张的后门听都不算                                                                    |
+| 后门同花听 | 恰好 3 张同花，且**我手里至少有一张**                       | `drawDetector` 不认它。需要再发 2 张，所以转牌之后不成立。**牌面自己三张同花不算**：再发两张谁都成花，成了也赢不到钱                                 |
+| 三条    | `evaluateHand(...).rank === 'three_of_kind'` | 暗三条 / 明三条 / 牌面三条都算。它已经是成牌（所以 `drawDetector` 不认它是听牌），但还能变葫芦、变四条。葫芦 / 四条**不算** —— 只剩 1 张补牌，跟「空气追对子」一个量级 |
+| 翻前口袋对 | `phase === 'preflop'`                        | set mining，最经典的隐含赔率场景（约 12% 中三条）。翻后已错过牌面的口袋对只剩 2 张补牌，不算                                               |
 
 顶对、两对、已成顺子 / 同花、翻后错过牌面的口袋对都**不显示** —— 那个数字只会在同一屏上跟直接赔率打架。
 
 **2. 主值 —— 追牌计划口径**（`potOdds.impliedOddsFor`）
 
-| 分项           | 口径                                                                                     | 说明                                                                                                                                                                                                                            |
-| -------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 对手未来投入   | 下一条街的预计注码 × **剩余下注街数**，再受他剩余筹码夹住                                  | 预计注码由他当前的下注尺度外推（`nextStreetBetFrom`），不假设「2/3 池」这类固定比例。剩余下注街数：翻前 3 / 翻牌 2 / 转牌 1。**刻意不用「还要发的牌数」**：两者只在翻牌往后恰好相等（翻前是 5 vs 3），传牌数会把翻前结果放大 ~1.7 倍，而且看起来仍然合理 |
-| 我未来跟注     | 该注码 × `impliedCallWeight(streetsLeft, outs)`                                            | 按**还没成牌**的概率加权，所以 `outs → 0` 时仍然连续；河牌那条街不会再产生跟注 ⇒ `n − 1`                                                                                                                                            |
-| 反隐含赔率折扣 | 牌面对子 ×0.4、三张同花 + 顺子听 ×0.5、非坚果同花听 ×0.6，下限 `0.15`                       | 只作用在**赢到的筹码**一侧 —— 成牌仍可能输                                                                                                                                                                                        |
-| 对手支付意愿   | `WTSD < 20` ×0.7、`AF < 1` ×0.85；样本门槛 20 手；永不上调                                 | 样本够时才打折；字段缺失按「不参与」处理，不当成 0                                                                                                                                                                                |
-| 抽水           | 从**分子**（赢到的筹码）里扣，绝不动分母（风险）                                            | 只在现金局；锦标赛由 `effectiveRakeConfigFor` 恒为 `NO_RAKE`                                                                                                                                                                       |
+| 分项      | 口径                                              | 说明                                                                                                                                                     |
+| ------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 对手未来投入  | 下一条街的预计注码 × **剩余下注街数**，再受他剩余筹码夹住                | 预计注码由他当前的下注尺度外推（`nextStreetBetFrom`），不假设「2/3 池」这类固定比例。剩余下注街数：翻前 3 / 翻牌 2 / 转牌 1。**刻意不用「还要发的牌数」**：两者只在翻牌往后恰好相等（翻前是 5 vs 3），传牌数会把翻前结果放大 ~1.7 倍，而且看起来仍然合理 |
+| 我未来跟注   | 该注码 × `impliedCallWeight(streetsLeft, outs)`    | 按**还没成牌**的概率加权，所以 `outs → 0` 时仍然连续；河牌那条街不会再产生跟注 ⇒ `n − 1`                                                                                              |
+| 反隐含赔率折扣 | 牌面对子 ×0.4、三张同花 + 顺子听 ×0.5、非坚果同花听 ×0.6，下限 `0.15` | 只作用在**赢到的筹码**一侧 —— 成牌仍可能输                                                                                                                              |
+| 对手支付意愿  | `WTSD < 20` ×0.7、`AF < 1` ×0.85；样本门槛 20 手；永不上调  | 样本够时才打折；字段缺失按「不参与」处理，不当成 0                                                                                                                             |
+| 抽水      | 从**分子**（赢到的筹码）里扣，绝不动分母（风险）                      | 只在现金局；锦标赛由 `effectiveRakeConfigFor` 恒为 `NO_RAKE`                                                                                                       |
 
 **3. 小号「上界」** —— 乐观读法：对手按同一比例继续下注、把剩余街数收满，我未来跟注记 0，不打折也不折抽水。它**刻意不取「对手全下」那个口径**：深筹码下那个口径会退化成荒谬的比价（双方各 5 万、底池 5000 → 盈亏平衡 **4.3%**，等于宣称「4% 胜率就可以跟」）。改成「每条剩余街只收一注」之后，教材那个例子的数字仍然成立，深筹码下的数也不再离谱（测试里的牌面对子用例：2.3% → **12.5%**）。
 
 **4. 算例** —— 教材那个浅筹码例子：底池 `7 500`、跟 `2 500`、双方身后各 `2 500`。
 
-| 口径               | 收益 : 风险                                       | 盈亏平衡   |
-| ------------------ | ------------------------------------------------- | ---------- |
-| 追牌计划（主值）   | `(7 500 + 2 500) : (2 500 + 2 500)` = **2 : 1**    | **33.3%**  |
-| 「上界」（乐观）   | `(7 500 + 2 500) : 2 500` = **4 : 1**              | **20.0%**  |
+| 口径       | 收益 : 风险                                         | 盈亏平衡      |
+| -------- | ----------------------------------------------- | --------- |
+| 追牌计划（主值） | `(7 500 + 2 500) : (2 500 + 2 500)` = **2 : 1** | **33.3%** |
+| 「上界」（乐观） | `(7 500 + 2 500) : 2 500` = **4 : 1**           | **20.0%** |
 
 **5. 几个容易踩的点**
 
-| 性质                                   | 说明                                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 计划口径可能**比直接赔率还差**          | 「打算再付一注」就会这样 —— 上界放宽门槛，计划口径抬高门槛                                          |
-| 已全下的对手不计入                      | 他们的 `chips = 0`，否则多人池里会把 `Math.min` 整体拖到 0                                          |
-| 河牌隐藏                                | 没有后续街，这一行与直接赔率恒等                                                                    |
-| 深筹码不会崩                            | 从不假设「把对手剩余筹码全赢过来」，所以比价不会退化成荒谬值（见第 3 节）                             |
+| 性质                | 说明                                         |
+| ----------------- | ------------------------------------------ |
+| 计划口径可能**比直接赔率还差** | 「打算再付一注」就会这样 —— 上界放宽门槛，计划口径抬高门槛            |
+| 已全下的对手不计入         | 他们的 `chips = 0`，否则多人池里会把 `Math.min` 整体拖到 0 |
+| 河牌隐藏              | 没有后续街，这一行与直接赔率恒等                           |
+| 深筹码不会崩            | 从不假设「把对手剩余筹码全赢过来」，所以比价不会退化成荒谬值（见第 3 节）     |
 
 
 ### 策略配置与建议口径
@@ -464,4 +464,4 @@ npm run build
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
 - **组件测试**: `src/components/__tests__/` - UI、结算和权益面板测试
-- **测试覆盖**: 55 个测试套件，共 1047 个测试用例（1045 通过，2 跳过）—— 以 `npm test` 的实际输出为准
+- **测试覆盖**: 55 个测试套件，共 1046 个测试用例（1044 通过，2 跳过）—— 以 `npm test` 的实际输出为准
