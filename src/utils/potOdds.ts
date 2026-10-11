@@ -1,5 +1,11 @@
-import type { GameState, Player } from '../types/poker';
+import type { Card, GameState, Player } from '../types/poker';
+import { hasThreeSuitedBoard, isBoardPaired } from './boardTexture';
+import { detectDraws } from './drawDetector';
+import type { DrawType } from './drawDetector';
+import { evaluateHand } from './handEvaluator';
 import { mdfFrom } from './gtoMath';
+import { rakeAmountFor } from './rake';
+import type { RakeConfig } from './rake';
 
 /**
  * potOdds 口径的唯一来源 —— **只放「赔率」相关的量**。
@@ -81,4 +87,500 @@ export function computePotOddsFor(state: GameState, player: Player): PotOddsResu
     lastBet: state.lastBet,
     playerBet: player.bet,
   });
+}
+
+/**
+ * 跟注赔率的**比率形式**（`totalPot : toCall`，归一化成 `x : 1`）。
+ *
+ * 与 `callPotOddsFrom` 是同一件事的两种写法：
+ *   `callPotOdds = toCall / (totalPot + toCall) = 1 / (ratio + 1)`
+ * 所以 1/3（33.3%）⇔ 2:1、1/4（25%）⇔ 3:1、1/6（16.7%）⇔ 5:1 —— 与
+ * 德州教材里那张「1/4 彩池 → 5.0:1 → 17%」的表逐行对得上。
+ *
+ * 注意分母是 `toCall`、分子是**含注底池** `totalPot`（含对手本轮那一注，
+ * 不含我方尚未投入的跟注额），这正是教材说的「总彩池 : 跟注需要的数量」。
+ *
+ * 位数规则 —— 只有**真的是整数**才印成整数：
+ * - 落在整数上（留 `RATIO_INT_EPS` 余量吸收浮点误差）→ 不带小数点，`4` → `「4」`；
+ * - 否则至少一位小数；若一位小数会**伪装成整数**就退到两位。
+ *
+ * 旧实现是「先 `toFixed(1)`，再砍掉 `.0`」，于是 `4.04` 与 `3.96` 都印成
+ * `「4」` —— 两种不同的比价看起来一模一样；更糟的是 `0.96` 印成 `「1」`，
+ * 把「赢的比投的还少」说成了对半开。`1.85 → 「1.9」` 这类一位小数够用的情况
+ * 不受影响。
+ */
+/** `formatOddsRatio` 判「是否整数」的容差：吸收筹码求和的浮点误差。
+ * 取 1e-6 是因为它在 ratio≈4 处只对应约 4e-8 的盈亏平衡差 —— 远低于展示精度，
+ * 却能稳稳吃掉 `125/25` 这类本该是整数的商。 */
+const RATIO_INT_EPS = 1e-6;
+
+export function formatOddsRatio(ratio: number): string {
+  if (!Number.isFinite(ratio) || ratio <= 0) return '—';
+  const nearest = Math.round(ratio);
+  if (Math.abs(ratio - nearest) < RATIO_INT_EPS) return String(nearest);
+  const oneDecimal = ratio.toFixed(1);
+  return Number(oneDecimal) === nearest ? ratio.toFixed(2) : oneDecimal;
+}
+
+/**
+ * 隐含赔率（implied odds）。
+ *
+ * 教材口径：隐含赔率 =（彩池 + 对手未来投入）/（跟注 + 我未来跟注），
+ * 归一化成 `x : 1`，盈亏平衡百分比 = `1 / (ratio + 1)`。
+ *
+ * **两项分属不同分支**，这是最容易算错的地方：
+ * - 成牌那一支净得「底池 + 对手未来投入」—— 我自己后续投进去的筹码会随底池一起
+ *   回到手上，相互抵消，所以成牌分支的净得与「我未来跟注」无关；
+ * - 未成牌那一支损失「跟注 + 我未来跟注」。
+ *
+ * 令 EV = 0 解出
+ *   `breakeven = (跟注 + 我未来跟注) / (底池 + 对手未来投入 + 跟注 + 我未来跟注)`。
+ * 所以 `futureCalls` 指的是**没成牌那条路上还会投多少**，不是「以后总共投多少」；
+ * 成牌之后再加注打进去的钱属于 `futureWinnings`，不属于 `futureCalls`。
+ *
+ * 校验（书中的例子）：彩池 7500、跟 2500、双方各剩 2500、`futureCalls` = 0 →
+ * ratio = (7500 + 2500) / 2500 = 4（4:1）、盈亏平衡 = 1/5 = 20%，与书上一致。
+ *
+ * ⚠️ 这是**估算**不是闭式解：两项都是对未来的估计（对手会不会支付、我会不会再跟）。
+ * GTO 求解器根本不显式算这两个量 —— 它把整棵博弈树解出来，未来街的 EV 自然浮现。
+ * 这套是给人在牌桌上心算用的启发式。河牌没有后续街可发，调用方应直接隐藏该行
+ * （那时隐含赔率恒等于直接赔率）。
+ */
+export interface ImpliedOddsResult {
+  /** 隐含赔率比率（表示 `ratio : 1`） */
+  ratio: number;
+  /** 隐含赔率对应的跟注盈亏平衡百分比 = `1 / (ratio + 1)` */
+  breakeven: number;
+}
+
+/**
+ * `futureCalls` 缺省 0 = 计划「错过就弃牌」，也就是教材那个例子的假设。
+ * 只要你会再跟一注，这一项就是正的，赔率随之变差 —— 见 `impliedOddsFor`。
+ *
+ * `rake` 缺省 0 = 不抽水。抽水是**从摊牌底池里扣**的，所以它减的是分子
+ * （「赢到手的筹码」），不是分母。分母（`跟注 + 我未来跟注`）是「我掏出去的钱」，
+ * 与抽水无关。
+ */
+export function impliedOddsFrom(
+  totalPot: number,
+  toCall: number,
+  futureWinnings: number,
+  futureCalls = 0,
+  rake = 0,
+): ImpliedOddsResult | null {
+  if (toCall <= 0) return null;
+  // 分母是「我总共要投进去的钱」，只包含没成牌那条路上的追加跟注
+  const risk = toCall + Math.max(0, futureCalls);
+  // 分子是「赢到手的筹码」—— 抽水先从这里扣掉
+  const reward = Math.max(0, totalPot + futureWinnings - Math.max(0, rake));
+  const ratio = reward / risk;
+  return { ratio, breakeven: 1 / (ratio + 1) };
+}
+
+/**
+ * 下一条街的**预计注码**：假设对手延续他当前这一注相对底池的尺度。
+ *
+ * 用「对手实际下出的比例」外推，而不是拍一个固定的 2/3 池 —— 这个数是从牌局本身
+ * 读出来的，不需要另立一个假设。
+ *
+ * 例：下注前底池 5000、对手下 2500（半个池）→ 我跟注后底池 10000
+ * → 下一条街预计 5000。
+ */
+export function nextStreetBetFrom(totalPot: number, toCall: number): number {
+  const potBeforeBet = Math.max(0, totalPot - toCall);
+  if (toCall <= 0 || potBeforeBet <= 0) return 0;
+  return (toCall / potBeforeBet) * (totalPot + toCall);
+}
+
+/**
+ * 隐含赔率里「成牌后还能再赢到的筹码」（对手未来投入）。
+ *
+ * 取**有效剩余筹码**：我方跟注之后还剩多少，与各未弃牌对手还剩多少，取较小者 ——
+ * 对手不可能输给你超过你还能投入的量。全部对手都已弃牌时是 0（无人可支付）。
+ *
+ * ⚠️ 只统计**还能继续下注**的对手（`!folded && !allIn && chips > 0`）。全下的对手
+ * 身后是 0，他不能再掏一分钱，所以他对「未来投入」的贡献本来就是 0；但若把他留在
+ * 列表里，`Math.min` 会被那个 0 整组压到 0 —— 一个短码全下就能把旁边深码的支付
+ * 能力一并抹掉，这正是修复前多人池里的错值。
+ *
+ * `cap` 是「还能赢到多少」的上限。专业上不会把对手的整个剩余筹码都算成隐含赔率
+ * （他不一定支付），通行假设是「还能再赢一条街的下注」。缺省不设上限
+ * （= 取满额有效剩余筹码），那是乐观上界，见 `impliedOddsFor`。
+ */
+export function futureWinningsFrom(
+  state: GameState,
+  player: Player,
+  toCall: number,
+  cap = Number.POSITIVE_INFINITY,
+): number {
+  const heroRemaining = Math.max(0, player.chips - toCall);
+  const opponents = state.players.filter(
+    (p) => p.id !== player.id && !p.folded && !p.allIn && p.chips > 0,
+  );
+  if (opponents.length === 0) return 0;
+  return Math.max(
+    0,
+    Math.min(heroRemaining, cap, ...opponents.map((p) => p.chips)),
+  );
+}
+
+/**
+ * 隐含赔率里「我未来跟注」—— **只在没成牌那条路上**还会投进去的筹码。
+ *
+ * 成牌之后投进去的钱会随底池回到手上、相互抵消，不计在这里（见 `impliedOddsFrom`）。
+ * 受「跟注后我手里还剩多少」夹住：掏不出的钱不算成本。
+ */
+export function futureCallsFrom(
+  player: Player,
+  toCall: number,
+  cap: number,
+): number {
+  const heroRemaining = Math.max(0, player.chips - toCall);
+  return Math.max(0, Math.min(heroRemaining, cap));
+}
+
+/** `impliedOddsFor` 的成对结果：乐观上界与「按计划追牌」的期望口径。 */
+export interface ImpliedOddsPair {
+  /**
+   * 乐观上界：**对手按同一比例继续下注**（预计注码 × 剩余街数，再受剩余筹码夹住）、
+   * 我未来跟注记 0（计划「错过即弃」）、不打折扣、不折抽水。
+   *
+   * 注意它**不是**「把对手剩余筹码全赢过来」——那个口径在深筹码下会退化成
+   * 荒谬的比价（见 `impliedOddsFor`）。短筹码时两者恰好重合，所以教材那个例子
+   * 仍是 4:1 / 20%。
+   */
+  upperBound: ImpliedOddsResult;
+  /**
+   * 主值：按**追牌计划**展开的期望口径 —— 成牌之后就不再是跟注而是收钱，
+   * 最后一条街（河牌）没成牌就直接弃牌、不会再有跟注。「我未来跟注」按
+   * `impliedCallWeight` 加权（有 `outs` 时按成牌概率），「对手未来投入」仍取
+   * 乐观侧（成牌后收满剩余街数）。
+   */
+  planned: ImpliedOddsResult;
+}
+
+/**
+ * 「我未来跟注」的**加权系数**（单位：单街注码 `b̂`）。
+ *
+ * 原先写成 `b̂ × 剩余街数`，这是把「每条街都跟」当成了计划，同时错在两处：
+ *
+ * - **最后一条街（河牌）不会再有跟注。** 河牌发出来时要么成牌（收钱）、要么没成
+ *   （弃牌），两条路都不产生跟注。所以最多只覆盖 `n − 1` 条街。
+ * - **第 `k` 条街只有在「前 `k` 张都没成牌」时才会跟。** 成牌之后这条路就结束了。
+ *
+ * 给了 `outs`（听牌检测的补牌数）时按成牌概率加权，否则按「一直没成牌」的确定性
+ * 计划即 `n − 1`。两者在 `outs → 0` 处**连续** —— 这是刻意保留的性质。
+ *
+ * 「对手未来投入」**不做这个加权**：它是乐观侧（假定成牌后能收满剩余街数），
+ * 与 `upperBound` 同一取向。两项都加权会让 `outs = 0` 与 `outs = 1` 之间跳一大截
+ * （`outs = 0` 时退化分支假定「第 1 张就成牌」，而 1 张补牌的成牌率只有 2%），
+ * 面板上会出现一个说不清的不连续点。
+ */
+function impliedCallWeight(streetsLeft: number, outs?: number): number {
+  const n = Math.max(0, Math.floor(streetsLeft));
+  if (n <= 1) return 0;
+  if (outs === undefined || outs <= 0) return n - 1;
+
+  // 第 k 张牌的成牌概率：翻牌圈 47 张未见、转牌圈 46 张（与 `drawDetector` 同口径）
+  let calls = 0;
+  let missThrough = 1;
+  for (let k = 1; k <= n - 1; k++) {
+    missThrough *= 1 - Math.min(1, outs / (47 - (k - 1)));
+    calls += missThrough;
+  }
+  return calls;
+}
+
+/**
+ * 反隐含赔率折扣的下限 —— 再怎么扣也不把「对手未来投入」扣到 0 以下太多。
+ * 三层折扣（对子 × 三张同花 × 非坚果）叠起来是 0.4 × 0.5 × 0.6 = 0.12，
+ * 取 0.15 作为地板，保证结果仍是个有意义的正数。
+ */
+const REVERSE_IMPLIED_FLOOR = 0.15;
+
+/**
+ * 是否持有「我们正在追的那个花色」的 A —— 也就是坚果同花。
+ *
+ * 只有拿 A 才能保证成花即坚果；否则对手可能拿着更大的同花。这正是反隐含赔率里
+ * 最典型的一种：你成花了，但成的是第二坚果。
+ *
+ * 「正在追的花色」= 手牌 + 公共牌里恰好出现 4 次的那个花色（与 `drawDetector`
+ * 的 `hasFlushDraw` 同一判据）。
+ */
+function holdsNutFlushCard(holeCards: Card[], community: Card[]): boolean {
+  const counts = new Map<string, number>();
+  for (const c of [...holeCards, ...community]) {
+    counts.set(c.suit, (counts.get(c.suit) ?? 0) + 1);
+  }
+  for (const [suit, n] of counts) {
+    if (n !== 4) continue;
+    return holeCards.some((c) => c.suit === suit && c.rank === 'A');
+  }
+  return false;
+}
+
+/**
+ * **反隐含赔率折扣**：成牌之后仍然会输的那部分，要从「对手未来投入」里扣掉。
+ *
+ * 隐含赔率默认「成牌 = 赢」，但两条牌面事实会让这个前提破掉：
+ *
+ * - **牌面对子** → 你成同花 / 成顺，对手可能已经或即将成葫芦（甚至四条）。
+ * - **牌面已有 ≥3 张同花** → 你成顺，对手可能成花；你成花但**不是坚果**，
+ *   可能输给更大的同花。
+ *
+ * 返回 `(0, 1]` 的乘数，由调用方乘在「对手未来投入」上。
+ *
+ * ⚠️ 这是**粗粒度启发式**：它只看牌面结构，不看对手的实际范围，也不看我们已经
+ * 成型的部分。真正量化「到底会不会赢」是权益行的事 —— 这里只负责把「成牌 ≠ 赢」
+ * 这件事从隐含赔率里扣掉一层。折扣**只作用在「对手未来投入」上**，不作用在底池
+ * 本身：底池的输赢由权益行负责，本行只管「成牌后还能多赢多少」。
+ */
+export function reverseImpliedFactor(
+  holeCards: Card[],
+  community: Card[],
+  drawTypes: readonly DrawType[],
+): number {
+  if (community.length < 3) return 1;
+
+  const hasFlushDraw = drawTypes.includes('flush_draw');
+  const hasStraightDraw =
+    drawTypes.includes('open_ended_straight') || drawTypes.includes('gutshot');
+  if (!hasFlushDraw && !hasStraightDraw) return 1;
+
+  let factor = 1;
+  if (isBoardPaired(community)) factor *= 0.4;
+  if (hasThreeSuitedBoard(community)) {
+    if (hasStraightDraw) factor *= 0.5;
+    if (hasFlushDraw && !holdsNutFlushCard(holeCards, community)) factor *= 0.6;
+  }
+
+  return Math.max(REVERSE_IMPLIED_FLOOR, factor);
+}
+
+/** 少于这么多手就不调整 —— 宁可返回 1，也不要让两三手牌的噪声左右面板上的数字。 */
+const MIN_HANDS_FOR_PAYING = 20;
+
+/**
+ * `opponentPayingFactor` 只读这三个字段。用**结构化类型**而不是 `PlayerStats`，
+ * 免得把一个纯赔率模块和整个对手模型绑在一起（`PlayerStats` 结构上可赋值进来）。
+ */
+export interface PayingWillingnessStats {
+  /** 已记录的手数（样本量） */
+  handsDealt: number;
+  /** 走到摊牌的比例（%）；`null` = 该项样本不足 */
+  wtsd: number | null;
+  /** 激进度（(下注+加注) / 跟注）；`null` = 该项样本不足 */
+  af: number | null;
+}
+
+/**
+ * 对手的**支付意愿**乘数，`(0, 1]`，乘在「对手未来投入」的上限上。
+ *
+ * 隐含赔率里最不确定的一项就是「成牌之后对手还会不会再掏钱」。用面板已有的对手
+ * 统计估一个折扣：
+ *
+ * - `wtsd` 低（< 20）→ 他很少走到摊牌，后面街继续掏钱的概率低 → ×0.7
+ * - `af` 低（< 1）→ 被动型，不会主动继续下注，你只能靠他跟你的注 → ×0.85
+ * - `wtsd` 高（跟注站）→ 保持 1。**不往上加** —— 上限已经由有效筹码夹住，
+ *   这个函数只负责「往下扣」。
+ *
+ * 样本不足（`handsDealt < 20`）时整项不调整；单个字段为 `null` 时跳过那一项
+ * （**不把 `null` 当成 0** —— 那会把「没数据」误判成「极端被动」）。
+ */
+export function opponentPayingFactor(stats?: PayingWillingnessStats): number {
+  if (!stats || stats.handsDealt < MIN_HANDS_FOR_PAYING) return 1;
+  let factor = 1;
+  if (stats.wtsd !== null && stats.wtsd < 20) factor *= 0.7;
+  if (stats.af !== null && stats.af < 1) factor *= 0.85;
+  return factor;
+}
+
+/** `impliedOddsFor` 的可选输入 —— 各项都由调用方从各自的数据源算好再喂进来。 */
+export interface ImpliedOddsContext {
+  /**
+   * 听牌检测给出的补牌数（0 / 缺省 = 未检测到听牌）。
+   * 只影响「我未来跟注」的加权，见 `impliedCallWeight`。
+   */
+  outs?: number;
+  /**
+   * 反隐含赔率折扣，`(0, 1]`，乘在「对手未来投入」上。缺省 1（不折扣）。
+   * 由 `reverseImpliedFactor(holeCards, community, drawTypes)` 算出。
+   */
+  reverseImplied?: number;
+  /**
+   * 对手支付意愿乘数，`(0, 1]`，乘在「对手未来投入」上。缺省 1。
+   * 由 `opponentPayingFactor(stats)` 算出。
+   */
+  opponentPaying?: number;
+  /**
+   * 抽水配置与大盲。给了就从「赢到的筹码」里扣掉抽水，使这一行与面板建议
+   * （`rake.callThresholdFor`）同口径。缺省不抽水。
+   *
+   * ⚠️ 渲染层若已持有赛制值，请传 `effectiveRakeConfigFor(scenario)` 的结果
+   * ——锦标赛恒为不抽水，与 ICM 互斥。
+   */
+  rake?: { config: Readonly<RakeConfig>; bigBlind: number };
+}
+
+/**
+ * 一次算出隐含赔率的两个口径，供面板并排对照。
+ *
+ * `streetsLeft` = **剩余的下注街数**（翻前 3、翻牌 2、转牌 1、河牌 0），
+ * 用 `communityByPhase.getStreetsLeft` 取。
+ *
+ * ⚠️ **不要**传「还要发的公共牌数」：两个数只在翻牌往后恰好相等（2/1/0），
+ * **翻前是 3 vs 5**。传牌数会把「对手未来投入」与「我未来跟注」都按 5 条街展开，
+ * 翻前的结果被放大一倍以上（而且看起来仍然合理，不会报错）。
+ *
+ * - `upperBound`：`futureWinnings` 取「预计注码 × 剩余街数」再受剩余筹码夹住、
+ *   `futureCalls` = 0、不打折扣。教材那个例子（双方身后各 2500）里剩余筹码先夹住，
+ *   于是仍是 4:1 / 20%。**刻意不取满额有效剩余筹码** —— 那个口径在深筹码下会给出
+ *   荒谬比价（各 5 万、池 5000 → ratio 22 → 盈亏平衡 4.3%）。
+ * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率）；
+ *   `futureWinnings` 再乘 `ctx.reverseImplied`（反隐含赔率：成牌后仍可能输）与
+ *   `ctx.opponentPaying`（对手支付意愿）两层折扣；两项各自受剩余筹码夹住；
+ *   最后按 `ctx.rake` 从「赢到的筹码」里扣掉抽水。
+ *
+ * `upperBound` **不折抽水** —— 它是教材那个例子的锚点，教材里没有抽水这回事，
+ * 折进去就失去对照价值了。要看抽水后的口径请看 `planned`。
+ *
+ * `planned` 的盈亏平衡**不低于** `upperBound`，有时甚至高于直接赔率 —— 这正是
+ * 「打算再付一注时，有效赔率可能比眼前的价格更差」。
+ *
+ * 无跟注额 / 河牌（`streetsLeft <= 0`）时返回 null，调用方应隐藏该行。
+ */
+export function impliedOddsFor(
+  state: GameState,
+  player: Player,
+  totalPot: number,
+  toCall: number,
+  streetsLeft: number,
+  ctx: ImpliedOddsContext = {},
+): ImpliedOddsPair | null {
+  if (toCall <= 0 || streetsLeft <= 0) return null;
+
+  const perStreet = nextStreetBetFrom(totalPot, toCall);
+  const callWeight = impliedCallWeight(streetsLeft, ctx.outs);
+  const reverse = Math.max(0, Math.min(1, ctx.reverseImplied ?? 1));
+  const paying = Math.max(0, Math.min(1, ctx.opponentPaying ?? 1));
+
+  // 上界 = 「对手按同一比例继续下注、我未来不再投入」的乐观读法。
+  //
+  // 早先这里取的是**满额有效剩余筹码**（不设 cap），深筹码下会给出荒谬的比价：
+  // 双方各 5 万、下注前底池 5000 时 ratio = 22 → 盈亏平衡 4.3%，等于宣称
+  // 「跟这注只需要 4% 胜率」。改成「预计注码 × 剩余街数」封顶后，
+  // 短筹码（教材那个例子，双方身后各 2500）仍由剩余筹码夹住、数字不变（4:1 / 20%），
+  // 深筹码则落在「对手再开两枪」这个真的可能发生的量级上。
+  const upperBound = impliedOddsFrom(
+    totalPot,
+    toCall,
+    futureWinningsFrom(state, player, toCall, perStreet * streetsLeft),
+  );
+
+  const x = futureWinningsFrom(
+    state,
+    player,
+    toCall,
+    perStreet * streetsLeft * reverse * paying,
+  );
+  const y = futureCallsFrom(player, toCall, perStreet * callWeight);
+
+  // 抽水从**摊牌时的整个底池**里扣 —— 用双方最终投入合计估：底池（含对手本轮注）
+  // + 我的跟注 + 对手未来投入 + 我未来跟注。封顶由 `rakeAmountFor` 内部处理。
+  const rake = ctx.rake
+    ? rakeAmountFor(
+      totalPot + toCall + x + y,
+      ctx.rake.bigBlind,
+      ctx.rake.config,
+    )
+    : 0;
+
+  const planned = impliedOddsFrom(totalPot, toCall, x, y, rake);
+  if (!upperBound || !planned) return null;
+  return { upperBound, planned };
+}
+
+/**
+ * 后门同花听：手牌 + 公共牌里**恰好** 3 张同一花色，且**我手里至少有一张**。
+ *
+ * - 「恰好 3 张」而不是「≥ 3 张」：4 张是同花听（`drawDetector.hasFlushDraw` 已认），
+ *   5 张以上我已经成花了 —— 两种都不该由这个函数重复认领。
+ * - 「我手里至少有一张」：牌面自己摆着 3 张同花时，再发两张**谁都能**成花，
+ *   那不是我一个人的变强路径，成了也赢不到钱。
+ * - 需要再发**两张**，所以 `cardsToCome < 2` 时不可能成立（转牌只剩一张可发）。
+ */
+function hasBackdoorFlushDraw(
+  holeCards: Card[],
+  communityCards: Card[],
+  cardsToCome: number,
+): boolean {
+  if (cardsToCome < 2) return false;
+
+  const counts = new Map<string, number>();
+  for (const c of [...holeCards, ...communityCards]) {
+    counts.set(c.suit, (counts.get(c.suit) ?? 0) + 1);
+  }
+  for (const [suit, n] of counts) {
+    if (n === 3 && holeCards.some((c) => c.suit === suit)) return true;
+  }
+  return false;
+}
+
+/**
+ * 我当前的成品种类是否为三条 —— 暗三条（口袋对中牌面）/ 明三条（牌面对子 + 我一张）/
+ * 牌面三条（公共牌自己三张同点）三种来源都算。
+ *
+ * `evaluateHand` 要 5 张牌起步，所以翻前（没有牌面）恒为 false。
+ */
+function isThreeOfAKind(holeCards: Card[], communityCards: Card[]): boolean {
+  if (holeCards.length < 2 || communityCards.length < 3) return false;
+  return evaluateHand(holeCards, communityCards).rank === 'three_of_kind';
+}
+
+/** 口袋对：恰好两张手牌同点数。 */
+function isPocketPair(holeCards: Card[]): boolean {
+  return holeCards.length === 2 && holeCards[0].rank === holeCards[1].rank;
+}
+
+/**
+ * 隐含赔率行的**显示门**：只在「我有机会变强」时才显示这一行。
+ *
+ * 隐含赔率的语义是「这一注投下去，成牌之后还能再赢多少」—— 只有**还能变强**的牌
+ * 才有这个量。手里已经是顶对 / 两对 / 顺子这类「成型且不会再变强」的牌，这一行算出来
+ * 的数字只会在同一屏上跟上一行的直接赔率打架，不如不显示。
+ *
+ * 四个成员取并集（任一成立即显示）：
+ *
+ * 1. **`drawDetector` 认的听牌** —— 同花听 / 两头顺 / 卡顺。
+ * 2. **后门同花听** —— 见 `hasBackdoorFlushDraw`。`drawDetector` 不认它
+ *    （它只认「恰好 4 张」），但后门同花确实是一条变强路径，而且它恰恰是
+ *    隐含赔率最该管的场景：成了没人信，能赢到的钱比表面赔率多。
+ * 3. **三条** —— 见 `isThreeOfAKind`。三条还能变葫芦、变四条，是最典型的
+ *    「已经很强、但还能更强」，所以尽管 `drawDetector` 不认它是听牌，这里要收进来。
+ *    **葫芦 / 四条不算**：那已经要么赢到底、要么只剩 1 张补牌，不构成一条可依赖的
+ *    变强路径（葫芦追四条是 1 个补牌，跟「空气追对子」是一个量级）。
+ * 4. **翻前口袋对** —— set mining。翻前拿小对子跟一注、指望翻牌中三条（约 12%），
+ *    是德州里最经典的隐含赔率场景；少了这一条，翻前那一行会整个消失。
+ *    ⚠️ 只在**翻前**算：翻后已经错过牌面的口袋对只剩 2 张补牌，撑不起一整行。
+ *
+ * 河牌（`cardsToCome <= 0`）恒为 false —— 没有下一条街，隐含赔率就等于直接赔率。
+ *
+ * ⚠️ 这是**显示门**，不是数学的一部分：它只决定这一行显不显示，
+ * 不参与 `impliedOddsFor` 的任何计算。
+ */
+export function shouldShowImpliedOdds(
+  holeCards: Card[],
+  communityCards: Card[],
+  cardsToCome: number,
+): boolean {
+  if (cardsToCome <= 0) return false;
+
+  if (detectDraws(holeCards, communityCards, cardsToCome).draws.length > 0) {
+    return true;
+  }
+  if (hasBackdoorFlushDraw(holeCards, communityCards, cardsToCome)) return true;
+  if (isThreeOfAKind(holeCards, communityCards)) return true;
+  if (communityCards.length === 0 && isPocketPair(holeCards)) return true;
+
+  return false;
 }

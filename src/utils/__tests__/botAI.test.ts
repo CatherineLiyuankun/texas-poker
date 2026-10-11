@@ -1,8 +1,15 @@
-import { getBotAction, getBotName } from '../botAI';
+import { getBotAction, getBotName, getShadowBotAction } from '../botAI';
 import * as equityCalculator from '../equityCalculator';
 import { equityIterations } from '../equityIterations';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
-import { mulberry32, resetRandomSource, setRandomSeed, setRandomSource } from '../random';
+import {
+  getRandomSource,
+  mulberry32,
+  random,
+  resetRandomSource,
+  setRandomSeed,
+  setRandomSource,
+} from '../random';
 import * as rake from '../rake';
 import {
   callThresholdFor,
@@ -721,6 +728,65 @@ describe('Bot AI 决策', () => {
       expect(spy.mock.results[0].value).toBe(panelSide);
       // 且确实高于原始赔率（否则这条断言是空的）
       expect(panelSide).toBeGreaterThan(5 / 105);
+    });
+  });
+
+  describe('getShadowBotAction（面板 Bot Action 行）', () => {
+    afterEach(() => {
+      resetRandomSource();
+      resetGtoConfig();
+      jest.restoreAllMocks();
+    });
+
+    it('返回合法 Action（与 getBotAction 同一条决策路径）', () => {
+      const state = createGameState();
+      const decision = getShadowBotAction(state.players[1], state);
+      expect(['check', 'call', 'raise', 'fold', 'allin']).toContain(
+        decision.action,
+      );
+    });
+
+    it('**不消耗**全局策略随机流：真机器人的混合频率序列原封不动', () => {
+      const SEED = 20261010;
+      setRandomSeed(SEED);
+      const v1 = random();
+      const v2 = random();
+
+      // 重放：吃掉第一个数，跑一次影子决策，全局流的下一个数必须还是第二个
+      setRandomSeed(SEED);
+      expect(random()).toBe(v1);
+      getShadowBotAction(createGameState().players[1], createGameState());
+      expect(random()).toBe(v2);
+    });
+
+    it('还原的是**调用前**那一条源，而不是 Math.random', () => {
+      // 面板在渲染期调用；若实现用 resetRandomSource() 收尾，这里注入的源就丢了
+      const marker = () => 0.123456;
+      setRandomSource(marker);
+      getShadowBotAction(createGameState().players[1], createGameState());
+      expect(getRandomSource()).toBe(marker);
+      expect(random()).toBe(0.123456);
+    });
+
+    it('同一局面（含固定权益）重复调用得到同一动作，面板不会抖动', () => {
+      // 混合频率抽样由局面签名派生的种子固定；权益蒙特卡洛也钉住，
+      // 于是整条决策在重复调用间完全稳定。
+      jest.spyOn(Math, 'random').mockImplementation(mulberry32(2026));
+      const state = createGameState();
+      const first = getShadowBotAction(state.players[1], state).action;
+      for (let i = 0; i < 5; i += 1) {
+        expect(getShadowBotAction(state.players[1], state).action).toBe(first);
+      }
+    });
+
+    it('局面变化会换抽样（不是把同一个动作抄五遍）', () => {
+      jest.spyOn(Math, 'random').mockImplementation(mulberry32(2026));
+      const seen = new Set<string>();
+      for (const lastBet of [20, 40, 80, 160, 320, 640, 1280]) {
+        const state = createGameState({ lastBet });
+        seen.add(getShadowBotAction(state.players[1], state).action);
+      }
+      expect(seen.size).toBeGreaterThan(1);
     });
   });
 });

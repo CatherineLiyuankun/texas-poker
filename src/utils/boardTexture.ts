@@ -58,7 +58,7 @@ function countRanks(cards: Card[]): Map<string, number> {
   return counts;
 }
 
-function isBoardPaired(cards: Card[]): boolean {
+export function isBoardPaired(cards: Card[]): boolean {
   const rankCounts = countRanks(cards);
   for (const count of rankCounts.values()) {
     if (count >= 2) return true;
@@ -66,13 +66,24 @@ function isBoardPaired(cards: Card[]): boolean {
   return false;
 }
 
-function isBoardMonotone(cards: Card[]): boolean {
+/**
+ * 牌面是否已有 **≥3 张同一花色** —— 即「对手可能已经或即将成花」。
+ *
+ * ⚠️ 名字是历史遗留：严格意义的 monotone 指「全部同一花色」，这里的判据一直是
+ * 「任一同花色 ≥3 张」（`BoardTexture.isMonotone` 也一直用这个语义，改名会牵动
+ * 一堆消费方）。单独导出一个名字准确的入口，让「反隐含赔率」这类新消费方
+ * 不必去读一个名不副实的函数名。
+ */
+export function hasThreeSuitedBoard(cards: Card[]): boolean {
   if (cards.length < 3) return false;
-  const suitCounts = countSuits(cards);
-  for (const count of suitCounts.values()) {
+  for (const count of countSuits(cards).values()) {
     if (count >= 3) return true;
   }
   return false;
+}
+
+function isBoardMonotone(cards: Card[]): boolean {
+  return hasThreeSuitedBoard(cards);
 }
 
 function isBoardTwoTone(cards: Card[]): boolean {

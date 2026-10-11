@@ -49,6 +49,19 @@ export function setRandomSource(next: RandomSource): void {
   source = next;
 }
 
+/**
+ * 读出当前随机源。
+ *
+ * 与 `setRandomSource` 配对，用于「**临时**换一条源、算完还原」的场景 ——
+ * 典型是面板的「影子决策」（`botAI.getShadowBotAction`）：它要跑一次完整的
+ * 机器人决策，但**不能**把面板的渲染消耗算进真机器人的混合频率序列里。
+ * 没有这个 getter 就只能把源「还原」成 `Math.random`，那样会悄悄丢掉
+ * `setRandomSeed` 种下的确定性（测试里表现为随机序列被重置）。
+ */
+export function getRandomSource(): RandomSource {
+  return source;
+}
+
 /** 复位成默认源（`Math.random`）。测试用，避免用例之间互相污染。 */
 export function resetRandomSource(): void {
   source = defaultSource;

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import type { Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
+import type { Action, Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
@@ -35,7 +35,20 @@ import {
 } from '../utils/gtoMath';
 import { canOpenFromPosition } from '../utils/preflopOpenRanges';
 import { getPanelRecommendation } from '../utils/panelRecommendation';
-import { getCommunityByPhase, getCardsToCome } from '../utils/communityByPhase';
+import {
+  getCardsToCome,
+  getCommunityByPhase,
+  getStreetsLeft,
+} from '../utils/communityByPhase';
+import { getShadowBotAction } from '../utils/botAI';
+import { formatActionLabel } from '../utils/actionLabel';
+import {
+  formatOddsRatio,
+  impliedOddsFor,
+  opponentPayingFactor,
+  reverseImpliedFactor,
+  shouldShowImpliedOdds,
+} from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
   callThresholdFor,
@@ -229,6 +242,20 @@ function getGtoActionColor(action: string): string {
   return 'text-white';
 }
 
+/**
+ * Bot Action 行的颜色。与座位气泡（`PlayerArea`）的配色保持同一套语义：
+ * 加注绿、跟注蓝、过牌黄、弃牌红、全下紫。
+ */
+function getBotActionColor(action: Action): string {
+  switch (action) {
+    case 'raise': return 'text-green-400';
+    case 'call': return 'text-blue-400';
+    case 'check': return 'text-yellow-400';
+    case 'fold': return 'text-red-400';
+    case 'allin': return 'text-purple-400';
+  }
+}
+
 function getOutsColor(outs: number): string {
   if (outs <= 4) return 'text-yellow-400';
   if (outs <= 8) return 'text-orange-400';
@@ -326,6 +353,21 @@ function getPotOddsColor(odds: number | null): string {
   return 'text-red-400';
 }
 
+/**
+ * 比率副标签的配色 —— 赔率行的「底池 : 跟注」与隐含赔率行的「x : 1」共用。
+ *
+ * 两者是同一类信息（百分比主值的比率形式），必须同色同档；分头写两遍字面量
+ * 迟早会漂移，同一屏上两个同类副标签深浅不一会被读成两种不同的东西。
+ *
+ * 透明度按用户反馈两轮提亮：`white/50` → `white/70` → `white/85`。9px 的字号
+ * 本身已经很弱，再压透明度就只剩一层灰雾；`white/85` 仍略低于纯白，
+ * 但已经能一眼读清 —— 副标签该靠**字号**（9px vs 主值）拉开层次，而不是靠压暗。
+ *
+ * `whitespace-nowrap`：比率是个整体（`1.5 : 1`），断行会把它拆成 `1.5 :` 和 `1`
+ * 两个数字 —— 面板窄的时候真的会这样。宁可整块换到下一行，也不能在数字中间断。
+ */
+const RATIO_LABEL_CLASS = 'ml-1 text-[9px] text-white/85 whitespace-nowrap';
+
 // MDF 分档阈值。MDF = 下注前底池 / 含注底池，所以阈值直接对应标准下注尺度：
 //   ≥ 2/3（对手下注 ≤ 半个底池）→ 绿：防守大部分范围
 //   ≥ 1/2（半个到一个底池）      → 黄：常规
@@ -392,9 +434,13 @@ function opponentsCaveat(numOpponents: number): string {
   return multiway(numOpponents);
 }
 
+// 强度条：主值是它左边那个百分比，条只是「一眼看出量级」的辅助。
+// 宽度 `w-8` = 32px（原先 `w-10` = 40px）—— 面板最窄 216px、两列半列仅约 96px，
+// 条每宽 8px 就直接从数字和标签嘴里抢位置（SPR 行「SPR 2.0 [条] 浅」本来就贴着边）。
+// 再窄就要靠颜色而不是长度分辨强度了，所以停在 32px。
 function StrengthBar({ value, color }: { value: number; color: string }) {
   return (
-    <div className="w-10 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
+    <div className="w-8 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
       <div
         className={`h-full rounded-full ${color}`}
         style={{ width: `${Math.round(value * 100)}%` }}
@@ -425,18 +471,22 @@ function GridRow({
   value,
   color = 'text-white',
   highlight = false,
+  title,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
   color?: string;
   /** 判定依据所在行加绿色边框，让用户一眼看出建议是按哪个权益算的 */
   highlight?: boolean;
+  /** 原生悬停提示：口径说明太长放不下时挂在这里，不占版面 */
+  title?: string;
 }) {
   return (
     <div
       className={`flex items-center gap-1 ${
         highlight ? 'border border-green-400/80 rounded' : ''
-      }`}
+      }${title ? ' cursor-help' : ''}`}
+      title={title}
     >
       <span className="text-white/60">{label}</span>
       <span className={`font-medium ${color}`}>{value}</span>
@@ -482,7 +532,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     () => getCommunityByPhase(communityCards, phase),
     [communityCards, phase],
   );
+  // 「还要发几张牌」与「还剩几条下注街」是两个不同的数，只在翻牌往后恰好相等。
+  // 补牌概率用前者，隐含赔率的按街展开用后者 —— 见 getStreetsLeft 的注释。
   const cardsToCome = getCardsToCome(phase);
+  const streetsLeft = getStreetsLeft(phase);
 
   const preflopStrength = useMemo(
     () => (phase === 'preflop' ? getPreflopStrength(holeCards) : null),
@@ -874,12 +927,137 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return calculateRequiredFoldEquity(betSize, potBeforeHeroBet);
   }, [playerRaiseAmount, heroPlayer, currentPot]);
 
+  // 「Bot Action」：**这个真人座位如果交给机器人**会怎么打。
+  //
+  // 跑的是与机器人真实决策完全同一条路径（`botAI.getShadowBotAction` →
+  // `getBotAction`），只是随机源被隔离 —— 面板在渲染期调用，绝不能推进真机器人的
+  // 混合频率序列（原因与实现见 `getShadowBotAction` 的注释）。
+  //
+  // 依赖整个 `gameState`：它每次行动都会换引用，正好等于「局面变了就重算一次」；
+  // 面板因权益 effect 重渲染时 gameState 不变，memo 命中，不会重复跑蒙特卡洛。
+  const shadowBotAction = useMemo(() => {
+    if (!heroPlayer || !gameState) return null;
+    if (phase === 'showdown' || phase === 'ended') return null;
+    // 已弃牌 / 已全下的人没有行动可做，问了也是无意义
+    if (heroPlayer.folded || heroPlayer.allIn) return null;
+    return getShadowBotAction(heroPlayer, gameState);
+  }, [heroPlayer, gameState, phase]);
+
+  // 赔率行的**比率形式**（底池 : 跟注）。与 `callPotOdds` 是同一件事：
+  //   callPotOdds = toCall / (totalPot + toCall) = 1 / (ratio + 1)
+  // 用的是显示口径的 `currentPot` / `betToCall`（**未计抽水**的原始值），
+  // 与同行显示的 `potOdds` prop 同源；公式与教材对照见 `potOdds.formatOddsRatio`。
+  const potOddsRatio = useMemo(() => {
+    const toCall = betToCall ?? 0;
+    if (toCall <= 0) return null;
+    return (currentPot ?? 0) / toCall;
+  }, [currentPot, betToCall]);
+
+  // 反隐含赔率折扣：成花 / 成顺之后**仍然会输**的那部分 —— 牌面对子可能撞葫芦、
+  // 牌面已有三张同花时顺子可能输给同花、成花但不是坚果可能输给更大的同花。
+  // 口径见 `potOdds.reverseImpliedFactor`；没有听牌时恒为 1，不影响这一行。
+  const reverseImplied = useMemo(
+    () =>
+      drawInfo
+        ? reverseImpliedFactor(
+          holeCards,
+          community,
+          drawInfo.draws.map((d) => d.type),
+        )
+        : 1,
+    [drawInfo, holeCards, community],
+  );
+
+  // 对手支付意愿折扣：隐含赔率里最不确定的一项就是「成牌之后他还会不会再掏钱」。
+  // 取「样本最多的那个对手」—— 与上面 NodeLock 区块同一取舍（样本越多越可信），
+  // 口径见 `potOdds.opponentPayingFactor`。没有统计时恒为 1。
+  const opponentPaying = useMemo(() => {
+    const botStats = opponentProfile?.botStats ?? [];
+    if (botStats.length === 0) return 1;
+    const target = botStats.reduce(
+      (best, s) => (s.handsDealt > best.handsDealt ? s : best),
+      botStats[0],
+    );
+    return opponentPayingFactor(target);
+  }, [opponentProfile]);
+
+  // 隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来跟注），两项都算 ——
+  // 口径与公式本体见 `potOdds.impliedOddsFor`。
+  //
+  // 一次拿到两个口径并排显示：
+  // - 主值 `planned`：按**追牌计划**展开的期望口径 —— 成牌后不再跟注而是收钱，
+  //   河牌没成牌就弃牌。**「我未来跟注」不是恒为 0**，只有「错过就弃牌」时才是 0。
+  // - 副标签 `upperBound`：教材例子的乐观读法（对手未来投入取满额、我未来跟注记 0）。
+  //   两者之差就是「我未来跟注」这一项的影响。
+  //
+  // `outs` 取听牌检测的补牌数：「我未来跟注」在有真听牌时按成牌概率加权（成牌之后
+  // 这条路就结束了，后面不会再跟）；没检测到听牌时 `outs` 为 0，退化成「一直没成牌」
+  // 的确定性计划。注意这里**只喂补牌数、不做门槛** —— 该行对任何需要跟注的牌都照常
+  // 显示（是否只在听牌时显示是另一件事）。
+  //
+  // 抽水按 `scenario` 折进「赢到的筹码」（见上方 `rakeConfig`）—— 这样这一行与
+  // 面板建议同口径；上面那行「赔率」显示的是**原始**赔率，差异由 GTO Math 的
+  // 口径标注说明。
+  //
+  // 只在**还有下注街**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
+  // 显示出来只会与上一行的赔率重复。无跟注额 / 缺 hero / 缺对局状态时也不显示。
+  //
+  // 显示门：**只有「我还能变强」的手牌才显示** —— 四个成员（听牌 / 后门同花听 /
+  // 三条 / 翻前口袋对）与判据见 `potOdds.shouldShowImpliedOdds`。手里已经是顶对、
+  // 两对、顺子这类不会再变强的牌时，这一行算出来的数字只会在同一屏上跟上一行的
+  // 直接赔率打架，不如不显示。
+  //
+  // 第 5 参是**剩余下注街数**（`getStreetsLeft`），不是「还要发的牌数」：
+  // 两者只在翻牌往后恰好相等，翻前是 3 vs 5 —— 传牌数会把翻前的两条街当成五条。
+  const impliedOdds = useMemo(() => {
+    if (!heroPlayer || !gameState) return null;
+    if (!shouldShowImpliedOdds(holeCards, community, cardsToCome)) return null;
+
+    return impliedOddsFor(
+      gameState,
+      heroPlayer,
+      currentPot ?? 0,
+      betToCall ?? 0,
+      streetsLeft,
+      {
+        outs: drawInfo?.totalOuts,
+        reverseImplied,
+        opponentPaying,
+        // 抽水折进「赢到的筹码」—— 与面板建议（`callThreshold`）同口径。
+        // `rakeConfig` 是按 `scenario` prop 推的，所以锦标赛恒为不抽水。
+        rake: {
+          config: rakeConfig,
+          bigBlind: (gameState.smallBlind ?? 0) * 2,
+        },
+      },
+    );
+  }, [
+    betToCall,
+    currentPot,
+    streetsLeft,
+    holeCards,
+    community,
+    cardsToCome,
+    heroPlayer,
+    gameState,
+    drawInfo,
+    reverseImplied,
+    opponentPaying,
+    rakeConfig,
+  ]);
+
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
   // 得出相反结论时误以为面板算错。
 
+  // 宽度：`min-w-[216px]` = 原先想写的 `w-54`（54 × 0.25rem = 216px）。
+  // ⚠️ `w-54` 在 Tailwind v3 里**不是有效类** —— 间距刻度没有 54 这一档
+  // （只有 52 = 13rem / 56 = 14rem），构建产物里根本没有这条规则，所以面板宽度
+  // 一直是内容撑出来的。这里用 `min-w` 而不是 `w`：面板是 PlayerArea 里座位框的
+  // flex 兄弟节点，写死宽度会把 VPIP/PFR 那张表挤到换行；`min-w` 只兜底、
+  // 内容更宽时仍可自然撑开，也不会因为数字变宽变窄而抖动。
   return (
-    <div className="w-54 bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
+    <div className="min-w-[216px] bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
       <div className="text-white/50 font-medium text-center mb-1 tracking-wide text-[12px]">
         {translations.handAnalysis.aiTitle}
       </div>
@@ -947,10 +1125,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       {/* Win rate + Pod odds + Action */}
       {<div className="border-t border-white/10 pt-1 mt-1">
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {/* 随机权益：所有对手都按随机牌建模 */}
+          {/* 随机权益：所有对手都按随机牌建模。口径说明（「vs 随机牌」+ 为什么翻前会
+              系统性高估）挂在这一行的 `title` 上 —— 它解释的正是这一行，而权益列每列
+              实测只有约 134.8px，塞进行内会挤掉数字；单独占一整行又白吃一行版面。
+              tooltip 不占版面，且悬停可见，是这类「解释性文案」最合适的落点。 */}
           <GridRow
             label={translations.handAnalysis.equity}
             highlight={decisionBasis === 'random'}
+            title={translations.handAnalysis.equityVsRandom}
             value={
               randomEquity !== null ? (
                 <>
@@ -999,28 +1181,71 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             color={getEquityTextColor(rangeEquity)}
           />
 
-          {/* 随机权益的口径标注：对手全部按随机牌建模，翻前会系统性高估。
-              放在权益两行之后独占整行（col-span-2），不打乱 2 列配对。 */}
-          <div className="col-span-2 text-[9px] leading-tight text-gray-400">
-            {translations.handAnalysis.equityVsRandom}
-          </div>
+          {/* 底池赔率 + 建议：**独占整行**（`col-span-2`）。
+              这一行有三段（标签 + 百分比 + 比率），半列（216px 面板下约 96px）放不下
+              —— 原先会被折成两行：标签变 `赔率 Pot` / `Odds`、数值变 `40.0% 1.5 :` /
+              `1`，读起来像四个数字。隐含赔率行早就因为同样的原因占整行，这里对齐。
+              建议（Fold / Call …）贴右，与赔率同处一行 —— 它本来就是「拿胜率比这一行的
+              赔率」得出的结论，同一行读最顺；也省掉原先那个 `label={' '}` 占位格。
 
-          {/* 底池赔率：显示**原始赔率**（不含抽水）。机器人与面板建议用的是
-              `callThreshold`（现金局已折进抽水），差异由口径标注说明。 */}
-          <GridRow
-            label={translations.handAnalysis.potOdds}
-            value={callPotOdds !== null ? `${(callPotOdds * 100).toFixed(0)}%` : '—'}
-            color={getPotOddsColor(callPotOdds)}
-          />
-
-          {/* 胜率 vs 赔率 → 建议 */}
-          <div className="justify-self-end">
+              口径：显示的是**原始赔率**（不含抽水）。机器人与面板建议用的是
+              `callThreshold`（现金局已折进抽水），差异由口径标注说明。
+              主值是百分比，副标签是同一件事的**比率形式**（底池 : 跟注）。 */}
+          <div className="col-span-2 flex items-center justify-between gap-2">
             <GridRow
-              label={' '}
-              value={recommendation}
-              color={getRecColor(recommendation)}
+              label={translations.handAnalysis.potOdds}
+              value={
+                callPotOdds !== null ? (
+                  <>
+                    {(callPotOdds * 100).toFixed(1)}%
+                    {potOddsRatio !== null && (
+                      <span className={RATIO_LABEL_CLASS}>
+                        {formatOddsRatio(potOddsRatio)} : 1
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  '—'
+                )
+              }
+              color={getPotOddsColor(callPotOdds)}
             />
+
+            {/* 胜率 vs 赔率 → 建议 */}
+            {recommendation !== '' && (
+              <span className={`font-medium ${getRecColor(recommendation)}`}>
+                {recommendation}
+              </span>
+            )}
           </div>
+
+          {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。
+              主值是「按追牌计划展开」的期望口径（成牌后收钱、河牌不再跟），
+              后面跟一个小号的上界对照（教材那个例子的乐观读法）。
+              河牌 / 无跟注额 / 没有变强路径（非听牌、非三条、翻前非口袋对）时
+              不渲染（见上方 `impliedOdds` 的显示门）。
+              口径说明整段挪到该行的 title（悬停可见），行内不留说明文字。 */}
+          {impliedOdds !== null && (
+            <div className="col-span-2">
+              <GridRow
+                label={translations.handAnalysis.impliedOdds}
+                title={translations.handAnalysis.impliedOddsTooltip}
+                value={
+                  <>
+                    {(impliedOdds.planned.breakeven * 100).toFixed(1)}%
+                    <span className={RATIO_LABEL_CLASS}>
+                      {formatOddsRatio(impliedOdds.planned.ratio)} : 1
+                    </span>
+                    <span className={RATIO_LABEL_CLASS}>
+                      · {translations.handAnalysis.impliedOddsUpperShort}{' '}
+                      {(impliedOdds.upperBound.breakeven * 100).toFixed(1)}%
+                    </span>
+                  </>
+                }
+                color={getPotOddsColor(impliedOdds.planned.breakeven)}
+              />
+            </div>
+          )}
 
           {/* 我方下注的所需弃牌率：与跟注赔率是两个不同的量，只在加注框有值时出现 */}
           {betRequiredFold !== null && (
@@ -1141,6 +1366,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Bot Action：这个真人座位如果交给机器人会怎么打。
+          放在 GTO Math 之前 —— 用户最想先知道「AI 会怎么做」，再看拆解。
+          与座位气泡里的「机器人真实动作」是同一条决策路径，差别只有混合频率抽样。 */}
+      {shadowBotAction && (
+        <div className="border-t border-white/10 pt-1 mt-1">
+          <Row
+            label={translations.handAnalysis.botAction}
+            value={formatActionLabel(shadowBotAction.action)}
+            color={getBotActionColor(shadowBotAction.action)}
+          />
         </div>
       )}
 
