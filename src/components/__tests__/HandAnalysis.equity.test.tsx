@@ -249,7 +249,7 @@ describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
   // 翻后用例共用的干燥牌面（K♠7♦2♣ → very_dry）
   const board = [card('♠', 'K'), card('♦', '7'), card('♣', '2')];
 
-  it('翻前显式标注「vs 随机牌」，独占整行且与权益两行同网格', async () => {
+  it('翻前「vs 随机牌」的口径挂在随机权益行的 title 上（悬停可见、不占版面）', async () => {
     const hero = mkPlayer({
       id: 1,
       isRealPlayer: true,
@@ -260,17 +260,21 @@ describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
 
     await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
 
-    // 文案必须真的写出「vs 随机牌」，否则这行标注没有意义
+    // 文案必须真的写出「vs 随机牌」，否则这条说明没有意义
     expect(translations.handAnalysis.equityVsRandom).toContain('vs 随机牌');
 
-    const note = screen.getByText(translations.handAnalysis.equityVsRandom);
-    // 独占整行：挤进某一列会打乱「随机权益 | 范围权益」的配对
-    expect(note.className).toContain('col-span-2');
+    // 它解释的是「随机权益」这一行，所以挂在这一行上（原生 title = 悬停提示）
+    const row = rowOf(translations.handAnalysis.equity);
+    expect(row.getAttribute('title')).toBe(
+      translations.handAnalysis.equityVsRandom,
+    );
+    // 有提示就要有可发现的入口：悬停时光标变成 help
+    expect(row).toHaveClass('cursor-help');
 
-    // 与它标注的两行处在同一个 2 列网格里
-    const grid = note.parentElement as HTMLElement;
-    expect(grid.contains(screen.getByText(translations.handAnalysis.equity))).toBe(true);
-    expect(grid.contains(screen.getByText(translations.handAnalysis.rangeEquity))).toBe(true);
+    // 不再作为可见文本占一整行（原先那个 col-span-2 的说明行已删除）
+    expect(
+      screen.queryByText(translations.handAnalysis.equityVsRandom),
+    ).toBeNull();
   });
 
   it('翻后同样标注（范围推断失败时会静默回退到随机权益）', async () => {
@@ -284,10 +288,12 @@ describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
 
     await renderPanel(hero, mkState([hero, opp], 'flop', board), 1, 'flop', board);
 
-    expect(screen.getByText(translations.handAnalysis.equityVsRandom)).toBeTruthy();
+    expect(
+      rowOf(translations.handAnalysis.equity).getAttribute('title'),
+    ).toBe(translations.handAnalysis.equityVsRandom);
   });
 
-  it('口径文案不并进权益行（权益区每列实测仅 134.8px）', async () => {
+  it('口径文案不并进权益行的正文（权益区每列实测仅 134.8px）', async () => {
     const hero = mkPlayer({
       id: 1,
       isRealPlayer: true,
@@ -298,7 +304,7 @@ describe('HandAnalysis 随机权益口径标注（vs 随机牌）', () => {
 
     await renderPanel(hero, mkState([hero, opp], 'preflop'), 1, 'preflop', []);
 
-    // 行标签保持短标签，口径写在独立的整行里
+    // 行标签保持短标签，口径写在 title 里（悬停可见，不参与布局）
     const labelSpan = screen.getByText(translations.handAnalysis.equity);
     expect(labelSpan.textContent).toBe(translations.handAnalysis.equity);
     expect(labelSpan.textContent).not.toContain('vs 随机牌');

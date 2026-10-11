@@ -1121,10 +1121,14 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       {/* Win rate + Pod odds + Action */}
       {<div className="border-t border-white/10 pt-1 mt-1">
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {/* 随机权益：所有对手都按随机牌建模 */}
+          {/* 随机权益：所有对手都按随机牌建模。口径说明（「vs 随机牌」+ 为什么翻前会
+              系统性高估）挂在这一行的 `title` 上 —— 它解释的正是这一行，而权益列每列
+              实测只有约 134.8px，塞进行内会挤掉数字；单独占一整行又白吃一行版面。
+              tooltip 不占版面，且悬停可见，是这类「解释性文案」最合适的落点。 */}
           <GridRow
             label={translations.handAnalysis.equity}
             highlight={decisionBasis === 'random'}
+            title={translations.handAnalysis.equityVsRandom}
             value={
               randomEquity !== null ? (
                 <>
@@ -1172,12 +1176,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
             color={getEquityTextColor(rangeEquity)}
           />
-
-          {/* 随机权益的口径标注：对手全部按随机牌建模，翻前会系统性高估。
-              放在权益两行之后独占整行（col-span-2），不打乱 2 列配对。 */}
-          <div className="col-span-2 text-[9px] leading-tight text-gray-400">
-            {translations.handAnalysis.equityVsRandom}
-          </div>
 
           {/* 底池赔率 + 建议：**独占整行**（`col-span-2`）。
               这一行有三段（标签 + 百分比 + 比率），半列（216px 面板下约 96px）放不下

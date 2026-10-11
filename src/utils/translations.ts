@@ -105,12 +105,12 @@ export const translations = {
     preflop: '手牌强度', // 翻牌前preflopStrength Chen Formula 
     equity: '随机权益 Equity', //  Equity vs random hands（对随机牌）
     rangeEquity: '范围权益 Equity', //  Equity vs estimated continuing range（对推断范围）
-    // 随机权益一行的口径标注。对手全部按随机牌建模 → 翻前会系统性高估
-    // （真实对手的跟注范围远强于随机牌），必须显式写出来。
-    // 放在独立的整行里而不是并进 equity 标签：权益区是 grid-cols-2，
-    // 每列实测只有 134.8px，标签一长就换行、挤掉右侧的权益条；
-    // 整行有 278px 可用（本行文本实测 146.7px，单行）。
-    equityVsRandom: 'vs 随机牌（对手全部按随机牌建模）',
+    // 随机权益一行的口径说明，**挂在该行的 `title` 上**（悬停可见，不占版面）。
+    // 对手全部按随机牌建模 → 翻前会系统性高估（真实对手的跟注范围远强于随机牌），
+    // 所以必须显式写出来 —— 它解释的正是这一行，放行内会挤掉数字（权益列每列实测
+    // 只有 134.8px），单独占一整行又白吃一行版面。
+    equityVsRandom:
+      'vs 随机牌（对手全部按随机牌建模，不看行动线 / 范围）—— 翻前会系统性高估，只作基准对照',
     // 行内短标注：翻后 Reasoning 里那串 "Equity x%" 用的是 decisionEquity，
     // 范围推断失败时它就是随机权益，必须在同一行就地说明，否则同样会被误读成真实胜率。
     equityVsRandomTag: 'vs 随机牌',
