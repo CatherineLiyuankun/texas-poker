@@ -97,12 +97,27 @@ export function computePotOddsFor(state: GameState, player: Player): PotOddsResu
  *
  * 注意分母是 `toCall`、分子是**含注底池** `totalPot`（含对手本轮那一注，
  * 不含我方尚未投入的跟注额），这正是教材说的「总彩池 : 跟注需要的数量」。
+ *
+ * 位数规则 —— 只有**真的是整数**才印成整数：
+ * - 落在整数上（留 `RATIO_INT_EPS` 余量吸收浮点误差）→ 不带小数点，`4` → `「4」`；
+ * - 否则至少一位小数；若一位小数会**伪装成整数**就退到两位。
+ *
+ * 旧实现是「先 `toFixed(1)`，再砍掉 `.0`」，于是 `4.04` 与 `3.96` 都印成
+ * `「4」` —— 两种不同的比价看起来一模一样；更糟的是 `0.96` 印成 `「1」`，
+ * 把「赢的比投的还少」说成了对半开。`1.85 → 「1.9」` 这类一位小数够用的情况
+ * 不受影响。
  */
+/** `formatOddsRatio` 判「是否整数」的容差：吸收筹码求和的浮点误差。
+ * 取 1e-6 是因为它在 ratio≈4 处只对应约 4e-8 的盈亏平衡差 —— 远低于展示精度，
+ * 却能稳稳吃掉 `125/25` 这类本该是整数的商。 */
+const RATIO_INT_EPS = 1e-6;
+
 export function formatOddsRatio(ratio: number): string {
   if (!Number.isFinite(ratio) || ratio <= 0) return '—';
-  const fixed = ratio.toFixed(1);
-  // 2.0 → 「2」、3.0 → 「3」，但 2.3 / 1.5 保留一位（教材也是这么印的）
-  return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
+  const nearest = Math.round(ratio);
+  if (Math.abs(ratio - nearest) < RATIO_INT_EPS) return String(nearest);
+  const oneDecimal = ratio.toFixed(1);
+  return Number(oneDecimal) === nearest ? ratio.toFixed(2) : oneDecimal;
 }
 
 /**

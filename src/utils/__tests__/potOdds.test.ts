@@ -233,12 +233,27 @@ describe('computePotOddsFor / callPotOddsFrom', () => {
 });
 
 describe('formatOddsRatio — 比率形式（底池 : 跟注）', () => {
-  it('整数比率不带小数点，其余保留一位', () => {
+  it('真整数才不带小数点，其余至少保留一位', () => {
     expect(formatOddsRatio(2)).toBe('2');
     expect(formatOddsRatio(3)).toBe('3');
     expect(formatOddsRatio(5)).toBe('5');
     expect(formatOddsRatio(1.5)).toBe('1.5');
     expect(formatOddsRatio(2.333333)).toBe('2.3');
+    // 一位小数够用就不退两位
+    expect(formatOddsRatio(1.85)).toBe('1.9');
+    // 浮点误差不影响整数判定
+    expect(formatOddsRatio(125 / 25)).toBe('5');
+  });
+
+  it('不是整数的比率不会被印成整数（旧实现把 4.04 与 3.96 都印成「4」）', () => {
+    // 旧实现：先 toFixed(1) 再砍掉 '.0' → 4.04 与 3.96 都变成 '4'，比价被抹平
+    expect(formatOddsRatio(4.04)).toBe('4.04');
+    expect(formatOddsRatio(3.96)).toBe('3.96');
+    // 比率 < 1 时尤其不能印成「1」—— 那等于把「赢的比投的还少」说成对半开
+    expect(formatOddsRatio(0.96)).toBe('0.96');
+    expect(formatOddsRatio(0.04)).toBe('0.04');
+    // 两位小数仍会伪装成整数时就停在两位（精度到此为止）
+    expect(formatOddsRatio(2.999)).toBe('3.00');
   });
 
   it('非法比率返回破折号而不是 NaN 文本', () => {
