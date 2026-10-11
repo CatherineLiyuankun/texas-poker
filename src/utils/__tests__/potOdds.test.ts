@@ -9,6 +9,7 @@ import {
   futureCallsFrom,
   futureWinningsFrom,
   reverseImpliedFactor,
+  opponentPayingFactor,
 } from '../potOdds';
 import {
   calculateCallEV,
@@ -558,6 +559,29 @@ describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
     expect(discounted.upperBound).toEqual(plain.upperBound);
   });
 
+  it('opponentPaying 折扣只压「对手未来投入」的上限', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    const plain = impliedOddsFor(state, hero, 7500, 2500, 2)!;
+    const tight = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      opponentPaying: 0.5,
+    })!;
+
+    // 对手未来投入 10000 → 5000；我未来跟注不变（1 条街 = 5000）
+    expect(tight.planned.ratio).toBeCloseTo((7500 + 5000) / (2500 + 5000), 12);
+    expect(tight.planned.breakeven).toBeGreaterThan(plain.planned.breakeven);
+    expect(tight.upperBound).toEqual(plain.upperBound);
+  });
+
+  it('两层折扣叠加（反隐含赔率 × 支付意愿）', () => {
+    const { state, hero } = scenario(100_000, 100_000);
+    const both = impliedOddsFor(state, hero, 7500, 2500, 2, {
+      reverseImplied: 0.4,
+      opponentPaying: 0.5,
+    })!;
+    // 10000 × 0.4 × 0.5 = 2000
+    expect(both.planned.ratio).toBeCloseTo((7500 + 2000) / (2500 + 5000), 12);
+  });
+
   it('无跟注额 / 河牌（没有剩余街）时返回 null', () => {
     const { state, hero } = scenario(5000, 2500);
     expect(impliedOddsFor(state, hero, 7500, 0, 2)).toBeNull();
@@ -671,6 +695,58 @@ describe('reverseImpliedFactor — 反隐含赔率折扣（成牌之后仍然会
       for (const h of hands) {
         for (const d of drawSets) {
           const f = reverseImpliedFactor(h, b, d);
+          expect(f).toBeGreaterThan(0);
+          expect(f).toBeLessThanOrEqual(1);
+        }
+      }
+    }
+  });
+});
+
+describe('opponentPayingFactor — 对手支付意愿折扣', () => {
+  it('没有样本时返回 1（不拿噪声左右面板上的数字）', () => {
+    expect(opponentPayingFactor(undefined)).toBe(1);
+    expect(opponentPayingFactor({ handsDealt: 0, wtsd: 10, af: 0.5 })).toBe(1);
+    expect(opponentPayingFactor({ handsDealt: 19, wtsd: 10, af: 0.5 })).toBe(1);
+  });
+
+  it('样本够但两项都正常 → 1（不往上加，上限已由有效筹码夹住）', () => {
+    expect(opponentPayingFactor({ handsDealt: 100, wtsd: 28, af: 2.5 })).toBe(1);
+  });
+
+  it('wtsd 低（很少走到摊牌）→ ×0.7', () => {
+    expect(
+      opponentPayingFactor({ handsDealt: 100, wtsd: 12, af: 2.5 }),
+    ).toBeCloseTo(0.7, 12);
+  });
+
+  it('af 低（被动型，不会主动继续下注）→ ×0.85', () => {
+    expect(
+      opponentPayingFactor({ handsDealt: 100, wtsd: 28, af: 0.6 }),
+    ).toBeCloseTo(0.85, 12);
+  });
+
+  it('两项都命中 → 0.7 × 0.85 = 0.595', () => {
+    expect(
+      opponentPayingFactor({ handsDealt: 100, wtsd: 12, af: 0.6 }),
+    ).toBeCloseTo(0.595, 12);
+  });
+
+  it('字段为 null 时跳过那一项 —— 不把 null 当成 0（那会把「没数据」当成极端被动）', () => {
+    expect(opponentPayingFactor({ handsDealt: 100, wtsd: null, af: null })).toBe(1);
+    expect(
+      opponentPayingFactor({ handsDealt: 100, wtsd: null, af: 0.6 }),
+    ).toBeCloseTo(0.85, 12);
+    expect(
+      opponentPayingFactor({ handsDealt: 100, wtsd: 12, af: null }),
+    ).toBeCloseTo(0.7, 12);
+  });
+
+  it('恒在 (0, 1] 内（遍历边界样本量与边界统计值）', () => {
+    for (const handsDealt of [0, 1, 19, 20, 100, 5000]) {
+      for (const wtsd of [null, 0, 19, 20, 100]) {
+        for (const af of [null, 0, 0.99, 1, 5]) {
+          const f = opponentPayingFactor({ handsDealt, wtsd, af });
           expect(f).toBeGreaterThan(0);
           expect(f).toBeLessThanOrEqual(1);
         }

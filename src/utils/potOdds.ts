@@ -319,7 +319,45 @@ export function reverseImpliedFactor(
   return Math.max(REVERSE_IMPLIED_FLOOR, factor);
 }
 
-/** `impliedOddsFor` 的可选输入 —— 三项都由调用方从各自的数据源算好再喂进来。 */
+/** 少于这么多手就不调整 —— 宁可返回 1，也不要让两三手牌的噪声左右面板上的数字。 */
+const MIN_HANDS_FOR_PAYING = 20;
+
+/**
+ * `opponentPayingFactor` 只读这三个字段。用**结构化类型**而不是 `PlayerStats`，
+ * 免得把一个纯赔率模块和整个对手模型绑在一起（`PlayerStats` 结构上可赋值进来）。
+ */
+export interface PayingWillingnessStats {
+  /** 已记录的手数（样本量） */
+  handsDealt: number;
+  /** 走到摊牌的比例（%）；`null` = 该项样本不足 */
+  wtsd: number | null;
+  /** 激进度（(下注+加注) / 跟注）；`null` = 该项样本不足 */
+  af: number | null;
+}
+
+/**
+ * 对手的**支付意愿**乘数，`(0, 1]`，乘在「对手未来投入」的上限上。
+ *
+ * 隐含赔率里最不确定的一项就是「成牌之后对手还会不会再掏钱」。用面板已有的对手
+ * 统计估一个折扣：
+ *
+ * - `wtsd` 低（< 20）→ 他很少走到摊牌，后面街继续掏钱的概率低 → ×0.7
+ * - `af` 低（< 1）→ 被动型，不会主动继续下注，你只能靠他跟你的注 → ×0.85
+ * - `wtsd` 高（跟注站）→ 保持 1。**不往上加** —— 上限已经由有效筹码夹住，
+ *   这个函数只负责「往下扣」。
+ *
+ * 样本不足（`handsDealt < 20`）时整项不调整；单个字段为 `null` 时跳过那一项
+ * （**不把 `null` 当成 0** —— 那会把「没数据」误判成「极端被动」）。
+ */
+export function opponentPayingFactor(stats?: PayingWillingnessStats): number {
+  if (!stats || stats.handsDealt < MIN_HANDS_FOR_PAYING) return 1;
+  let factor = 1;
+  if (stats.wtsd !== null && stats.wtsd < 20) factor *= 0.7;
+  if (stats.af !== null && stats.af < 1) factor *= 0.85;
+  return factor;
+}
+
+/** `impliedOddsFor` 的可选输入 —— 各项都由调用方从各自的数据源算好再喂进来。 */
 export interface ImpliedOddsContext {
   /**
    * 听牌检测给出的补牌数（0 / 缺省 = 未检测到听牌）。
@@ -331,6 +369,11 @@ export interface ImpliedOddsContext {
    * 由 `reverseImpliedFactor(holeCards, community, drawTypes)` 算出。
    */
   reverseImplied?: number;
+  /**
+   * 对手支付意愿乘数，`(0, 1]`，乘在「对手未来投入」上。缺省 1。
+   * 由 `opponentPayingFactor(stats)` 算出。
+   */
+  opponentPaying?: number;
 }
 
 /**
@@ -341,9 +384,9 @@ export interface ImpliedOddsContext {
  * - `upperBound`：`futureWinnings` 取满额有效剩余筹码、`futureCalls` = 0。教材那个例子
  *   就是这一口径（4:1 / 20%），但它同时假设了「成牌后能把对手剩余筹码全赢过来」和
  *   「错过就弃牌」，是最乐观的读法。
- * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率），
- *   `futureWinnings` 再乘 `ctx.reverseImplied` 的反隐含赔率折扣；两项各自受剩余筹码
- *   夹住。
+ * - `planned`：`futureCalls` 按 `impliedCallWeight` 加权（有 `outs` 时按成牌概率）；
+ *   `futureWinnings` 再乘 `ctx.reverseImplied`（反隐含赔率：成牌后仍可能输）与
+ *   `ctx.opponentPaying`（对手支付意愿）两层折扣；两项各自受剩余筹码夹住。
  *
  * `planned` 的盈亏平衡**不低于** `upperBound`，有时甚至高于直接赔率 —— 这正是
  * 「打算再付一注时，有效赔率可能比眼前的价格更差」。
@@ -363,6 +406,7 @@ export function impliedOddsFor(
   const perStreet = nextStreetBetFrom(totalPot, toCall);
   const callWeight = impliedCallWeight(streetsLeft, ctx.outs);
   const reverse = Math.max(0, Math.min(1, ctx.reverseImplied ?? 1));
+  const paying = Math.max(0, Math.min(1, ctx.opponentPaying ?? 1));
 
   const upperBound = impliedOddsFrom(
     totalPot,
@@ -372,7 +416,12 @@ export function impliedOddsFor(
   const planned = impliedOddsFrom(
     totalPot,
     toCall,
-    futureWinningsFrom(state, player, toCall, perStreet * streetsLeft * reverse),
+    futureWinningsFrom(
+      state,
+      player,
+      toCall,
+      perStreet * streetsLeft * reverse * paying,
+    ),
     futureCallsFrom(player, toCall, perStreet * callWeight),
   );
   if (!upperBound || !planned) return null;

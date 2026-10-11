@@ -41,6 +41,7 @@ import { formatActionLabel } from '../utils/actionLabel';
 import {
   formatOddsRatio,
   impliedOddsFor,
+  opponentPayingFactor,
   reverseImpliedFactor,
 } from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
@@ -952,6 +953,19 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     [drawInfo, holeCards, community],
   );
 
+  // 对手支付意愿折扣：隐含赔率里最不确定的一项就是「成牌之后他还会不会再掏钱」。
+  // 取「样本最多的那个对手」—— 与上面 NodeLock 区块同一取舍（样本越多越可信），
+  // 口径见 `potOdds.opponentPayingFactor`。没有统计时恒为 1。
+  const opponentPaying = useMemo(() => {
+    const botStats = opponentProfile?.botStats ?? [];
+    if (botStats.length === 0) return 1;
+    const target = botStats.reduce(
+      (best, s) => (s.handsDealt > best.handsDealt ? s : best),
+      botStats[0],
+    );
+    return opponentPayingFactor(target);
+  }, [opponentProfile]);
+
   // 隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来跟注），两项都算 ——
   // 口径与公式本体见 `potOdds.impliedOddsFor`。
   //
@@ -977,7 +991,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           currentPot ?? 0,
           betToCall ?? 0,
           cardsToCome,
-          { outs: drawInfo?.totalOuts, reverseImplied },
+          { outs: drawInfo?.totalOuts, reverseImplied, opponentPaying },
         )
         : null,
     [
@@ -988,6 +1002,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       gameState,
       drawInfo,
       reverseImplied,
+      opponentPaying,
     ],
   );
 

@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { HandAnalysis } from '../HandAnalysis';
 import { translations } from '../../utils/translations';
 import { resetOpponentStats } from '../../utils/opponentModel';
+import type { OpponentProfile } from '../../utils/opponentModel';
 import { resetGtoConfig } from '../../utils/gtoConfig';
 import { resetRakeConfig } from '../../utils/rake';
 import type { Card, GamePhase, GameState, Player } from '../../types/poker';
@@ -76,6 +77,44 @@ interface PanelOpts {
   villainChips?: number;
   holeCards?: Card[];
   community?: Card[];
+  opponentProfile?: OpponentProfile;
+}
+
+/**
+ * 造一份只有「支付意愿」相关的字段有意义的对手画像 —— 面板取「样本最多的那个对手」，
+ * 所以只放一个样本最厚的。
+ */
+function profileWith(stats: {
+  handsDealt: number;
+  wtsd: number | null;
+  af: number | null;
+}): OpponentProfile {
+  return {
+    opponents: [{ id: 2, tendency: 'passive', foldRate: 0.3 }],
+    botStats: [
+      {
+        playerId: 2,
+        handsDealt: stats.handsDealt,
+        vpip: 30,
+        pfr: 10,
+        gap: 20,
+        playerType: 'Calling Station',
+        af: stats.af,
+        cbet: null,
+        wtsd: stats.wtsd,
+        wsd: null,
+        checkRaise: null,
+        threeBet: null,
+        foldToCbet: null,
+        afq: null,
+        turnCbet: null,
+      },
+    ],
+    avgFoldRate: 0.3,
+    hasAggressive: false,
+    hasPassive: true,
+    opponentCount: 1,
+  };
 }
 
 async function renderPanel(opts: PanelOpts = {}) {
@@ -112,6 +151,7 @@ async function renderPanel(opts: PanelOpts = {}) {
       gameState={state}
       heroPlayer={hero}
       positionLabel="BTN"
+      opponentProfile={opts.opponentProfile}
     />,
   );
 
@@ -235,6 +275,34 @@ describe('HandAnalysis — 隐含赔率行', () => {
     expect(text).toContain(
       `${translations.handAnalysis.impliedOddsUpperShort} 2.3%`,
     );
+  });
+
+  it('对手很少走到摊牌时把支付意愿折扣算进去', async () => {
+    // 手牌 K♥K♥ + 翻牌 K♠7♦2♣ → 三条、没有听牌（所以反隐含赔率不介入）；
+    // 深筹码让「注码外推」而不是「剩余筹码」成为约束
+    await renderPanel({
+      heroChips: 100_000,
+      villainChips: 100_000,
+      opponentProfile: profileWith({ handsDealt: 200, wtsd: 12, af: 2.5 }),
+    });
+
+    const text = rowText(translations.handAnalysis.impliedOdds);
+
+    // 对手未来投入 = 2 条街 × 5000 × 0.7 = 7000；我未来跟注 = 1 条街 × 5000 = 5000
+    // → (7500+7000) : (2500+5000) = 1.93 : 1 → 34.1%
+    expect(text).toContain('34.1%');
+    expect(text).toContain('1.9 : 1');
+  });
+
+  it('样本不足时不做支付意愿调整（不拿噪声左右数字）', async () => {
+    await renderPanel({
+      heroChips: 100_000,
+      villainChips: 100_000,
+      opponentProfile: profileWith({ handsDealt: 5, wtsd: 0, af: 0 }),
+    });
+
+    // 与完全没有对手统计时一致：2 条街 × 5000 = 10000 → 30.0%
+    expect(rowText(translations.handAnalysis.impliedOdds)).toContain('30.0%');
   });
 
   it('口径说明整段挪到行的 title，行内不再留说明文字', async () => {
