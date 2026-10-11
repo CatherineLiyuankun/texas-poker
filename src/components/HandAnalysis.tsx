@@ -434,9 +434,13 @@ function opponentsCaveat(numOpponents: number): string {
   return multiway(numOpponents);
 }
 
+// 强度条：主值是它左边那个百分比，条只是「一眼看出量级」的辅助。
+// 宽度 `w-8` = 32px（原先 `w-10` = 40px）—— 面板最窄 216px、两列半列仅约 96px，
+// 条每宽 8px 就直接从数字和标签嘴里抢位置（SPR 行「SPR 2.0 [条] 浅」本来就贴着边）。
+// 再窄就要靠颜色而不是长度分辨强度了，所以停在 32px。
 function StrengthBar({ value, color }: { value: number; color: string }) {
   return (
-    <div className="w-10 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
+    <div className="w-8 h-1.5 bg-white/20 rounded-full overflow-hidden inline-block ml-1 align-middle">
       <div
         className={`h-full rounded-full ${color}`}
         style={{ width: `${Math.round(value * 100)}%` }}
