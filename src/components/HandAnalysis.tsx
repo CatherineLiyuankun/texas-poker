@@ -40,8 +40,7 @@ import { getShadowBotAction } from '../utils/botAI';
 import { formatActionLabel } from '../utils/actionLabel';
 import {
   formatOddsRatio,
-  futureWinningsFrom,
-  impliedOddsFrom,
+  impliedOddsFor,
 } from '../utils/potOdds';
 import type { GameScenario } from '../utils/gtoConfig';
 import {
@@ -935,20 +934,31 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return (currentPot ?? 0) / toCall;
   }, [currentPot, betToCall]);
 
-  // 隐含赔率：把「成牌后还能再赢到的筹码」折进比率（口径见 `potOdds.impliedOddsFrom`）。
+  // 隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来跟注），两项都算 ——
+  // 口径与公式本体见 `potOdds.impliedOddsFor`。
+  //
+  // 一次拿到两个口径并排显示：
+  // - 主值 `strict`：专业口径。对手在每条剩余街都按他当前的下注尺度下注、
+  //   我也每条街都跟，两项各自受剩余筹码夹住。**「我未来跟注」不是恒为 0** ——
+  //   只有「错过就弃牌」时才是 0（那正是教材那个例子的假设）。
+  // - 副标签 `upperBound`：教材例子的乐观读法（对手未来投入取满额、我未来跟注记 0）。
+  //   两者之差就是「我未来跟注」这一项的影响。
   //
   // 只在**还有牌可发**的街上显示 —— 河牌没有后续街，隐含赔率恒等于直接赔率，
-  // 显示出来只会与上一行的赔率重复。缺 hero / 对局状态时（算不出有效剩余筹码）也不显示。
-  const impliedOdds = useMemo(() => {
-    const toCall = betToCall ?? 0;
-    if (toCall <= 0 || cardsToCome <= 0) return null;
-    if (!heroPlayer || !gameState) return null;
-    return impliedOddsFrom(
-      currentPot ?? 0,
-      toCall,
-      futureWinningsFrom(gameState, heroPlayer, toCall),
-    );
-  }, [betToCall, currentPot, cardsToCome, heroPlayer, gameState]);
+  // 显示出来只会与上一行的赔率重复。无跟注额 / 缺 hero / 缺对局状态时也不显示。
+  const impliedOdds = useMemo(
+    () =>
+      heroPlayer && gameState
+        ? impliedOddsFor(
+          gameState,
+          heroPlayer,
+          currentPot ?? 0,
+          betToCall ?? 0,
+          cardsToCome,
+        )
+        : null,
+    [betToCall, currentPot, cardsToCome, heroPlayer, gameState],
+  );
 
   // 「建议」按 decisionBasis 对应的那一行权益算出来，该行加绿色边框标出
   // （见下方两个权益 GridRow 的 highlight），避免用户拿另一行的权益去比赔率
@@ -1113,6 +1123,8 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
 
           {/* 隐含赔率：独占整行（标签较长，半列放不下），紧跟赔率之后。
+              主值是专业口径（对手未来投入 + 我未来跟注两项都算），
+              后面跟一个小号的上界对照（教材那个例子的乐观读法）。
               河牌 / 无跟注额时不渲染（见上方 `impliedOdds`）。
               口径说明整段挪到该行的 title（悬停可见），行内不留说明文字。 */}
           {impliedOdds !== null && (
@@ -1122,13 +1134,17 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
                 title={translations.handAnalysis.impliedOddsTooltip}
                 value={
                   <>
-                    {(impliedOdds.breakeven * 100).toFixed(1)}%
+                    {(impliedOdds.strict.breakeven * 100).toFixed(1)}%
                     <span className={RATIO_LABEL_CLASS}>
-                      {formatOddsRatio(impliedOdds.ratio)} : 1
+                      {formatOddsRatio(impliedOdds.strict.ratio)} : 1
+                    </span>
+                    <span className={RATIO_LABEL_CLASS}>
+                      · {translations.handAnalysis.impliedOddsUpperShort}{' '}
+                      {(impliedOdds.upperBound.breakeven * 100).toFixed(1)}%
                     </span>
                   </>
                 }
-                color={getPotOddsColor(impliedOdds.breakeven)}
+                color={getPotOddsColor(impliedOdds.strict.breakeven)}
               />
             </div>
           )}

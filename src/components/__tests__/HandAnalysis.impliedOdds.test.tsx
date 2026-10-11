@@ -130,7 +130,7 @@ describe('HandAnalysis — 隐含赔率行', () => {
     resetRakeConfig();
   });
 
-  it('书中例子：底池 7500 / 跟 2500 / 双方各剩 2500 → 20.0% 与 4 : 1', async () => {
+  it('书中例子：主值按专业口径 33.3% / 2 : 1，上界作对照 20.0%', async () => {
     await renderPanel({
       currentPot: 7500,
       betToCall: 2500,
@@ -139,20 +139,34 @@ describe('HandAnalysis — 隐含赔率行', () => {
     });
 
     const text = rowText(translations.handAnalysis.impliedOdds);
-    expect(text).toContain('20.0%');
-    expect(text).toContain('4 : 1');
+
+    // 专业口径：对手再下一注 5000（半个池 × 两条剩余街）、我也跟，但双方身后
+    // 各只有 2500 → (7500+2500):(2500+2500) = 2:1 → 33.3%
+    expect(text).toContain('33.3%');
+    expect(text).toContain('2 : 1');
+
+    // 上界：教材那个例子的乐观读法（我未来跟注记 0）→ 4:1 → 20.0%
+    expect(text).toContain(
+      `${translations.handAnalysis.impliedOddsUpperShort} 20.0%`,
+    );
   });
 
-  it('隐含赔率的盈亏平衡低于直接赔率（隐含赔率放宽了门槛）', async () => {
+  it('「我未来跟注」的影响：上界低于直接赔率，专业口径反而更高', async () => {
     await renderPanel({ currentPot: 7500, betToCall: 2500 });
 
+    const row = rowText(translations.handAnalysis.impliedOdds);
     const direct = Number(
       rowText(translations.handAnalysis.potOdds).match(/([\d.]+)%/)?.[1],
     );
-    const implied = Number(
-      rowText(translations.handAnalysis.impliedOdds).match(/([\d.]+)%/)?.[1],
-    );
-    expect(implied).toBeLessThan(direct);
+    const strict = Number(row.match(/([\d.]+)%/)?.[1]);
+    const upper = Number(row.match(/上界\s*([\d.]+)%/)?.[1]);
+
+    expect(direct).toBeCloseTo(25, 6);
+    // 上界放宽了门槛（隐含赔率该有的方向）
+    expect(upper).toBeLessThan(direct);
+    // 但一旦打算再跟一注，有效赔率反而比眼前的价格更差 —— 这是这条线的要点
+    expect(strict).toBeGreaterThan(direct);
+    expect(strict).toBeGreaterThan(upper);
   });
 
   it('口径说明整段挪到行的 title，行内不再留说明文字', async () => {
@@ -161,18 +175,17 @@ describe('HandAnalysis — 隐含赔率行', () => {
     const row = screen.getByText(translations.handAnalysis.impliedOdds)
       .parentElement as HTMLElement;
 
-    // 完整口径（公式 + 两条上界假设）挂在原生悬停提示上
+    // 完整口径（公式 + 两个口径的差别）挂在原生悬停提示上
     const title = row.getAttribute('title');
     expect(title).toBe(translations.handAnalysis.impliedOddsTooltip);
     expect(title).toContain('底池 + 对手未来投入');
-    expect(title).toContain('跟注 + 我未来投入');
+    expect(title).toContain('跟注 + 我未来跟注');
     expect(title).toContain('未计成牌概率');
 
-    // 行内只剩「标签 + 百分比 + 比率」——说明文字不再占版面（原先那句会把这一行挤成两行）
+    // 行内只有「标签 + 百分比 + 比率 + 上界对照」，没有说明文字
     expect(row.textContent).toBe(
-      `${translations.handAnalysis.impliedOdds}20.0%4 : 1`,
+      `${translations.handAnalysis.impliedOdds}33.3%2 : 1· 上界 20.0%`,
     );
-    expect(row.textContent).not.toContain('上界估算');
     expect(row.textContent).not.toContain('未计成牌概率');
 
     // 有提示就要有可发现的入口：悬停时光标变成 help
@@ -184,7 +197,7 @@ describe('HandAnalysis — 隐含赔率行', () => {
 
     // 两个「x : 1」是同一类信息，配色必须一致 —— 深浅不一会被读成两种不同的东西
     const potOddsRatioEl = screen.getByText('3 : 1');
-    const impliedRatioEl = screen.getByText('4 : 1');
+    const impliedRatioEl = screen.getByText('2 : 1');
 
     expect(impliedRatioEl).toHaveClass('text-white/70');
     expect(impliedRatioEl.className).toBe(potOddsRatioEl.className);

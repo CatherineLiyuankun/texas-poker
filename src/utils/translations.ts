@@ -117,16 +117,20 @@ export const translations = {
     rangeNarrowed: '翻后行动收窄', //  narrowed by the opponent's postflop action line
     rangeExploitative: '含对手激进度调整（剥削性）', //  includes opponent-aggression scaling (exploitative)
     potOdds: '赔率 Pot Odds',
-    // 隐含赔率（教材口径）：把「成牌后还能再赢到的筹码」折进比率。
-    // 与直接赔率同行显示会让人分不清，故独占一行；口径说明不占版面，放行的 title。
+    // 隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来跟注），两项都按专业口径估
+    // （见 potOdds.impliedOddsFor）。与直接赔率同行显示会让人分不清，故独占一行；
+    // 口径说明不占版面，放该行的 title。
     impliedOdds: '隐含赔率 Implied',
+    // 同行显示的上界对照（主值是专业口径，见 potOdds.impliedOddsFor）
+    impliedOddsUpperShort: '上界',
     // 口径说明**不占版面**：整段挪到该行的 `title`（悬停可见）。
     // 行内原本挂着一句「按上界估算…」，在 2 列窄面板里会把这一行挤成两行，
     // 而它只是主值的副标签 —— 完整口径（含公式）放悬停提示里更合适。
     impliedOddsTooltip:
-      '隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来投入）。'
-      + '此处按上界估算：对手未来投入取「跟注后双方还能继续投入的有效剩余筹码」，'
-      + '我未来投入按教材记为 0（错过就不再往彩池里投钱）；未计成牌概率。',
+      '隐含赔率 =（底池 + 对手未来投入）:（跟注 + 我未来跟注）。'
+      + '主值按专业口径：两项都按「剩余街数 × 下一条街预计注码」估，各自受剩余筹码夹住；'
+      + '我未来跟注只算「没成牌那条路上」还会投的钱。'
+      + '「上界」是把对手未来投入取满额有效剩余筹码、我未来跟注记 0 的乐观读法。未计成牌概率。',
     // 「这个座位交给机器人会怎么打」——与机器人真实动作（座位气泡）同一条决策路径，
     // 差别只在混合频率的随机抽样（见 botAI.getShadowBotAction）。
     botAction: 'Bot Action',
