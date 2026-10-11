@@ -4,7 +4,8 @@ import { translations } from '../../utils/translations';
 import { resetOpponentStats } from '../../utils/opponentModel';
 import type { OpponentProfile } from '../../utils/opponentModel';
 import { resetGtoConfig } from '../../utils/gtoConfig';
-import { resetRakeConfig } from '../../utils/rake';
+import type { GameScenario } from '../../utils/gtoConfig';
+import { resetRakeConfig, setRakeConfig } from '../../utils/rake';
 import type { Card, GamePhase, GameState, Player } from '../../types/poker';
 
 function card(suit: string, rank: string): Card {
@@ -78,6 +79,9 @@ interface PanelOpts {
   holeCards?: Card[];
   community?: Card[];
   opponentProfile?: OpponentProfile;
+  /** 对手已全下（身后 0 筹码）—— 用来验证他不会再掏钱 */
+  villainAllIn?: boolean;
+  scenario?: GameScenario;
 }
 
 /**
@@ -135,6 +139,7 @@ async function renderPanel(opts: PanelOpts = {}) {
     chips: opts.villainChips ?? 2500,
     bet: 2500,
     totalBet: 2500,
+    allIn: opts.villainAllIn ?? false,
   });
   const state = mkState([hero, villain], phase, community, betToCall);
 
@@ -152,6 +157,7 @@ async function renderPanel(opts: PanelOpts = {}) {
       heroPlayer={hero}
       positionLabel="BTN"
       opponentProfile={opts.opponentProfile}
+      scenario={opts.scenario}
     />,
   );
 
@@ -303,6 +309,48 @@ describe('HandAnalysis — 隐含赔率行', () => {
 
     // 与完全没有对手统计时一致：2 条街 × 5000 = 10000 → 30.0%
     expect(rowText(translations.handAnalysis.impliedOdds)).toContain('30.0%');
+  });
+
+  it('现金局设了抽水时折进「赢到的筹码」：门槛变严，上界仍是教材锚点', async () => {
+    // 抽 5%、不封顶。面板的 rakeConfig 由 scenario 推出，缺省（现金局）即全局配置。
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 0 });
+    await renderPanel();
+
+    const text = rowText(translations.handAnalysis.impliedOdds);
+
+    // 摊牌底池 = 7500 + 2500（我跟）+ 2500（对手未来）+ 2500（我未来）= 15000，抽 5% = 750
+    // → (7500 + 2500 − 750) : (2500 + 2500) = 9250 : 5000 = 1.85 : 1 → 35.1%
+    expect(text).toContain('35.1%');
+    expect(text).toContain('1.9 : 1');
+
+    // 上界不折抽水 —— 它是教材那个例子的对照锚点
+    expect(text).toContain(
+      `${translations.handAnalysis.impliedOddsUpperShort} 20.0%`,
+    );
+  });
+
+  it('锦标赛下抽水被赛制门挡住（与 ICM 互斥）', async () => {
+    setRakeConfig({ mode: 'percent', value: 5, capBB: 0 });
+    await renderPanel({ scenario: 'tournament' });
+
+    // 与没设抽水时一致 —— effectiveRakeConfigFor('tournament') 恒为 NO_RAKE
+    expect(rowText(translations.handAnalysis.impliedOdds)).toContain('33.3%');
+  });
+
+  it('对手已全下时「对手未来投入」归零 —— 他身后没有筹码', async () => {
+    await renderPanel({ villainAllIn: true, villainChips: 0 });
+
+    const text = rowText(translations.handAnalysis.impliedOdds);
+
+    // 对手不能再下注 → 对手未来投入 0；我未来跟注仍是 1 条街，受身后 2500 夹住
+    // → (7500 + 0) : (2500 + 2500) = 1.5 : 1 → 40.0%
+    expect(text).toContain('40.0%');
+    expect(text).toContain('1.5 : 1');
+
+    // 上界同样归零（对手一分钱也投不进）→ 7500 : 2500 = 3 : 1 → 25.0%
+    expect(text).toContain(
+      `${translations.handAnalysis.impliedOddsUpperShort} 25.0%`,
+    );
   });
 
   it('口径说明整段挪到行的 title，行内不再留说明文字', async () => {

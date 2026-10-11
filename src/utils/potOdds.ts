@@ -181,6 +181,11 @@ export function nextStreetBetFrom(totalPot: number, toCall: number): number {
  * 取**有效剩余筹码**：我方跟注之后还剩多少，与各未弃牌对手还剩多少，取较小者 ——
  * 对手不可能输给你超过你还能投入的量。全部对手都已弃牌时是 0（无人可支付）。
  *
+ * ⚠️ 只统计**还能继续下注**的对手（`!folded && !allIn && chips > 0`）。全下的对手
+ * 身后是 0，他不能再掏一分钱，所以他对「未来投入」的贡献本来就是 0；但若把他留在
+ * 列表里，`Math.min` 会被那个 0 整组压到 0 —— 一个短码全下就能把旁边深码的支付
+ * 能力一并抹掉，这正是修复前多人池里的错值。
+ *
  * `cap` 是「还能赢到多少」的上限。专业上不会把对手的整个剩余筹码都算成隐含赔率
  * （他不一定支付），通行假设是「还能再赢一条街的下注」。缺省不设上限
  * （= 取满额有效剩余筹码），那是乐观上界，见 `impliedOddsFor`。
@@ -193,7 +198,7 @@ export function futureWinningsFrom(
 ): number {
   const heroRemaining = Math.max(0, player.chips - toCall);
   const opponents = state.players.filter(
-    (p) => p.id !== player.id && !p.folded,
+    (p) => p.id !== player.id && !p.folded && !p.allIn && p.chips > 0,
   );
   if (opponents.length === 0) return 0;
   return Math.max(

@@ -471,6 +471,46 @@ describe('futureWinningsFrom — 隐含赔率里的「未来可赢筹码」', ()
     // cap 大于其它边界时无影响
     expect(futureWinningsFrom(state, hero, 1000, 999_999)).toBe(4000);
   });
+
+  it('唯一的对手已全下 → 0（他身后没有筹码，不能再付）', () => {
+    const hero = mkPlayer({ id: 1, chips: 5000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 0, allIn: true })],
+    });
+    expect(futureWinningsFrom(state, hero, 1000)).toBe(0);
+  });
+
+  it('短码全下不会拖累深码对手 —— 只按「还能下注的人」取 min', () => {
+    const hero = mkPlayer({ id: 1, chips: 5000 });
+    const shortAllIn = mkPlayer({ id: 2, chips: 0, allIn: true });
+    const deep = mkPlayer({ id: 3, chips: 4000 });
+    const state = mkState({ players: [hero, shortAllIn, deep] });
+
+    // 修复前：min(4000, 0, 4000) = 0 —— 一个短码把整组支付能力抹平
+    // 修复后：只看深码 → min(4000, 4000) = 4000
+    expect(futureWinningsFrom(state, hero, 1000)).toBe(4000);
+  });
+
+  it('多个深码对手里仍取最浅的那个（最保守的支付上限）', () => {
+    const hero = mkPlayer({ id: 1, chips: 50_000 });
+    const state = mkState({
+      players: [
+        hero,
+        mkPlayer({ id: 2, chips: 0, allIn: true }),
+        mkPlayer({ id: 3, chips: 8000 }),
+        mkPlayer({ id: 4, chips: 3000 }),
+      ],
+    });
+    expect(futureWinningsFrom(state, hero, 1000)).toBe(3000);
+  });
+
+  it('未标记 allIn 但筹码为 0 的对手同样被排除（畸形状态不污染结果）', () => {
+    const hero = mkPlayer({ id: 1, chips: 5000 });
+    const state = mkState({
+      players: [hero, mkPlayer({ id: 2, chips: 0 }), mkPlayer({ id: 3, chips: 4000 })],
+    });
+    expect(futureWinningsFrom(state, hero, 1000)).toBe(4000);
+  });
 });
 
 describe('impliedOddsFor — 上界与「追牌计划」成对给出', () => {
