@@ -101,6 +101,7 @@ The `HandAnalysis` panel surfaces both layers side by side (random equity vs. ra
 - `preflopHandStrength.ts` — 169-hand-class scoring/tiers used by preflop decisions, and the strength order the tournament range trimming is built on. Do not add a second ordering.
 - `drawDetector.ts` — flush draw / OESD / gutshot with outs-based probabilities.
 - `preflopOpenRanges.ts`, `tablePositions.ts` — open-ability by position and seat label helpers.
+- `potOdds.ts` — the single source for odds. `callPotOdds = toCall / (totalPot + toCall)` (where `totalPot` is the pot **including** the current bets) and the ratio form `totalPot : toCall` are the same statement: `callPotOdds === 1 / (ratio + 1)`. `impliedOddsFrom` takes **two** future terms and they belong to **different branches**: `futureWinnings` (the opponent's future money, collected when you hit) and `futureCalls` (your own future money, counted **only when you miss** — your hit-branch investment comes back inside the pot you win, so it cancels out). `impliedOddsFor` returns both the textbook's optimistic upper bound (`futureCalls = 0`) and the strict figure; the panel shows the strict one with the upper bound as a small reference. Never re-derive either term inside a component.
 
 ### Persistence (localStorage)
 
