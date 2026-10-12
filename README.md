@@ -19,7 +19,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Draw Detection**: Flush draw, open-ended straight, gutshot with outs-based probability
   - **Opponent Modeling**: Profiles opponents as aggressive/passive and adjusts thresholds dynamically
 - **Hand Analysis Panel**: Real-time display of **random-hand equity** and **range-aware equity**, pot odds, implied odds, draw info, **Bot Action**, and action recommendations
-  - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration) — its "vs random hands" caveat sits in that row's **hover tooltip**, not inline (the equity columns are only ~134.8px wide)
+  - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration) — its "vs random hands" caveat sits in that row's **hover tooltip**, not inline (an inline note would crowd the percentage out of the row)
   - **Range equity**: hero vs. an inferred opponent continuing range (preflop role + position tables + card removal + VPIP, then narrowed by the observed postflop action line)
   - Available from preflop onward; the recommendation and EV figures are driven by range equity, falling back to random equity when no range can be inferred
   - **Bot Action** (above `GTO Math`): what the bot would do **if this real player's seat were bot-controlled** — the same decision path as the live bots (`getShadowBotAction` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below)
@@ -37,7 +37,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
     - **Others**: Does not fit any of the above categories
   - **Persistent Storage**: Data saved in localStorage, survives browser restarts
   - **Export/Import**: Backup stats to JSON file and restore later
-  - **Stats Table**: Displayed in the AI Analysis panel showing VPIP, PFR, and player type per player; bot rows are computed from the same cross-session long-term store as real players (not just the current session)
+  - **Stats Table**: a collapsible popover at the top-right of the game screen (under the `Real n | Bot n` counters), **collapsed by default** — showing VPIP, PFR, and player type per player, **real players first, bots below**; bot rows are computed from the same cross-session long-term store as real players (not just the current session)
 - **Strategy Configuration**: two orthogonal axes, toggled on the table screen
   - **Engine**: `GTO` (per-street GTO modules) or `heuristic` (the TAG/LAG hybrid above)
   - **Scenario**: `cash` or `tournament`. Tournaments disable rake, add an ICM risk premium derived from the stack-relative bubble factor, and use preflop ranges tightened relative to the cash tables
@@ -232,8 +232,8 @@ npm run build
 - **Unit Tests**: `src/utils/__tests__/` - Algorithm correctness (pot calculation, equity, draw detection, preflop hand strength)
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
-- **Component Tests**: `src/components/__tests__/` - UI, settlement, and equity panel tests
-- **Test Coverage**: 1051 tests across 56 test suites (1049 passed, 2 skipped) — run `npm test` for the current figure
+- **Component Tests**: `src/components/__tests__/` - UI, settlement, equity panel, and the player-stats popover
+- **Test Coverage**: 1055 tests across 57 test suites (1053 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -252,7 +252,7 @@ npm run build
   - **听牌检测**: 同花听牌、两头顺子、卡顺，基于 Outs 概率计算
   - **对手画像**: 自动识别激进/被动型对手，动态调整决策阈值
 - **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、隐含赔率、听牌信息、**Bot Action** 和行动建议
-  - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）—— 「vs 随机牌」的口径说明挂在该行的**悬停提示**里，不占版面（权益列每列仅约 134.8px）
+  - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）—— 「vs 随机牌」的口径说明挂在该行的**悬停提示**里，不占版面（写在行内会把百分比挤出去）
   - **范围权益**: 我方手牌 vs 推断出的对手续玩范围（翻前角色 + 位置表 + 去牌 + VPIP 宽度修正，再按观测到的翻后行动线收窄）
   - 翻前起即可用；行动建议与 EV 数字由范围权益驱动，无法推断范围时回退为随机权益
   - **Bot Action**（位于 `GTO Math` 之前）: **这个真人座位如果交给机器人**会怎么打 —— 与场上机器人同一条决策路径（`getShadowBotAction` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同
@@ -270,7 +270,7 @@ npm run build
     - **Others** (其他): 不属于以上类型
   - **持久化存储**: 数据保存在 localStorage，浏览器重启后数据保留
   - **导出/导入**: 支持将统计数据备份为 JSON 文件并恢复
-  - **统计表格**: 在 AI 分析面板中显示每位玩家的 VPIP、PFR 和玩家类型；Bot 与真人一样读跨会话的长期统计（而非只算当前会话）
+  - **统计表格**: 收在游戏页面右上角（`真人 n | Bot n` 下方）的**可折叠浮层**里，默认收起、点击按钮才展开；显示每位玩家的 VPIP、PFR 和玩家类型，**真人行在上、Bot 行在下**。表头一律不折行（`3-Bet` / `Turn CB` 保持一行），放不下时浮层整体变宽、必要时横向滚动。Bot 与真人一样读跨会话的长期统计（而非只算当前会话）
 - **策略配置**: 牌桌上两个**正交**开关
   - **引擎**: `GTO`（各街走 GTO 模块）或 `启发式`（上面那套 TAG/LAG 混合风格）
   - **赛制**: `现金局` 或 `锦标赛`。锦标赛不抽水、叠加由「筹码相对泡沫因子」算出的 ICM 风险溢价，并使用相对现金局收紧的翻前范围
@@ -463,5 +463,5 @@ npm run build
 - **单元测试**: `src/utils/__tests__/` - 算法正确性（底池计算、胜率模拟、听牌检测、翻前手牌强度）
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
-- **组件测试**: `src/components/__tests__/` - UI、结算和权益面板测试
-- **测试覆盖**: 56 个测试套件，共 1051 个测试用例（1049 通过，2 跳过）—— 以 `npm test` 的实际输出为准
+- **组件测试**: `src/components/__tests__/` - UI、结算、权益面板和玩家数据浮层测试
+- **测试覆盖**: 57 个测试套件，共 1055 个测试用例（1053 通过，2 跳过）—— 以 `npm test` 的实际输出为准
