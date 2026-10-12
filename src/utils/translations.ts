@@ -232,11 +232,15 @@ export const translations = {
       multiway: (n: number) => `多人(${n})未调整`,
       noOpponent: '无对手',
       noIcm: '未计 ICM',
-      // 面板的**任何数字都不做 ICM 调整**（本仓库 `grep riskPremiumFor src/components/`
-      // 为空）：ICM 风险溢价只影响机器人，且只在**启发式引擎**的翻前路径上生效
-      // （`botAI.decidePreflop`；`decidePreflopGTO` 走的是收紧后的范围表）。
-      // 所以两段都以「未计」开头，锦标赛那句只补充说明「机器人侧计了」。
+      // 面板的**任何数字都不做 ICM 调整**：ICM 风险溢价只影响机器人（翻前的
+      // `botAI.decidePreflop`、翻后/河牌的四条引擎路径；`decidePreflopGTO` 的翻前
+      // 走的是收紧后的范围表）。所以两段都以「未计」开头。
       icm: '未计 ICM（机器人已计）',
+      // 锦标赛下把**机器人侧**的溢价数值标出来。面板自己不算 ICM，但那个数就是
+      // 机器人跟注门槛被抬高的量（`gtoICM.riskPremiumFor`）—— 有了它，用户才能看出
+      // 「面板建议」与「机器人实际动作」的差异有多大。溢价有符号：短筹码为负（放宽）。
+      icmPremium: (pct: number) =>
+        `未计 ICM（机器人溢价 ${pct >= 0 ? '+' : ''}${pct}%）`,
       noRake: '未计抽水',
       rake: '已计抽水',
       rangeTightened: '锦标赛范围收紧',

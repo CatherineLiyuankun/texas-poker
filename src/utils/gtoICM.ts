@@ -3,7 +3,7 @@ import type { Card, GameState, Player } from '../types/poker';
 // `preflopHandStrength.getPreflopTier` 并存且**结果不一致**（见下方注释），已删除。
 import { getPreflopTier } from './preflopHandStrength';
 // 赛制开关的单一真相：现金局不叠加 ICM 风险溢价（`riskPremiumFor` 里据此返回 0）。
-import { isTournamentScenario } from './gtoConfig';
+import { isTournamentScenario, type GameScenario } from './gtoConfig';
 
 export type TournamentStage = 'early' | 'middle' | 'bubble' | 'final_table';
 export type Position = 'UTG' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
@@ -339,8 +339,11 @@ export const BUBBLE_PREMIUM_THRESHOLD = 0.10;
  * 实测：6 人桌均势（各 1000）溢价 ≈ +0.16；主角 200 对 5×1000 时 ≈ −0.26。
  */
 export function riskPremiumFor(state: GameState, hero: Player): number {
-  if (!isTournamentScenario()) return 0;
+  return isTournamentScenario() ? riskPremiumFromState(state, hero) : 0;
+}
 
+/** 赛制门已由调用方把好，这里只算「泡沫因子 → 溢价」。 */
+function riskPremiumFromState(state: GameState, hero: Player): number {
   const config = getICMConfig(state, hero);
   const bubbleFactor = calculateBubbleFactor(
     config.heroStack,
@@ -350,6 +353,23 @@ export function riskPremiumFor(state: GameState, hero: Player): number {
     config.numPlayers,
   );
   return calculateRiskPremium(bubbleFactor);
+}
+
+/**
+ * 风险溢价 —— **按显式赛制**。渲染层（`HandAnalysis` 拿的是 `scenario` prop）必须走这个入口。
+ *
+ * 理由与 `rake.effectiveRakeConfigFor` 逐字相同：`GameBoard` 把赛制同步进全局
+ * `gtoConfig` 是在 `useEffect` 里，赛制刚切换的那一帧 **prop 已变、全局态还没变**；
+ * 读全局会让面板的「ICM 标注」与「抽水标注」分叉（后者一直用的是 prop）。
+ *
+ * 决策层（`botAI` / 各引擎，手上只有全局态）继续用 `riskPremiumFor`。
+ */
+export function riskPremiumForScenario(
+  state: GameState,
+  hero: Player,
+  scenario: GameScenario | undefined,
+): number {
+  return scenario === 'tournament' ? riskPremiumFromState(state, hero) : 0;
 }
 
 /** 是否处在 ICM 意义上的泡沫期（风险溢价显著）。现金局恒为 false。 */

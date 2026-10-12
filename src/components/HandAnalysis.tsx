@@ -18,6 +18,13 @@ import {
   type GtoRiverRecommendation,
 } from '../utils/gtoRiver';
 import { getNodelockForOpponent, type LeakType } from '../utils/gtoNodelock';
+// ICM 风险溢价 —— **只用来显示**，不参与面板的任何计算（见 `gtoMathCaveat`）。
+// 用 `riskPremiumForScenario`（按 prop 的赛制）而不是 `riskPremiumFor`（读全局）：
+// 全局态是 `GameBoard` 在 `useEffect` 里同步的，切换赛制那一帧两者会分叉，
+// 与抽水标注（`effectiveRakeConfigFor`）保持同一套口径。
+// 面板的 SPR 档位文案也共用 `sprDecisionOf`，不再自带一份 3 / 6 的边界。
+import { riskPremiumForScenario } from '../utils/gtoICM';
+import { sprDecisionOf } from '../utils/sprStrategy';
 import { SMALL_BLIND } from '../utils/constant';
 // 蒙特卡洛迭代次数的唯一来源。面板以前自带一张表、还按对手数降到下限 120，
 // 而机器人那边又是另一串字面量（翻牌 200 / 河牌 500），于是**同一手牌面板显示的
@@ -79,7 +86,7 @@ interface HandAnalysisProps {
   /** 当前面板所属的真人玩家对象 */
   heroPlayer?: Player;
   /**
-   * 赛制。`'tournament'` 时口径标注会补一句「未计 ICM（机器人已计）」并加
+   * 赛制。`'tournament'` 时口径标注会补一句「未计 ICM（机器人溢价 ±X%）」并加
    * 「锦标赛范围收紧」。缺省按现金局。
    */
   scenario?: GameScenario;
@@ -169,23 +176,34 @@ function getOutsColor(outs: number): string {
   return 'text-green-400';
 }
 
+// SPR 档位边界**只此一处** —— 与引擎共用 `sprStrategy.sprDecisionOf`
+// （commit / control / cautious，即 3 / 6 两条边界）。以前面板自己写了一份
+// `v < 3` / `v <= 6`：SPR 恰好等于 6 时面板显示「中等」（黄），而引擎按 cautious
+// （更保守的一档）走，同一个数在两边指向不同的档。
+const SPR_COLORS: Record<string, { text: string; bar: string }> = {
+  commit: { text: 'text-red-400', bar: 'bg-red-400' },
+  control: { text: 'text-yellow-400', bar: 'bg-yellow-400' },
+  cautious: { text: 'text-green-400', bar: 'bg-green-400' },
+};
+
 function getSprColor(v: number): string {
-  if (v < 3) return 'text-red-400';
-  if (v <= 6) return 'text-yellow-400';
-  return 'text-green-400';
+  return SPR_COLORS[sprDecisionOf(v)].text;
 }
 
 function getSprLabel(v: number): string {
   const { sprShallow, sprMedium, sprDeep } = translations.handAnalysis;
-  if (v < 3) return sprShallow;
-  if (v <= 6) return sprMedium;
-  return sprDeep;
+  switch (sprDecisionOf(v)) {
+    case 'commit':
+      return sprShallow;
+    case 'control':
+      return sprMedium;
+    default:
+      return sprDeep;
+  }
 }
 
 function getSprBarColor(v: number): string {
-  if (v < 3) return 'bg-red-400';
-  if (v <= 6) return 'bg-yellow-400';
-  return 'bg-green-400';
+  return SPR_COLORS[sprDecisionOf(v)].bar;
 }
 
 function getPreflopStrengthBarColor(v: number): string {
@@ -792,20 +810,37 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return { mdf, vbRatio, callEV, raiseEV, bestAction, bestEV, rangeCat, vbSource: facingBet ? 'facing' : 'hero' };
   }, [decisionEquity, currentPot, betToCall, playerRaiseAmount, phase, heroPlayer, rakeConfig, gameState?.smallBlind]);
 
+  // 锦标赛下**机器人侧**的 ICM 风险溢价（现金局恒为 0）。
+  //
+  // ⚠️ 这个数**不参与面板的任何计算** —— 它只用来把「机器人跟注门槛被抬高了
+  // 多少」标出来。面板的建议行、GTO Math 的 MDF / Call EV / Raise EV / V:B 全部
+  // 不含 ICM（这是有意的：面板给的是 GTO 基线，ICM 是机器人侧的赛制修正）。
+  // 有了这个数，用户才能看出面板建议与机器人实际动作的差异有多大。
+  const icmRiskPremium = useMemo(
+    () =>
+      gameState && heroPlayer
+        ? riskPremiumForScenario(gameState, heroPlayer, scenario)
+        : 0,
+    [gameState, heroPlayer, scenario],
+  );
+
   // GTO Math 区块的口径说明：这些数是单街闭式 + 单挑推导。抽水是否计入随
   // StartPage 的设置变，所以显式标出来，避免把近似值误读成完整 GTO 解。
   //
-  // **ICM 那一段在两种赛制下都是「未计」** —— 本文件不 import `gtoICM`，面板的
-  // 任何数字（建议行、GTO Math 的 MDF / Call EV / Raise EV / V:B）都不做 ICM
-  // 调整。锦标赛下面板数字确实会变，但变的原因是**对手范围被收紧**
+  // **ICM 那一段在两种赛制下都是「未计」** —— 面板的任何数字都不做 ICM 调整。
+  // 锦标赛下面板数字确实会变，但变的原因是**对手范围被收紧**
   // （`getPreflopRangeClasses` 走全局赛制，见 B4 的连带影响），那件事有自己的
-  // 标注「锦标赛范围收紧」。锦标赛那句只补充说明「机器人侧计了 ICM」。
+  // 标注「锦标赛范围收紧」。锦标赛那句补充说明「机器人侧计了」，并在能取到
+  // 溢价时**带上具体数值**（±X%）。
   const gtoMathCaveat = useMemo(() => {
     const street = translations.gtoMath.caveat.street[phase];
-    // 赛制只影响**文案**：现金局两边都不计，锦标赛补一句机器人已计。
+    // 赛制只影响**文案**：现金局两边都不计，锦标赛补一句机器人已计（带数值）。
+    const premiumPct = Math.round(icmRiskPremium * 100);
     const icm =
       scenario === 'tournament'
-        ? translations.gtoMath.caveat.icm
+        ? premiumPct !== 0
+          ? translations.gtoMath.caveat.icmPremium(premiumPct)
+          : translations.gtoMath.caveat.icm
         : translations.gtoMath.caveat.noIcm;
     // 抽水口径：现金局且用户在 StartPage 设了抽水时才算进去；锦标赛恒不抽水
     // （与 ICM 互斥，所以这两段标注在锦标赛下必然是一个「计」+ 一个「未计」）。
@@ -819,7 +854,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
       clauses.push(translations.gtoMath.caveat.rangeTightened);
     }
     return clauses.join(' · ');
-  }, [phase, numOpponents, scenario, rakeConfig]);
+  }, [phase, numOpponents, scenario, rakeConfig, icmRiskPremium]);
 
   // 底池赔率行显示的是**原始赔率**（`potOdds` prop，`computePotOddsFor` 的口径）。
   // 而建议（`recommendation`）与机器人 `ctx.potOdds` 用的是**叠加抽水后**的价格
