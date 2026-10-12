@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useGameState } from '../hooks/useGameState';
+import { useGameState, bettingComplete } from '../hooks/useGameState';
 import { PlayerArea } from './PlayerArea';
 import { CommunityCards } from './CommunityCards';
 import { PotDisplay } from './PotDisplay';
@@ -297,30 +297,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
   );
 
-  // 本轮下注是否已经结束（口径与原先的 canContinue 完全一致）。
-  // 抽成一个共享值，让「机器人行动 / 真人按钮 / 街道推进」三处用同一个判定：
-  // 回合一旦结束，任何玩家都不该再行动 —— 否则最后一个行动者（翻前通常是
-  // 机器人大盲）会在街道推进的动画间隙里再次加注，把其他人重新拉回行动，
-  // 无限循环（见 #15）。
-  const bettingRoundComplete = useMemo(() => {
-    const activePlayers = state.players.filter((p) => !p.folded);
-    const canActPlayers = state.players.filter(
-      (p) => !p.folded && !p.allIn && p.chips > 0,
-    );
-
-    if (activePlayers.length === 0 || canActPlayers.length === 0) {
-      return true;
-    }
-
-    const allActed = canActPlayers.every((p) => p.hasActed);
-    const allBetsValid = activePlayers.every(
-      (p) =>
-        (p.bet < state.lastBet && (p.chips <= 0 || p.allIn)) ||
-        p.bet === state.lastBet,
-    );
-
-    return allActed && allBetsValid;
-  }, [state]);
+  // 本轮下注是否已经结束。判定收敛到 `useGameState.bettingComplete` 一处，
+  // 让「机器人行动 / 真人按钮 / 街道推进」三处共用同一个口径：回合一旦结束，
+  // 任何玩家都不该再行动 —— 否则最后一个行动者（翻前通常是机器人大盲）会在
+  // 街道推进的动画间隙里再次加注，把其他人重新拉回行动，无限循环（见 #15）。
+  //
+  // 这里**只做转发，不再自己实现一遍**：以前两侧各写一份，遇到「盲注打光筹码的
+  // 被动 all-in」时口径分叉（reducer 判「已结束」→ 吞掉加注；这里判「未结束」→
+  // 亮按钮且不推进街道），真人卡在「点了没反应」的死局里（见
+  // docs/PASSIVE_ALLIN_PLAN.md）。
+  const bettingRoundComplete = useMemo(() => bettingComplete(state), [state]);
 
   useEffect(() => {
     if (!currentPlayer || currentPlayer.folded || roundSettled) return;
