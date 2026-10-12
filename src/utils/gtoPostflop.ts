@@ -97,7 +97,11 @@ export function decidePostflopGTO(
   ctx: ContextInfo,
   // 对手画像调整目前**未参与**本函数的决策：它原先只被下面那段「河牌」分支使用，
   // 而那段是不可达的死代码（`botAI` 的河牌走 `decideRiverGTO`，翻后只调本函数处理
-  // flop / turn）。死代码已删，参数保留是为了不改动调用契约，用 `_` 前缀标注未使用。
+  // flop / turn）。死代码已删，参数保留是为了与同族引擎（`decidePostflop` /
+  // `decideRiverGTO` 都**实际使用** `adj`）保持同一个五参调用契约，
+  // 让 `botAI` 的三处派发写法一致。`_` 前缀标注未使用 —— 本仓 eslint 未开
+  // `argsIgnorePattern`，所以显式豁免这一行。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _adj: OpponentAdjustments,
 ): BotDecision {
   const community = getCommunityByPhase(state.communityCards, state.phase);
