@@ -28,6 +28,8 @@ import {
 } from './sprStrategy';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
 import { equityIterations } from './equityIterations';
+// ICM 风险溢价（锦标赛）与「门槛 = 赔率 + 溢价」的唯一来源。现金局恒为 0。
+import { riskAdjustedThreshold, riskPremiumFor } from './gtoICM';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -590,7 +592,10 @@ export function getDeepStackRecommendation(
     toCall: ctx.toCall,
     totalPot: ctx.totalPot,
     lastRaiseBet: state.lastRaiseBet,
-    potOdds: ctx.potOdds,
+    // ICM 风险溢价（现金局恒为 0）叠加到跟注门槛上 —— 本引擎下面所有跟注判据
+    // （strong/medium/draw 三档 × commit/control/cautious 三档）都读 `config.potOdds`，
+    // 所以在这一处注入即可全覆盖，不必逐个分支改。
+    potOdds: riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player)),
   };
 
   if (ctx.toCall > 0) {

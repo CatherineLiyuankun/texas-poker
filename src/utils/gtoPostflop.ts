@@ -34,6 +34,8 @@ import { drawCallEquityThreshold } from './gtoMath';
 import { sprFromState, shouldAllInBySPR } from './spr';
 // SPR 承诺档（commit / control / cautious）的翻后修正 —— 与 gtoDeepStack 共用同一套分档。
 import { sprPostflopAdjustment } from './sprStrategy';
+// ICM 风险溢价（锦标赛）与「门槛 = 赔率 + 溢价」的唯一来源。现金局恒为 0。
+import { riskAdjustedThreshold, riskPremiumFor } from './gtoICM';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -122,6 +124,10 @@ export function decidePostflopGTO(
   // SPR 承诺档修正：低 SPR（commit 档）下顶对即可 stack off、诈唬失效；
   // 高 SPR 保持原样。与面板共用同一套（见 sprStrategy.sprPostflopAdjustment）。
   const sprAdj = sprPostflopAdjustment(spr);
+  // ICM 风险溢价（现金局恒为 0）：翻后的跟注门槛同样要叠加它。
+  // 以前只有翻前吃 ICM（`botAI.decidePreflop`），翻后按现金局逻辑照跟 —— 前后不一致。
+  // 溢价只抬高**权益要求**，不改「这注便宜不便宜」的价格判断。
+  const callBase = riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player));
 
   const facingBet = ctx.toCall > 0;
   const facingBigRaise = ctx.toCall > state.lastRaiseBet * 2;
@@ -162,7 +168,7 @@ export function decidePostflopGTO(
       // 「下注约 ≤54% 底池」，等于「只要是听牌就跟」—— 转牌 8 outs 的两头顺
       // （权益约 19%）会去跟半池（需要 25%），是实打实的漏。它已被门槛判据取代，
       // 只在「差得不多」时才放宽，且放宽量有上界。
-      if (flags.canCallResult && equity >= drawCallEquityThreshold(ctx.potOdds)) {
+      if (flags.canCallResult && equity >= drawCallEquityThreshold(callBase)) {
         return { action: 'call' };
       }
       if (flags.canFoldResult) return { action: 'fold' };
@@ -170,13 +176,13 @@ export function decidePostflopGTO(
 
     if (strength === 'medium') {
       // 跟注所需的额外余量由 SPR 给（sprStrategy）：低 SPR 下顶对按直接赔率跟即可
-      // （callMargin = 0），中高 SPR 仍要求 potOdds + 0.05 的余量。
-      if (equity >= ctx.potOdds + sprAdj.callMargin && flags.canCallResult) return { action: 'call' };
+      // （callMargin = 0），中高 SPR 仍要求门槛 + 0.05 的余量。
+      if (equity >= callBase + sprAdj.callMargin && flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
     }
 
     if (strength === 'weak') {
-      if (equity >= ctx.potOdds && flags.canCallResult) return { action: 'call' };
+      if (equity >= callBase && flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
     }
 

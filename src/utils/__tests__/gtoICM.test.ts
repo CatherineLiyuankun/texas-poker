@@ -9,6 +9,9 @@ import {
   riskPremiumFor,
   isIcmBubble,
   BUBBLE_PREMIUM_THRESHOLD,
+  PAYOUT_STRUCTURE,
+  numPlayersPaidFor,
+  riskAdjustedThreshold,
   type ICMConfig,
 } from '../gtoICM';
 import * as preflopHandStrength from '../preflopHandStrength';
@@ -475,6 +478,58 @@ describe('gtoICM', () => {
       expect(config.averageStack).toBeCloseTo(3333, 0);
       expect(config.payoutStructure).toBeDefined();
       expect(config.payoutStructure.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('riskAdjustedThreshold（门槛 = 赔率 + 溢价）', () => {
+    it('就是把溢价加到基础门槛上', () => {
+      expect(riskAdjustedThreshold(0.25, 0.16)).toBeCloseTo(0.41, 12);
+      expect(riskAdjustedThreshold(0.25, 0)).toBeCloseTo(0.25, 12);
+    });
+
+    it('溢价有符号：短筹码的负溢价会放宽门槛', () => {
+      expect(riskAdjustedThreshold(0.25, -0.1)).toBeCloseTo(0.15, 12);
+    });
+
+    it('夹到 [0, 1]：负溢价压到 0 以下按 0 处理，超过 1 按 1 处理', () => {
+      expect(riskAdjustedThreshold(0.2, -0.5)).toBe(0);
+      expect(riskAdjustedThreshold(0.8, 0.5)).toBe(1);
+    });
+  });
+
+  describe('进钱圈口径（单桌 6 人 → 前 3 名）', () => {
+    afterEach(() => resetGtoConfig());
+
+    it('numPlayersPaidFor 取「半数进钱」，并以奖金表长度封顶', () => {
+      expect(numPlayersPaidFor(6)).toBe(3);
+      expect(numPlayersPaidFor(9)).toBe(PAYOUT_STRUCTURE.length); // 封顶
+      expect(numPlayersPaidFor(2)).toBe(1);
+      // 回归：以前是 floor(players * 0.15)，6 人桌算出 **0** 个进钱位，
+      // 与「奖金表里有 3 个名次」自相矛盾。
+      expect(numPlayersPaidFor(6)).toBeGreaterThan(0);
+    });
+
+    it('PAYOUT_STRUCTURE 是奖金结构的单一来源（表长 = 进钱圈人数上限）', () => {
+      expect([...PAYOUT_STRUCTURE]).toEqual([0.5, 0.3, 0.2]);
+      expect(PAYOUT_STRUCTURE.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    });
+
+    it('6 人桌的赛段仍是 early —— 单桌结构使然，生效的信号是筹码泡沫因子', () => {
+      setGtoConfig({ scenario: 'tournament' });
+      const state = createMockGameState({
+        players: Array.from({ length: 6 }, (_, i) =>
+          createMockPlayer({ id: (i + 1) as PlayerId, chips: 1000 })
+        ),
+      });
+
+      const config = getICMConfig(state, state.players[0]);
+      // 本应用玩家出局后不离开 players 数组 → 场上/起始 = 1.0 → 永远 early。
+      // 这是**结构性**的，不是 bug；见 getICMConfig 的注释。
+      expect(config.tournamentStage).toBe('early');
+      // 但基于筹码的泡沫因子照样给出显著溢价 —— 这才是真正接管决策的信号。
+      expect(riskPremiumFor(state, state.players[0])).toBeGreaterThan(
+        BUBBLE_PREMIUM_THRESHOLD,
+      );
     });
   });
 });

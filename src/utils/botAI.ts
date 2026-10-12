@@ -29,6 +29,7 @@ import {
   getICMRecommendation,
   getICMConfig,
   riskPremiumFor,
+  riskAdjustedThreshold,
   BUBBLE_PREMIUM_THRESHOLD,
   type Position,
 } from './gtoICM';
@@ -807,6 +808,14 @@ function decidePostflop(
   // 因为对手已经 all-in 或大幅加注，不可能弃牌
   const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
 
+  // ICM 风险溢价（现金局恒为 0）叠加到跟注门槛上 —— 以前只有翻前吃 ICM
+  // （本文件 `decidePreflop` 的 ICM 分支），翻后却按现金局逻辑照跟。
+  //
+  // 刻意**不改 `ctx.potOdds` 本身**：它同时是「这注便宜不便宜」的价格判据
+  // （`ctx.potOdds < 0.12` 之类），且翻前 ICM 分支会把它当基础门槛再叠一次溢价
+  // （`getICMRecommendation` 内部），整体替换会双重计数。这里只抬高权益要求。
+  const callBase = riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player));
+
   // 强牌：胜率 >= 75% + 对手画像调整
   if (equity >= 0.75 + adj.callPenalty) {
     if (isFacingBigRaise && !hasPlayersBehind) {
@@ -832,7 +841,7 @@ function decidePostflop(
   if (equity >= 0.55 + adj.callPenalty - effectiveRaiseBonus) {
     // 面对大额加注时，中等牌力改为倾向跟注/过牌，不主动加注
     if (isFacingBigRaise) {
-      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && equity >= callBase) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
       if (flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
@@ -847,7 +856,7 @@ function decidePostflop(
       return { action: 'check' };
     }
     // 跟注：10% 概率
-    if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+    if (flags.canCallResult && equity >= callBase) return { action: 'call' };
     if (flags.canCallResult) return { action: 'call' };
   }
 
@@ -855,7 +864,7 @@ function decidePostflop(
   if (equity >= 0.35 + adj.callPenalty - effectiveRaiseBonus) {
     // 面对大额加注时，禁止诈唬，改为跟注/弃牌
     if (isFacingBigRaise) {
-      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && equity >= callBase) return { action: 'call' };
       if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
       if (flags.canCheckResult) return { action: 'check' };
@@ -871,7 +880,7 @@ function decidePostflop(
       return { action: 'check' };
     }
     // 跟注：20% 概率
-    if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+    if (flags.canCallResult && equity >= callBase) return { action: 'call' };
     if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
   }
 
@@ -928,6 +937,9 @@ function decideRiver(
   // 面对大额加注/all-in 时，raiseBonus 不适用
   const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
 
+  // ICM 风险溢价（现金局恒为 0）—— 口径与 `decidePostflop` 完全一致。
+  const callBase = riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player));
+
   // 强牌：胜率 >= 70% + 对手画像调整
   if (equity >= 0.70 + adj.callPenalty) {
     if (isFacingBigRaise && !hasPlayersBehind) {
@@ -953,7 +965,7 @@ function decideRiver(
   if (equity >= 0.50 + adj.callPenalty - effectiveRaiseBonus) {
     // 面对大额加注时，中等牌力改为倾向跟注/过牌
     if (isFacingBigRaise) {
-      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && equity >= callBase) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
       if (flags.canFoldResult) return { action: 'fold' };
       if (flags.canCallResult) return { action: 'call' };
@@ -968,7 +980,7 @@ function decideRiver(
       return { action: 'check' };
     }
     // 跟注：15% 概率
-    if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+    if (flags.canCallResult && equity >= callBase) return { action: 'call' };
     if (flags.canCallResult && ctx.isHeadsUp) return { action: 'call' };
   }
 
@@ -990,7 +1002,7 @@ function decideRiver(
   if (
     equity >= 0.30 + adj.callPenalty &&
     flags.canCallResult &&
-    equity >= ctx.potOdds + 0.05
+    equity >= callBase + 0.05
   ) {
     return { action: 'call' };
   }

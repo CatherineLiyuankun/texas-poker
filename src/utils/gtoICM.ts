@@ -358,12 +358,62 @@ export function isIcmBubble(state: GameState, hero: Player): boolean {
 }
 
 /**
+ * 把 ICM 风险溢价叠加到**跟注门槛**上 —— 翻前 / 翻后 / 河牌共用这一条口径。
+ *
+ * `requiredEquity = 直接赔率 + riskPremium`，与 `getICMRecommendation` 里
+ * 「风险溢价一律加在基础门槛之上」是同一条式子；以前它只写在翻前，于是
+ * 机器人**翻前因 ICM 收紧、翻后却按现金局逻辑照跟**。
+ *
+ * 溢价**有符号**（见 `riskPremiumFor`）：筹码高于桌均为正（收紧），低于桌均为负
+ * （放宽，短筹码该多赌）。夹到 `[0, 1]`：负到把门槛压到 0 以下按 0 处理，
+ * 超过 1 则等价于「永不跟注」，不会把门槛变成无意义的负数或 >1 的值。
+ *
+ * ⚠️ 这是**线性近似**（真实 ICM 的门槛修正应随「本次投入占有效筹码的比例」缩放）。
+ * 与仓库既有的翻前口径保持一致是有意为之；若要改成按投入比例缩放，改这一处即可。
+ */
+export function riskAdjustedThreshold(
+  baseThreshold: number,
+  riskPremium: number,
+): number {
+  return Math.min(1, Math.max(0, baseThreshold + riskPremium));
+}
+
+/**
+ * 奖金结构的**单一来源**。表长即「进钱圈人数」的上限。
+ *
+ * 以前这里是内联在 `getICMConfig` 里的字面量数组，而进钱圈人数另算成
+ * `floor(players * 0.15)` —— 6 人桌算出 **0 个进钱位**，与「有 3 个名次有奖金」
+ * 自相矛盾。现在两者都从这一张表推导。
+ */
+export const PAYOUT_STRUCTURE = [0.50, 0.30, 0.20] as const;
+
+/**
+ * 进钱圈人数：单桌取「半数进钱」，并以奖金表长度封顶。
+ *
+ * 6 人桌 → 3 人进钱（与 `PAYOUT_STRUCTURE` 的三个名次对齐）；2 人桌 → 1 人。
+ * 之所以取半数而不是 MTT 常见的 15%：本应用是**单张 6 人桌**，15% 会算出 0 个
+ * 进钱位（见上），ICM 就永远没有泡沫期可言。
+ */
+export function numPlayersPaidFor(numPlayers: number): number {
+  return Math.max(1, Math.min(PAYOUT_STRUCTURE.length, Math.floor(numPlayers / 2)));
+}
+
+/**
  * 从对局状态组装 ICM 配置。
  *
  * `hero` 是**当前行动的那个玩家** —— 以前这里固定取 `state.players[0]`，于是
  * 2–6 号位的决策都在拿 1 号位的筹码算自己的风险溢价（`heroStack` 错、进而
  * `calculateBubbleFactor` 的输赢两侧都错）。`hero` 缺省时退回 `players[0]`，
  * 只为兼容只关心「桌子整体」的调用方。
+ *
+ * ⚠️ **`tournamentStage` 在本应用里恒为 `early`，这是结构性的，不是 bug**：
+ * 它的输入是「场上人数 / 起始人数」，而本应用玩家出局后**不离开 `players` 数组**
+ * （`useGameState` 每局开局前自动补码），于是这个比值恒为 1.0。
+ *
+ * 真正生效的 ICM 信号是**基于筹码的泡沫因子**（`riskPremiumFor` → `calculateBubbleFactor`），
+ * 它对任意桌型都成立、也随筹码分布变化 —— `isIcmBubble` 用的就是它。
+ * `tournamentStage` 目前只被 `getICMRecommendation` 折算成 `icmAdjustment`，
+ * 而那个字段的调用方（`botAI`）只读 `action` / `sizing` / `reasoning`。
  */
 export function getICMConfig(state: GameState, hero?: Player): ICMConfig {
   const playerStacks = state.players.map(p => p.chips);
@@ -371,8 +421,8 @@ export function getICMConfig(state: GameState, hero?: Player): ICMConfig {
   const averageStack = totalChips / state.players.length;
 
   return {
-    tournamentStage: getTournamentStage(state.players.length, Math.floor(state.players.length * 0.15)),
-    payoutStructure: [0.50, 0.30, 0.20],
+    tournamentStage: getTournamentStage(state.players.length, numPlayersPaidFor(state.players.length)),
+    payoutStructure: [...PAYOUT_STRUCTURE],
     playerStacks,
     heroStack: hero?.chips ?? state.players[0]?.chips ?? 0,
     blinds: state.smallBlind * 2,
