@@ -135,28 +135,33 @@ export const PlayerStatsTable: React.FC<PlayerStatsTableProps> = ({
   ];
 
   return (
+    // 表头一律 `whitespace-nowrap`：`3-Bet` / `Turn CB` / `F/CB` / `W$SD` 里都有
+    // 连字符、空格或斜杠，浏览器会把它们当断行点 —— 列一窄就被折成 `3-` / `Bet`
+    // 两行，表头高度翻倍且对不齐。加了 nowrap 之后，表格的 min-content 宽度由表头
+    // 决定，浮层（absolute + 收缩包裹）随之变宽；实在放不下时由外层的
+    // `overflow-x-auto` 兜底横向滚动，而不是把字折断。
     <table className="w-full text-[10px]">
       <thead>
         <tr className="text-white/30 text-[10px]">
-          <th className="text-left" />
-          <th colSpan={4} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
-          <th colSpan={6} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
-          <th colSpan={2} className="text-center border-b border-white/10">{translations.playerStats.showdown}</th>
+          <th className="text-left whitespace-nowrap" />
+          <th colSpan={4} className="text-center whitespace-nowrap border-b border-white/10">{translations.playerStats.preflop}</th>
+          <th colSpan={6} className="text-center whitespace-nowrap border-b border-white/10">{translations.playerStats.postflop}</th>
+          <th colSpan={2} className="text-center whitespace-nowrap border-b border-white/10">{translations.playerStats.showdown}</th>
         </tr>
         <tr className="text-white/50 text-[8px]">
-          <th className="text-left">{translations.playerStats.name}</th>
-          <th className="text-right">{translations.playerStats.vpip}</th>
-          <th className="text-right">{translations.playerStats.pfr}</th>
-          <th className="text-right">{translations.playerStats.threeBet}</th>
-          <th className="text-right border-r border-white/10">{translations.playerStats.type}</th>
-          <th className="text-right">{translations.playerStats.af}</th>
-          <th className="text-right">{translations.playerStats.afq}</th>
-          <th className="text-right">{translations.playerStats.cbet}</th>
-          <th className="text-right">{translations.playerStats.foldToCbet}</th>
-          <th className="text-right">{translations.playerStats.turnCbet}</th>
-          <th className="text-right border-r border-white/10">{translations.playerStats.checkRaise}</th>
-          <th className="text-right">{translations.playerStats.wtsd}</th>
-          <th className="text-right">{translations.playerStats.wsd}</th>
+          <th className="text-left whitespace-nowrap">{translations.playerStats.name}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.vpip}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.pfr}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.threeBet}</th>
+          <th className="text-right whitespace-nowrap border-r border-white/10">{translations.playerStats.type}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.af}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.afq}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.cbet}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.foldToCbet}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.turnCbet}</th>
+          <th className="text-right whitespace-nowrap border-r border-white/10">{translations.playerStats.checkRaise}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.wtsd}</th>
+          <th className="text-right whitespace-nowrap">{translations.playerStats.wsd}</th>
         </tr>
       </thead>
       <tbody>

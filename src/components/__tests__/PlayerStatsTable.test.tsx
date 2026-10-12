@@ -92,4 +92,26 @@ describe('PlayerStatsTable：全体玩家都读长期（跨会话）统计', () 
     expect(row!.children[1].textContent).toBe('—'); // VPIP
     expect(row!.children[2].textContent).toBe('—'); // PFR
   });
+
+  it('每个表头都带 whitespace-nowrap（3-Bet / Turn CB / F/CB 不能被折断）', () => {
+    // jsdom 不做布局，量不出真实折行；这里锁住「结构」：表头单元格必须带
+    // `whitespace-nowrap`。`3-Bet`（连字符）、`Turn CB`（空格）、`F/CB`（斜杠）
+    // 都是浏览器的天然断行点，列一窄就被折成两行 —— 去掉这个类，表头会重新折行。
+    const { container } = render(
+      <PlayerStatsTable botLongStats={[mkStats({ playerId: 2 })]} />,
+    );
+
+    const headers = Array.from(container.querySelectorAll('thead th'));
+    expect(headers.length).toBeGreaterThan(0);
+    const withoutNowrap = headers
+      .filter((th) => !th.className.includes('whitespace-nowrap'))
+      .map((th) => th.textContent);
+    expect(withoutNowrap).toEqual([]);
+
+    // 易折行的那几个表头确实在
+    const texts = headers.map((th) => th.textContent);
+    expect(texts).toContain(translations.playerStats.threeBet);
+    expect(texts).toContain(translations.playerStats.turnCbet);
+    expect(texts).toContain(translations.playerStats.foldToCbet);
+  });
 });
