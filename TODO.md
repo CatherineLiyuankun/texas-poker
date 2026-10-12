@@ -68,31 +68,3 @@
   直接删掉 `stealBoost` 与这两处 `random()`。
   **注意**：同段 :397 的 `random() >= defendTighten` 是**正确的**（`defendTighten`
   ∈ {0, 0.05}，非零时确实有 5% 收紧），别顺手改。
-
-### 3. 机器人不感知「无人可应」，会对已全下对手做无意义加注
-
-- **位置**：`src/utils/botAI.ts:1058 / 1065`（`getBotAction` 里算 flags 的两处）
-
-  ```ts
-  const canRaiseResult = canRaise(state.lastBet, player.bet, player.chips,
-                                  state.lastRaiseBet, state.raiseRightsOpened);
-  const canAllInResult = canAllIn(player.chips);
-  ```
-
-- **现象**：`canRaise` / `canAllIn` 只看**自己**的筹码，不看对手。于是当机器人是
-  最后一个还能下注的人、其余对手都已全下时，它仍会选加注/全押。
-  **实测**（6 人桌退化成单挑：SB=1000 筹码、BB 只有 4 筹码被动全下，
-  `startGame(0, 2, 5, [1000, 4])` 后对 SB 采样 `getBotAction` 40 次）：
-  随机手牌 → `fold`；把 SB 换成 **AA** → **`raise:13`**。
-- **影响**：**仅口径不干净，不是正确性问题**（已实测）。多下的筹码进主池显示
-  （`mainPot` 由 9 变 22），摊牌时经 `calculatePots` 的阈值边池退回本人 ——
-  实测 `底池分配 = [主池 8 → [4,4], 边池1 14 → [14,0]]`，最终筹码 `1000 / 4`
-  = 开局 `1004`，**守恒**。所以只是「亮了一个没人跟得起的注」+ 底池数字虚高。
-- **对照**：真人侧已经在 `useGameState.canPlayerAct` 里禁用了这两种动作
-  （见 `docs/PASSIVE_ALLIN_PLAN.md`），机器人侧漏了 —— 两边不对称。
-- **修法方向**：在 `getBotAction` 里给 flags 补一个「有 live opponent」的条件
-  （与 `canPlayerAct` 同口径：`!folded && !allIn && chips > 0` 且不是自己；
-  allin 保留 `toCall > chips` 的短筹码跟注例外）。
-  **注意**：`flags.canRaiseResult` / `canAllInResult` 被 `decidePreflop*` /
-  `decidePostflop*` / `decideRiver*` 大量引用，改它会移动机器人的实际行为，
-  必须跑全套 `botAI*` / `gto*` 测试确认，别当成一行小改。

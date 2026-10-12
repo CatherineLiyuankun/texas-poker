@@ -126,6 +126,14 @@ Total: $230 = sum of all bets ✓
   pointless, so the board just runs out to showdown. That player still has to call or
   fold if they owe chips. `canPlayerAct` mirrors this by disabling `raise` (and
   `allin`, except as a short-stack call when `toCall > chips`).
+- **The "no live opponent" test has exactly ONE definition**: `!folded && !allIn &&
+  chips > 0`, excluding yourself. It gates *both* sides — `canPlayerAct` for the human
+  buttons, and `ActionFlags.canRaiseResult` / `canAllInResult` built in
+  `botAI.getBotAction` for the bots (every `gto*` engine consumes those flags, so gate
+  them at that single site). They drifted apart once: the human buttons were correctly
+  disabled while bots kept raising into an all-in opponent. Any engine that derives a
+  `raise` *after* the fact (e.g. `gtoDeepStack`'s `stealBoost` check→raise flip) must
+  re-check the flag.
 
 ### Board Texture Analysis (`src/utils/boardTexture.ts`)
 

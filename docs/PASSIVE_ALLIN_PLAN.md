@@ -342,6 +342,35 @@ jest.spyOn(botAIModule, 'getBotAction').mockImplementation((player, state) =>
 | `218ee04` docs(plan) | 本方案文档 | — |
 | `63f3b4b` fix(allin) | 第 1 步：盲注打光筹码时置 `allIn`（根因） | 4 suites / **73** tests passed（71 → 73） |
 | `f56ede1` fix(betting) | 第 2 步：统一回合判定 + 无人可应时结束本轮 + `canPlayerAct` 门控 | 7 suites / **81** tests passed（73 → 81） |
+| `c330d64` docs | TODO.md 记技术债 3（机器人侧缺口） | — |
+| `abd42b9` docs(agents) | AGENTS.md 补跨模块不变量 | — |
+| （本批）fix(bot) | 第 3 步：机器人侧 flags 同步「无人可应」口径（见下） | 23 suites / **461** tests passed（botAI\* / gto\* / icm\* / e2e 全部） |
+
+### 第 3 步：机器人侧 `getBotAction` 感知「无人可应」（原技术债 3，已修）
+
+- **改动**（两处，均为「事后派生加注动作必须复核 flags」的口径对齐）：
+  1. `botAI.getBotAction`：flags 构建处新增 `hasLiveOpponent`
+     （`!folded && !allIn && chips > 0`，排除自己，与 `canPlayerAct` 同口径）——
+     `canRaiseResult` 被它整体门控；`canAllInResult` 保留短筹码跟注例外
+     （`hasLiveOpponent || toCall > chips`）。所有 `gto*` 引擎只消费 flags，
+     在这一处门控即全链路生效。
+  2. `gtoDeepStack.getDeepStackRecommendation`：末尾「对手弃牌率高 → check 翻成
+     raise 偷盲」的后处理补上 `flags.canRaiseResult` 复核 —— 它是全仓**唯一**
+     一处不看 flags 就直接产出 `raise` 的机器人路径（审计了所有
+     `action: 'raise'|'allin'` 返回点）。
+- **负验证**：`git stash` 掉这两处源码改动后，新增用例实测**失败**
+  （botAI：AA 面对 5 路全下仍返回 `allin`；gtoDeepStack：check 被翻成 raise），
+  证明用例钉住的正是这条路径；恢复后全绿。
+- **新增测试**：
+  - `botAI.test.ts`「无人可应（对手全下）：机器人不再自我加注」3 条：
+    翻前 5 路全下 40 个种子扫不出 raise/allin；短筹码例外（30 筹码面对 100 注）
+    仍保留 allin 出口（且至少部分种子真的选中）；翻牌深筹码偷盲路径不翻加注。
+  - `gtoDeepStack.test.ts`「无人可应（canRaiseResult=false）时不把 check 翻成加注」
+    2 条：前置断言（可加注时偷盲后处理确实生效）+ 门控断言（关闸后停在 check）。
+- **AGENTS.md**：追加「无人可应」唯一定义不变量（human / bot 两侧同源，
+  事后派生加注必须复核 flag）。
+- lint：全仓 `npm run lint` → 0 errors，仅 GameBoard 3 条**既有**
+  `react-hooks/exhaustive-deps` 警告。
 
 - lint：改动文件 `npx eslint` → **0 errors**；GameBoard 的 3 条
   `react-hooks/exhaustive-deps` 警告与 HEAD **逐条相同**（仅行号位移），非本次引入。
