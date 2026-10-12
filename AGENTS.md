@@ -110,6 +110,22 @@ Total: $230 = sum of all bets ✓
 - `state.mainPot` is for UI display only, actual chips tracked in `player.bet`
 - When calculating pots after all-in, pass `currentPot=0` to avoid duplication
 - Clear existing side pots before recalculating (fix cumulative bug)
+- **Blinds that empty a stack are a passive all-in**: after posting SB/BB in
+  `START_GAME`, set `if (player.chips === 0) player.allIn = true` — same as the
+  call/check/raise/allin branches. Missing it leaves the malformed state
+  `chips === 0 && allIn === false`, which renders as `Waiting` instead of `All In`
+  and drops the player from the "someone can still bet" test.
+- **"Is the betting round over?" has exactly ONE implementation**:
+  `useGameState.bettingComplete(state)` (exported). The reducer uses it to block
+  raises; `GameBoard` uses it to gate bot actions, human action buttons, and street
+  advancement. Never write a second copy — the two copies drifted apart once and the
+  symptom was a deadlock (raise silently swallowed, buttons still visible, street
+  never advanced). See `docs/PASSIVE_ALLIN_PLAN.md`.
+- `bettingComplete` returns `true` when only one player can still bet and they owe
+  nothing — i.e. no opponent can respond (everyone else is all-in). Betting is then
+  pointless, so the board just runs out to showdown. That player still has to call or
+  fold if they owe chips. `canPlayerAct` mirrors this by disabling `raise` (and
+  `allin`, except as a short-stack call when `toCall > chips`).
 
 ### Board Texture Analysis (`src/utils/boardTexture.ts`)
 
