@@ -389,7 +389,7 @@ function GridRow({
   title?: string;
   /**
    * 独占整行（`col-span-2`）。面板最窄时是 `min-w-[216px]`，两列各只有约 96px；
-   * 标签长于半列的行（`范围权益 Equity` / `MDF防御频率` / `Current Hand` …）必须
+   * 标签长于半列的行（`范围权益 Equity` / `MDF防御频率` / `对手下注 V:B` …）必须
    * 走整行，否则标签会被从中间折断成两行 —— 那比多占一行更难看。
    */
   fullWidth?: boolean;
@@ -1005,39 +1005,38 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* SPR (独立计算) + Current hand (独占整行) */}
-      <div className="border-t border-white/10 pt-1 mt-1">
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {/* Left column: SPR */}
-          {spr !== undefined && spr > 0 && (
-            <GridRow
-              label={translations.handAnalysis.spr}
-              value={
-                <>
-                  {spr.toFixed(1)}
-                  <StrengthBar
-                    value={Math.min(spr / 12, 1)}
-                    color={getSprBarColor(spr)}
-                  />
-                  <span className={`ml-1 text-[9px] ${getSprColor(spr)}`}>
-                    {getSprLabel(spr)}
-                  </span>
-                </>
-              }
-              color={getSprColor(spr)}
-            />
-          )}
-
-          {/* Current hand：**独占整行**。牌型名是中英双语的（`一对 Pair` …
-              `皇家同花顺 Royal Flush`），配上 `Current Hand` 这个标签远超半列的约 96px
-              —— 不占整行就会把标签从中间折断。 */}
+      {/* SPR (独立计算) + Current hand —— 两行都是整行，所以这里不再需要两列网格 */}
+      <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
+        {/* SPR：`Current Hand` 独占整行后，SPR 若还留在半列，右边会空出半格
+            （原先它俩并排，现在没有东西能和 SPR 配对）。索性也走整行 ——
+            顺带让「数值 + 强度条 + 深浅标签」拿到整行宽度。 */}
+        {spr !== undefined && spr > 0 && (
           <GridRow
-            fullWidth
-            label={translations.handAnalysis.currentHand}
-            value={shouldCalculate && currentHandRank ? HAND_RANK_NAMES[currentHandRank] : '...'}
-            color={getCurrentHandRankColor(currentHandRank ?? '')}
+            label={translations.handAnalysis.spr}
+            value={
+              <>
+                {spr.toFixed(1)}
+                <StrengthBar
+                  value={Math.min(spr / 12, 1)}
+                  color={getSprBarColor(spr)}
+                />
+                <span className={`ml-1 text-[9px] ${getSprColor(spr)}`}>
+                  {getSprLabel(spr)}
+                </span>
+              </>
+            }
+            color={getSprColor(spr)}
           />
-        </div>
+        )}
+
+        {/* Current hand：**整行**。牌型名是中英双语的（`一对 Pair` …
+            `皇家同花顺 Royal Flush`），配上 `Current Hand` 这个标签远超半列的约 96px
+            —— 只占半列就会把标签从中间折断。 */}
+        <GridRow
+          label={translations.handAnalysis.currentHand}
+          value={shouldCalculate && currentHandRank ? HAND_RANK_NAMES[currentHandRank] : '...'}
+          color={getCurrentHandRankColor(currentHandRank ?? '')}
+        />
       </div>
 
       {/* Win rate + Pod odds + Action */}
