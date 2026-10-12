@@ -238,11 +238,28 @@ function hasPlayerActedAfterAllIn(state: GameState): boolean {
   return notAllInPlayers.every((p) => p.bet >= maxAllInBet || p.hasActed);
 }
 
-function bettingComplete(state: GameState): boolean {
-  const activePlayers = state.players.filter(
-    (p) => !p.folded && (p.allIn || p.chips > 0),
-  );
-  if (activePlayers.length <= 1) return true;
+/**
+ * 本轮下注是否已经结束 —— **全仓唯一**的判定，reducer 与 `GameBoard` 共用。
+ *
+ * 以前这个语义有两份各写各的实现：reducer 侧一份（用来拦加注）、`GameBoard` 侧
+ * 一份（用来放行机器人 / 亮真人按钮 / 推进街道）。两份口径不同，遇到「盲注打光
+ * 筹码的被动 all-in」时一份判 `true`、一份判 `false` —— 加注被静默吞掉、按钮却
+ * 还亮着、街道也不推进，真人就卡死在那里（见 `docs/PASSIVE_ALLIN_PLAN.md`）。
+ * 收敛到一处之后不会再漂移。
+ */
+export function bettingComplete(state: GameState): boolean {
+  const activePlayers = state.players.filter((p) => !p.folded);
+  const canActPlayers = activePlayers.filter((p) => !p.allIn && p.chips > 0);
+
+  // 没人还能下注（只剩一个未弃牌者 / 全下 / 没筹码）→ 本轮无从下注。
+  if (activePlayers.length <= 1 || canActPlayers.length === 0) return true;
+
+  // 只剩一个人能下注、且他不欠跟注 → **无人可应**（对手都全下了）。
+  // 此时让他下注没有意义（没人跟得起，多下的筹码只会原样退回），本轮直接结束，
+  // 跑完公共牌去摊牌。他若还欠跟注（`bet < lastBet`）则不在此列：仍须跟注或弃牌。
+  if (canActPlayers.length === 1 && canActPlayers[0].bet >= state.lastBet) {
+    return true;
+  }
 
   if (!hasPlayerActedAfterAllIn(state)) return false;
 
@@ -310,11 +327,19 @@ export function useGameState() {
           newPlayers[sbIdx].bet = sbAmount;
           newPlayers[sbIdx].totalBet = sbAmount;
           newPlayers[sbIdx].chips -= sbAmount;
+          // 盲注把筹码打光 = **被动 all-in**：和 call/raise 分支同口径，把 allIn 一并置位。
+          // 漏了这一步会留下 `chips === 0 && allIn === false` 的畸形态 —— 座位标签会
+          // 显示「Waiting」，且 `bettingComplete` 的 `(allIn || chips > 0)` 两头都不满足，
+          // 把该玩家排除出「本轮还有人下注」的判定（见 docs/PASSIVE_ALLIN_PLAN.md）。
+          // `hasActed` 保持 false：下盲注不算行动；置位 allIn 后该玩家本就被排除在
+          // `canActPlayers` 之外，`hasActed` 不再被读。
+          if (newPlayers[sbIdx].chips === 0) newPlayers[sbIdx].allIn = true;
 
           const bbAmount = Math.min(bigBlind, newPlayers[bbIdx].chips);
           newPlayers[bbIdx].bet = bbAmount;
           newPlayers[bbIdx].totalBet = bbAmount;
           newPlayers[bbIdx].chips -= bbAmount;
+          if (newPlayers[bbIdx].chips === 0) newPlayers[bbIdx].allIn = true;
 
           let nextPlayerIdx = (bbIdx + 1) % totalPlayers;
           while (newPlayers[nextPlayerIdx].folded) {
@@ -1133,13 +1158,20 @@ export function useGameState() {
       const player = state.players[getPlayerIndex(playerId)];
       if (!player || player.folded || player.allIn) return false;
 
+      // 还有没有「能继续下注」的对手。已弃牌 / 已全下 / 没筹码的对手都下不了注，
+      // 对他们加注**无人可应**（多下的筹码只会原样退回），所以不该亮加注/全押按钮。
+      const hasLiveOpponent = state.players.some(
+        (p) => p.id !== playerId && !p.folded && !p.allIn && p.chips > 0,
+      );
+      const toCall = state.lastBet - player.bet;
+
       switch (action) {
         case 'check':
           return canCheck(state.lastBet, player.bet);
         case 'call':
           return canCall(state.lastBet, player.bet, player.chips);
         case 'raise':
-          return canRaise(
+          return hasLiveOpponent && canRaise(
             state.lastBet,
             player.bet,
             player.chips,
@@ -1149,7 +1181,11 @@ export function useGameState() {
         case 'fold':
           return canFold(state.lastBet, player.bet);
         case 'allin':
-          return canAllIn(player.chips);
+          // 无人可应时，全押只在「跟注都不够」时才有意义（短筹码跟注）；
+          // 否则它等同于一次没人跟得起的加注。注意 `canCall` 要求
+          // `toCall <= chips`，所以这条例外不能删 —— 删了筹码不够跟注的玩家
+          // 将既不能跟注也不能全押，只能弃牌。
+          return canAllIn(player.chips) && (hasLiveOpponent || toCall > player.chips);
         default:
           return false;
       }

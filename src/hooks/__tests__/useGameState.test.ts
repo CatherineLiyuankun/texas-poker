@@ -586,6 +586,52 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
       expect(totalChips + totalBets).toBe(5 + 1000);
     });
+
+    it('盲注把筹码打光时标记 allIn（被动 all-in）', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [4, 1000]);
+      });
+
+      const broke = result.current.state.players.filter((p) => p.chips === 0);
+      expect(broke).toHaveLength(1);
+      expect(broke[0].bet).toBe(4);
+      // 被动 all-in 必须置位：否则会留下 chips===0 && allIn===false 的畸形态，
+      // 座位标签会显示 Waiting，且 bettingComplete 会漏掉这个玩家（见 #15）
+      expect(broke[0].allIn).toBe(true);
+
+      // 没打光的玩家不应被误标
+      expect(
+        result.current.state.players
+          .filter((p) => p.chips > 0)
+          .every((p) => !p.allIn),
+      ).toBe(true);
+    });
+
+    it('大盲筹码不足时，下完盲注即标记 allIn', () => {
+      // 钉住 Math.random → createInitialState(2,0) 得 dealer=2 → SB=id1, BB=id2
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+      try {
+        const { result } = renderHook(() => useGameState());
+        act(() => {
+          result.current.startGame(2, 0, 5, [1000, 4]);
+        });
+
+        const { players, dealer, mainPot, lastBet } = result.current.state;
+        expect(dealer).toBe(2);
+
+        const bbIdx = (dealer - 1 + 2) % players.length;
+        const bb = players[bbIdx];
+        expect(bb.bet).toBe(4); // 只押得起 4，不足大盲 10
+        expect(bb.chips).toBe(0);
+        expect(bb.allIn).toBe(true);
+        // 大盲不足不降低 bring-in：其余人仍按完整大盲跟注
+        expect(lastBet).toBe(10);
+        expect(mainPot).toBe(5 + 4);
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
   });
 
   describe('canPlayerAct 权限检查', () => {
@@ -1151,6 +1197,88 @@ describe('游戏状态 - 多人场景与边界情况', () => {
         result.current.playerAction(ids[bbIdx], 'raise', 20);
       });
       expect(result.current.state).toBe(snapshot);
+    });
+  });
+
+  describe('对手全下后无人可应（被动 all-in 的回合判定与按钮禁用）', () => {
+    /**
+     * 钉住 Math.random → dealer=2 → SB=id1, BB=id2；id2 只有 4 筹码，
+     * 下完盲注即被动 all-in。
+     */
+    const withShortBB = (
+      chips: [number, number],
+      run: (result: { current: ReturnType<typeof useGameState> }) => void,
+    ) => {
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+      try {
+        const { result } = renderHook(() => useGameState());
+        act(() => {
+          result.current.startGame(2, 0, 5, chips);
+        });
+        run(result);
+      } finally {
+        randomSpy.mockRestore();
+      }
+    };
+
+    it('对手已全下：还欠跟注时本轮未结束，跟平后立即结束', () => {
+      withShortBB([1000, 4], (result) => {
+        const heroId = result.current.state.players[0].id;
+        expect(result.current.state.players[1].allIn).toBe(true);
+        expect(result.current.state.currentPlayer).toBe(heroId);
+
+        // 欠 10 跟注 → 还没结束，真人必须跟注或弃牌
+        expect(result.current.isBettingComplete()).toBe(false);
+
+        act(() => {
+          result.current.playerAction(heroId, 'call');
+        });
+
+        // 跟平后无人可应 → 本轮结束，真人不再被要求行动（修复前会卡死在这里）
+        expect(result.current.isBettingComplete()).toBe(true);
+      });
+    });
+
+    it('无人可应时 raise 被禁用，call 仍可用', () => {
+      withShortBB([1000, 4], (result) => {
+        const heroId = result.current.state.players[0].id;
+
+        expect(result.current.canPlayerAct(heroId, 'call')).toBe(true);
+        expect(result.current.canPlayerAct(heroId, 'raise')).toBe(false);
+        // 跟注绰绰有余时，全押等同于一次没人跟得起的加注 → 也禁用
+        expect(result.current.canPlayerAct(heroId, 'allin')).toBe(false);
+      });
+    });
+
+    it('跟注都不够时仍可全押（短筹码跟注例外）', () => {
+      withShortBB([8, 4], (result) => {
+        const hero = result.current.state.players[0];
+        expect(hero.bet).toBe(5); // SB
+        expect(hero.chips).toBe(3); // 8 - 5
+
+        const toCall = result.current.state.lastBet - hero.bet;
+        expect(toCall).toBeGreaterThan(hero.chips); // 连跟注都不够
+
+        expect(result.current.canPlayerAct(hero.id, 'call')).toBe(false);
+        // 例外：全押是唯一能「跟注不足」的方式，不能一起禁掉
+        expect(result.current.canPlayerAct(hero.id, 'allin')).toBe(true);
+      });
+    });
+
+    it('还有能下注的对手时，raise/allin 照常可用', () => {
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+      try {
+        const { result } = renderHook(() => useGameState());
+        act(() => {
+          result.current.startGame(3, 0, 5, [1000, 1000, 1000]);
+        });
+
+        const heroId = result.current.state.currentPlayer;
+        expect(result.current.canPlayerAct(heroId, 'raise')).toBe(true);
+        expect(result.current.canPlayerAct(heroId, 'allin')).toBe(true);
+      } finally {
+        randomSpy.mockRestore();
+      }
     });
   });
 });

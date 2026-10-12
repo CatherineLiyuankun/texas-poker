@@ -1,4 +1,5 @@
 import { getBotAction, getBotName, getShadowBotAction } from '../botAI';
+import { canAllIn, canCall, canRaise } from '../../hooks/useGameState';
 import * as equityCalculator from '../equityCalculator';
 import { equityIterations } from '../equityIterations';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
@@ -787,6 +788,131 @@ describe('Bot AI 决策', () => {
         seen.add(getShadowBotAction(state.players[1], state).action);
       }
       expect(seen.size).toBeGreaterThan(1);
+    });
+  });
+
+  /**
+   * #3（见 `TODO.md`）：对手全部 all-in 之后**无人可应**。
+   *
+   * 真人侧由 `useGameState.canPlayerAct` 的 `hasLiveOpponent` 把关 —— 按钮直接禁用，
+   * 玩家根本点不出这一手。机器人侧此前没有这条口径：`getBotAction` 把 flags 一次性
+   * 算好后交给 `gto*` 各引擎，而 `canRaiseResult` / `canAllInResult` 只看「自己能不能
+   * 出得起」，不看「有没有人接得住」，于是机器人在没有对手跟得起时还会自我加注
+   * （多下的筹码只会原样退回 —— 见 `docs/PASSIVE_ALLIN_PLAN.md`）。
+   *
+   * 修法是在 `getBotAction` 里就把这条条件折进 flags（下游全部靠 flags 消费），
+   * 所以这里全部走完整 `getBotAction`，不直接调引擎。
+   */
+  describe('无人可应（对手全下）：机器人不再自我加注', () => {
+    const AA = [
+      { suit: '♠', rank: 'A' },
+      { suit: '♥', rank: 'A' },
+    ];
+    const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1);
+
+    // 筹码已全部推进底池的对手：`chips === 0` + `allIn === true`（被动 / 主动 all-in 同形）。
+    const allInOpponent = (id: number, bet = 100) => ({
+      ...createPlayer(id as PlayerId, 0, AA, false, false, bet),
+      allIn: true,
+    });
+
+    const withHero = (
+      hero: Player,
+      overrides: Partial<GameState> = {},
+    ): GameState =>
+      createGameState({
+        phase: 'preflop',
+        players: [hero, ...[2, 3, 4, 5, 6].map((id) => allInOpponent(id))],
+        currentPlayer: hero.id,
+        dealer: 6 as PlayerId,
+        lastBet: 100,
+        lastRaiseBet: 50,
+        mainPot: 500,
+        smallBlind: 5,
+        realPlayerCount: 1,
+        botPlayerCount: 5,
+        ...overrides,
+      });
+
+    beforeEach(() => {
+      // 权益是蒙特卡洛：钉住它，让「扫种子」只扫策略随机源这一个变量。
+      jest.spyOn(Math, 'random').mockImplementation(mulberry32(2026));
+    });
+
+    afterEach(() => {
+      resetRandomSource();
+      jest.restoreAllMocks();
+    });
+
+    it('翻前 5 路全下：AA 也只能跟注，绝不加注 / 全押', () => {
+      const state = withHero(createPlayer(1 as PlayerId, 1000, AA, false));
+      const hero = state.players[0];
+
+      // 前置条件：闸门之外的条件**全都满足** —— 拦住加注/全押的正是「无人可应」这一条，
+      // 否则下面的断言就是空的。
+      expect(
+        canRaise(state.lastBet, hero.bet, hero.chips, state.lastRaiseBet, state.raiseRightsOpened),
+      ).toBe(true);
+      expect(canAllIn(hero.chips)).toBe(true);
+
+      for (const seed of SEEDS) {
+        setRandomSeed(seed);
+        const decision = getBotAction(hero, state);
+        expect(['raise', 'allin']).not.toContain(decision.action);
+        expect(['call', 'check', 'fold']).toContain(decision.action);
+      }
+    });
+
+    it('短筹码跟注例外：连跟注都不够时仍允许全押（不能退化成只能弃牌）', () => {
+      const state = withHero(createPlayer(1 as PlayerId, 30, AA, false));
+      const hero = state.players[0];
+
+      // 跟不起（toCall 100 > chips 30）⇒ 全押是唯一的下注出口，`canPlayerAct` 同款例外。
+      expect(canCall(state.lastBet, hero.bet, hero.chips)).toBe(false);
+      expect(canAllIn(hero.chips)).toBe(true);
+
+      for (const seed of SEEDS) {
+        setRandomSeed(seed);
+        // 加注仍被拦住（无效加注）；但 allin 必须留着，否则这个玩家只剩弃牌一条路。
+        expect(getBotAction(hero, state).action).not.toBe('raise');
+      }
+      // 至少有一半种子真的选了全押 —— 证明这条出口是通的，不是恒等于弃牌。
+      const allInCount = SEEDS.filter((seed) => {
+        setRandomSeed(seed);
+        return getBotAction(hero, state).action === 'allin';
+      }).length;
+      expect(allInCount).toBeGreaterThan(0);
+    });
+
+    it('翻牌：对手全下且已无需跟注 → 不会把 check 翻成加注（深筹码偷盲路径）', () => {
+      const state = withHero(
+        createPlayer(
+          1 as PlayerId,
+          2000,
+          [{ suit: '♦', rank: '7' }, { suit: '♣', rank: '2' }],
+          false,
+          false,
+          100,
+        ),
+        {
+          phase: 'flop',
+          communityCards: [
+            { suit: '♠', rank: 'A' },
+            { suit: '♦', rank: 'K' },
+            { suit: '♣', rank: 'Q' },
+          ],
+        },
+      );
+      const hero = state.players[0];
+      // 2000 筹码 = 200bb → 走深筹码引擎；`toCall === 0` → 可过牌。
+      expect(
+        canRaise(state.lastBet, hero.bet, hero.chips, state.lastRaiseBet, state.raiseRightsOpened),
+      ).toBe(true);
+
+      for (const seed of SEEDS) {
+        setRandomSeed(seed);
+        expect(['raise', 'allin']).not.toContain(getBotAction(hero, state).action);
+      }
     });
   });
 });

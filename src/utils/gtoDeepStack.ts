@@ -622,7 +622,9 @@ export function getDeepStackRecommendation(
   );
 
   // 对手弃牌率高时，增加偷盲/持续下注频率
-  if (stealBoost > 0 && result.action === 'check' && equity < 0.4) {
+  // 必须复核 `flags.canRaiseResult`：无人可应（对手都全下/弃牌）时它会被关掉，
+  // 此时把 check 翻成 raise 就是一次没人跟得起的无效加注。
+  if (stealBoost > 0 && flags.canRaiseResult && result.action === 'check' && equity < 0.4) {
     return {
       ...result,
       action: 'raise',

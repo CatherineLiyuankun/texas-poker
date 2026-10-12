@@ -1055,14 +1055,30 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   const toCall = potOddsInfo.toCall;
   const canCheckResult = canCheck(state.lastBet, player.bet);
   const canCallResult = canCall(state.lastBet, player.bet, player.chips);
-  const canRaiseResult = canRaise(
-    state.lastBet,
-    player.bet,
-    player.chips,
-    state.lastRaiseBet,
-    state.raiseRightsOpened,
+
+  // 「还有能继续下注的对手吗」—— 口径与 `useGameState.canPlayerAct` 完全一致
+  // （`!folded && !allIn && chips > 0`，且不是自己）。对手全部弃牌 / 全下之后，我方加注
+  // **无人可应**：多下的筹码只会原样退回（见 `docs/PASSIVE_ALLIN_PLAN.md`），所以机器人
+  // 也不该再选加注或全押 —— 否则它会在「没有对手跟得起」的情况下自我加注，制造一次无效
+  // 动作（真人侧同场景已经禁用按钮，机器人侧此前漏了这条）。
+  const hasLiveOpponent = state.players.some(
+    (p) => p.id !== player.id && !p.folded && !p.allIn && p.chips > 0,
   );
-  const canAllInResult = canAllIn(player.chips);
+
+  const canRaiseResult =
+    hasLiveOpponent &&
+    canRaise(
+      state.lastBet,
+      player.bet,
+      player.chips,
+      state.lastRaiseBet,
+      state.raiseRightsOpened,
+    );
+  // 全押：无人可应时只在「连跟注都不够」时还有意义（短筹码跟注），否则等同一次没人
+  // 跟得起的加注。这条例外不能删 —— `canCall` 要求 `toCall <= chips`，删了之后筹码不够
+  // 跟注的机器人将既不能跟注也不能全押，只能弃牌。与 `canPlayerAct` 的 `case 'allin'` 同一例外。
+  const canAllInResult =
+    canAllIn(player.chips) && (hasLiveOpponent || toCall > player.chips);
   const canFoldResult = canFold(state.lastBet, player.bet);
 
   const flags: ActionFlags = {

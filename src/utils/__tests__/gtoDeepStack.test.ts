@@ -340,4 +340,62 @@ describe('gtoDeepStack', () => {
       expect(recommendation.reasoning).toContain('checking');
     });
   });
+
+  /**
+   * 「无人可应」（`flags.canRaiseResult === false`）时**不做无效加注**。
+   *
+   * `getDeepStackRecommendation` 末尾有一条「对手弃牌率高 → 把 check 翻成 raise 偷盲」
+   * 的后处理。翻之前必须复核 `flags.canRaiseResult`：对手全下 / 弃牌后该位已被
+   * `getBotAction` 关掉，此时翻成加注就是一次没人跟得起的加注（多下的筹码原样退回）。
+   */
+  describe('无人可应（canRaiseResult=false）时不把 check 翻成加注', () => {
+    // raiseBonus > 0 ⇒ stealBoost = 0.05，这条后处理才会被激活。
+    const stealAdj = () => createMockOpponentAdjustments({ raiseBonus: 1 });
+
+    // 弱牌 + commit 档（SPR ≈ 0.5）→ `handleDeepStackNoBet` 给 check；
+    // equity 远低于 0.4 → 后处理的第二个条件也满足。
+    const weakHand = () =>
+      createMockPlayer({
+        hand: [createCard('7', '♦'), createCard('2', '♣')],
+        chips: 100,
+        bet: 100,
+      });
+
+    const noBetState = () =>
+      createMockGameState({
+        lastBet: 100,
+        mainPot: 200,
+        players: [
+          createMockPlayer({ id: 1, chips: 100, bet: 100 }),
+          createMockPlayer({ id: 2, isRealPlayer: false, chips: 100, bet: 100 }),
+        ],
+      });
+
+    const noBetCtx = () => createMockContext({ toCall: 0, totalPot: 200 });
+
+    it('前置条件：可加注时，这条偷盲后处理确实会把 check 翻成 raise', () => {
+      const rec = getDeepStackRecommendation(
+        weakHand(),
+        noBetState(),
+        createMockActionFlags(),
+        noBetCtx(),
+        stealAdj(),
+      );
+      // 若这条不成立，说明 fixture 没走到目标分支，下一条断言就是空的。
+      expect(rec.action).toBe('raise');
+      expect(rec.reasoning).toContain('stealing');
+    });
+
+    it('canRaiseResult=false 时同一局面停在 check，不做无效加注', () => {
+      const rec = getDeepStackRecommendation(
+        weakHand(),
+        noBetState(),
+        createMockActionFlags({ canRaiseResult: false }),
+        noBetCtx(),
+        stealAdj(),
+      );
+      expect(rec.action).not.toBe('raise');
+      expect(rec.action).toBe('check');
+    });
+  });
 });
