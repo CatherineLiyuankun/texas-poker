@@ -119,17 +119,18 @@ export const PlayerStatsTable: React.FC<PlayerStatsTableProps> = ({
   const realStats = longStats ?? [];
   if (botStats.length === 0 && realStats.length === 0) return null;
 
-  // Bot 行在前、真人行在后（与原先一致）。两行的单元格口径完全相同，
-  // 只有名字不同 —— 合并成一张列表，避免同一套 13 列写两遍。
+  // **真人行在前、Bot 行在后** —— 看表的人自己（和同场真人）是主角，Bot 是对手，
+  // 放在下面。两行的单元格口径完全相同，只有名字不同 —— 合并成一张列表，
+  // 避免同一套 13 列写两遍。
   const rows = [
-    ...botStats.map((stat) => ({
-      key: `bot-${stat.playerId}`,
-      name: `${translations.playerArea.bot}${stat.playerId}`,
-      stat,
-    })),
     ...realStats.map((stat) => ({
       key: `real-${stat.playerId}`,
       name: `P${stat.playerId}`,
+      stat,
+    })),
+    ...botStats.map((stat) => ({
+      key: `bot-${stat.playerId}`,
+      name: `${translations.playerArea.bot}${stat.playerId}`,
       stat,
     })),
   ];

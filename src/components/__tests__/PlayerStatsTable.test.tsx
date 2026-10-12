@@ -3,10 +3,13 @@
  *
  * 这张表已从 AI 分析面板搬到 `GameBoard` 右上角按钮的浮层里，并且口径统一为
  * **所有玩家（真人 + Bot）都读长期（跨会话）统计** —— 分别由 `longStats` /
- * `botLongStats` 透传进来。下面两条用例锁住这个分工：
+ * `botLongStats` 透传进来。用例锁住这几件事：
  *   1. Bot 行读 `botLongStats`、真人行读 `longStats`，都不读当前会话口径
  *      （`opponentProfile.botStats` 现在只供面板的 NodeLock 区块使用）；
- *   2. 两边都没有数据时整块不渲染（按钮点开也不会出现空表格）。
+ *   2. 真人行排在 Bot 行之前；
+ *   3. 两边都没有数据时整块不渲染（按钮点开也不会出现空表格）；
+ *   4. 样本不足的玩家显示占位符；
+ *   5. 每个表头都带 `whitespace-nowrap`（`3-Bet` / `Turn CB` 不能折行）。
  */
 import { render, screen } from '@testing-library/react';
 import { PlayerStatsTable } from '../PlayerStatsTable';
@@ -91,6 +94,21 @@ describe('PlayerStatsTable：全体玩家都读长期（跨会话）统计', () 
     // `50%` 里也含 `0%`，全串匹配会假阳性。
     expect(row!.children[1].textContent).toBe('—'); // VPIP
     expect(row!.children[2].textContent).toBe('—'); // PFR
+  });
+
+  it('真人行排在 Bot 行之前', () => {
+    // 看表的人（和同场真人）是主角，Bot 是对手 —— 真人在上、Bot 在下。
+    const { container } = render(
+      <PlayerStatsTable
+        botLongStats={[mkStats({ playerId: 3 })]}
+        longStats={[mkStats({ playerId: 1 }), mkStats({ playerId: 2 })]}
+      />,
+    );
+
+    const names = Array.from(container.querySelectorAll('tbody tr')).map(
+      (tr) => tr.children[0].textContent,
+    );
+    expect(names).toEqual(['P1', 'P2', `${translations.playerArea.bot}3`]);
   });
 
   it('每个表头都带 whitespace-nowrap（3-Bet / Turn CB / F/CB 不能被折断）', () => {
