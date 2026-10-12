@@ -141,6 +141,7 @@ export const PlayerStatsTable: React.FC<PlayerStatsTableProps> = ({
     // 两行，表头高度翻倍且对不齐。加了 nowrap 之后，表格的 min-content 宽度由表头
     // 决定，浮层（absolute + 收缩包裹）随之变宽；实在放不下时由外层的
     // `overflow-x-auto` 兜底横向滚动，而不是把字折断。
+    // 数据单元格里只有「类型」列需要同样的处理（见下面那一列的注释）。
     <table className="w-full text-[10px]">
       <thead>
         <tr className="text-white/30 text-[10px]">
@@ -182,7 +183,13 @@ export const PlayerStatsTable: React.FC<PlayerStatsTableProps> = ({
               <td className={`text-right ${stat.threeBet !== null ? get3BetColor(stat.threeBet) : ''}`}>
                 {stat.threeBet !== null ? `${stat.threeBet.toFixed(0)}%` : '—'}
               </td>
-              <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
+              {/* 类型列**不折行**：档位标签是中英双语的（`Nit 紧弱` / `TAG 紧凶` /
+                  `CS 松弱` / `Maniac 疯子`），中间那个空格就是断行点 —— 列一窄就变成
+                  `Nit` / `紧弱` 两行，行高翻倍。nowrap 之后该列按内容取宽，表格整体
+                  相应变宽（浮层是收缩包裹的，跟着一起变宽）。
+                  其余数据列不加 nowrap：它们都是 `24%` / `2.2` 这类没有断行点的值，
+                  加了也不会变，只是徒增一处要维护的类名。 */}
+              <td className={`text-right whitespace-nowrap font-medium border-r border-white/10 ${typeColor}`}>
                 {stat.playerType === 'Unknown' && stat.handsDealt < 10
                   ? translations.playerStats.insufficientData
                   : typeLabel}

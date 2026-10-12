@@ -9,7 +9,8 @@
  *   2. 真人行排在 Bot 行之前；
  *   3. 两边都没有数据时整块不渲染（按钮点开也不会出现空表格）；
  *   4. 样本不足的玩家显示占位符；
- *   5. 每个表头都带 `whitespace-nowrap`（`3-Bet` / `Turn CB` 不能折行）。
+ *   5. 每个表头都带 `whitespace-nowrap`（`3-Bet` / `Turn CB` 不能折行）；
+ *   6. 「类型」列的单元格也带 `whitespace-nowrap`（`Nit 紧弱` 不能折行）。
  */
 import { render, screen } from '@testing-library/react';
 import { PlayerStatsTable } from '../PlayerStatsTable';
@@ -109,6 +110,26 @@ describe('PlayerStatsTable：全体玩家都读长期（跨会话）统计', () 
       (tr) => tr.children[0].textContent,
     );
     expect(names).toEqual(['P1', 'P2', `${translations.playerArea.bot}3`]);
+  });
+
+  it('「类型」列的单元格带 whitespace-nowrap（`Nit 紧弱` 不能折成两行）', () => {
+    // 档位标签中英双语、中间有空格 → 是断行点。列一窄就折成 `Nit` / `紧弱` 两行。
+    render(
+      <PlayerStatsTable botLongStats={[mkStats({ playerId: 2, playerType: 'Nit' })]} />,
+    );
+
+    const row = rowOf(`${translations.playerArea.bot}2`);
+    expect(row).not.toBeNull();
+
+    // 列序：0 名字 / 1 VPIP / 2 PFR / 3 3-Bet / 4 类型
+    const typeCell = row!.children[4] as HTMLElement;
+    expect(typeCell.textContent).toBe(translations.playerStats.types.Nit);
+    expect(typeCell.className).toContain('whitespace-nowrap');
+    expect(typeCell.textContent).toContain(' '); // 确实是「Nit 紧弱」这种带空格的双语标签
+
+    // 其余数据列不需要 nowrap（值里没有断行点）
+    const nameCell = row!.children[0] as HTMLElement;
+    expect(nameCell.className).not.toContain('whitespace-nowrap');
   });
 
   it('每个表头都带 whitespace-nowrap（3-Bet / Turn CB / F/CB 不能被折断）', () => {
