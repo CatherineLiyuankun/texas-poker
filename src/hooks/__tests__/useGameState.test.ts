@@ -586,6 +586,52 @@ describe('游戏状态 - 多人场景与边界情况', () => {
       const totalBets = players.reduce((sum, p) => sum + p.bet, 0);
       expect(totalChips + totalBets).toBe(5 + 1000);
     });
+
+    it('盲注把筹码打光时标记 allIn（被动 all-in）', () => {
+      const { result } = renderHook(() => useGameState());
+      act(() => {
+        result.current.startGame(2, 0, 5, [4, 1000]);
+      });
+
+      const broke = result.current.state.players.filter((p) => p.chips === 0);
+      expect(broke).toHaveLength(1);
+      expect(broke[0].bet).toBe(4);
+      // 被动 all-in 必须置位：否则会留下 chips===0 && allIn===false 的畸形态，
+      // 座位标签会显示 Waiting，且 bettingComplete 会漏掉这个玩家（见 #15）
+      expect(broke[0].allIn).toBe(true);
+
+      // 没打光的玩家不应被误标
+      expect(
+        result.current.state.players
+          .filter((p) => p.chips > 0)
+          .every((p) => !p.allIn),
+      ).toBe(true);
+    });
+
+    it('大盲筹码不足时，下完盲注即标记 allIn', () => {
+      // 钉住 Math.random → createInitialState(2,0) 得 dealer=2 → SB=id1, BB=id2
+      const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.9);
+      try {
+        const { result } = renderHook(() => useGameState());
+        act(() => {
+          result.current.startGame(2, 0, 5, [1000, 4]);
+        });
+
+        const { players, dealer, mainPot, lastBet } = result.current.state;
+        expect(dealer).toBe(2);
+
+        const bbIdx = (dealer - 1 + 2) % players.length;
+        const bb = players[bbIdx];
+        expect(bb.bet).toBe(4); // 只押得起 4，不足大盲 10
+        expect(bb.chips).toBe(0);
+        expect(bb.allIn).toBe(true);
+        // 大盲不足不降低 bring-in：其余人仍按完整大盲跟注
+        expect(lastBet).toBe(10);
+        expect(mainPot).toBe(5 + 4);
+      } finally {
+        randomSpy.mockRestore();
+      }
+    });
   });
 
   describe('canPlayerAct 权限检查', () => {

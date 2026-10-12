@@ -310,11 +310,19 @@ export function useGameState() {
           newPlayers[sbIdx].bet = sbAmount;
           newPlayers[sbIdx].totalBet = sbAmount;
           newPlayers[sbIdx].chips -= sbAmount;
+          // 盲注把筹码打光 = **被动 all-in**：和 call/raise 分支同口径，把 allIn 一并置位。
+          // 漏了这一步会留下 `chips === 0 && allIn === false` 的畸形态 —— 座位标签会
+          // 显示「Waiting」，且 `bettingComplete` 的 `(allIn || chips > 0)` 两头都不满足，
+          // 把该玩家排除出「本轮还有人下注」的判定（见 docs/PASSIVE_ALLIN_PLAN.md）。
+          // `hasActed` 保持 false：下盲注不算行动；置位 allIn 后该玩家本就被排除在
+          // `canActPlayers` 之外，`hasActed` 不再被读。
+          if (newPlayers[sbIdx].chips === 0) newPlayers[sbIdx].allIn = true;
 
           const bbAmount = Math.min(bigBlind, newPlayers[bbIdx].chips);
           newPlayers[bbIdx].bet = bbAmount;
           newPlayers[bbIdx].totalBet = bbAmount;
           newPlayers[bbIdx].chips -= bbAmount;
+          if (newPlayers[bbIdx].chips === 0) newPlayers[bbIdx].allIn = true;
 
           let nextPlayerIdx = (bbIdx + 1) % totalPlayers;
           while (newPlayers[nextPlayerIdx].folded) {
