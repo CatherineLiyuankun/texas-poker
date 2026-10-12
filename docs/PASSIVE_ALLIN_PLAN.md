@@ -286,7 +286,7 @@ case 'allin':
 | 3 | 对手全下后，街道自动跑完（不询问真人）是否符合预期？ | ✅ **符合**。已加规则：只剩一人能下注且不欠跟注 → 本轮结束 |
 | 4 | 是否顺带修「`lastAction` 徽章跨街道不消失」？ | ⏸ **暂不**。属展示层小问题，与本 bug 无关 |
 | 5 | 是否顺带修「`call` 分支 `chips -= toCall` 可能为负」？ | ⏸ **暂不**。`canCall` 已挡住 UI 路径，属既有隐患 |
-| 6 | 机器人侧是否也要感知「无人可应」？（本次新发现） | ⏸ **暂不，已记入 `TODO.md` 技术债 3**。实测机器人持 AA 会做无意义加注（`raise:13`），但筹码守恒（多余部分经边池退回），仅口径不干净 |
+| 6 | 机器人侧是否也要感知「无人可应」？（本次新发现） | ✅ **已修**（第 3 步，见 §10）。此前实测机器人持 AA 会做无意义加注（`raise:13`），筹码守恒（多余部分经边池退回）、仅口径不干净；现已在 `getBotAction` flags 处与 `canPlayerAct` 同口径门控 |
 
 ---
 
@@ -344,7 +344,19 @@ jest.spyOn(botAIModule, 'getBotAction').mockImplementation((player, state) =>
 | `f56ede1` fix(betting) | 第 2 步：统一回合判定 + 无人可应时结束本轮 + `canPlayerAct` 门控 | 7 suites / **81** tests passed（73 → 81） |
 | `c330d64` docs | TODO.md 记技术债 3（机器人侧缺口） | — |
 | `abd42b9` docs(agents) | AGENTS.md 补跨模块不变量 | — |
-| （本批）fix(bot) | 第 3 步：机器人侧 flags 同步「无人可应」口径（见下） | 23 suites / **461** tests passed（botAI\* / gto\* / icm\* / e2e 全部） |
+| `5b3c06c` fix(bot) | 第 3 步：机器人侧 flags 同步「无人可应」口径（见下） | 23 suites / **461** tests passed（botAI\* / gto\* / icm\* / e2e 全部） |
+| `c86b6f9` docs | 收尾：删技术债 3 / 补 §10 / AGENTS 追加「无人可应」不变量 | lint 全仓 0 errors |
+
+### 第 1 / 2 步：被动 all-in 根因 + 回合判定统一（已修）
+
+- lint：改动文件 `npx eslint` → **0 errors**；GameBoard 的 3 条
+  `react-hooks/exhaustive-deps` 警告与 HEAD **逐条相同**（仅行号位移），非本次引入。
+- 新增测试：
+  - `src/hooks/__tests__/useGameState.test.ts`：短筹码打光置 `allIn`、
+    大盲不足置 `allIn`、无人可应时回合结束、`raise` 禁用 / `call` 可用、
+    短筹码跟注例外、有 live opponent 时照常可用（共 6 条）。
+  - `src/e2eTests/passiveAllIn.integration.test.tsx`：真实 `GameBoard` 端到端
+    回归 —— 断言 Bot4 显示 `All In`、对手全下后一路跑到摊牌、中途未亮 `Bet`。
 
 ### 第 3 步：机器人侧 `getBotAction` 感知「无人可应」（原技术债 3，已修）
 
@@ -371,15 +383,3 @@ jest.spyOn(botAIModule, 'getBotAction').mockImplementation((player, state) =>
   事后派生加注必须复核 flag）。
 - lint：全仓 `npm run lint` → 0 errors，仅 GameBoard 3 条**既有**
   `react-hooks/exhaustive-deps` 警告。
-
-- lint：改动文件 `npx eslint` → **0 errors**；GameBoard 的 3 条
-  `react-hooks/exhaustive-deps` 警告与 HEAD **逐条相同**（仅行号位移），非本次引入。
-- 新增测试：
-  - `src/hooks/__tests__/useGameState.test.ts`：短筹码打光置 `allIn`、
-    大盲不足置 `allIn`、无人可应时回合结束、`raise` 禁用 / `call` 可用、
-    短筹码跟注例外、有 live opponent 时照常可用（共 6 条）。
-  - `src/e2eTests/passiveAllIn.integration.test.tsx`：真实 `GameBoard` 端到端
-    回归 —— 断言 Bot4 显示 `All In`、对手全下后一路跑到摊牌、中途未亮 `Bet`。
-- 遗留（已记入 `TODO.md` 技术债 3）：机器人侧 `canRaise`/`canAllIn` 仍不感知
-  「无人可应」，持 AA 时会做无意义加注（实测 `raise:13`）；筹码守恒，
-  仅口径不干净。
