@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import type { Action, Card, GamePhase, PlayerId, GameState, Player } from '../types/poker';
+import type { Action, Card, GamePhase, GameState, Player } from '../types/poker';
 import { HAND_RANK_NAMES } from '../types/poker';
 import { getPreflopStrength, getPreflopTier } from '../utils/preflopHandStrength';
 import { detectDraws, type DrawInfo } from '../utils/drawDetector';
@@ -7,8 +7,7 @@ import { calculateEquity } from '../utils/equityCalculator';
 import { estimateOpponentCombos, currentHandEventSignature } from '../utils/rangeEquity';
 import { evaluateHand } from '../utils/handEvaluator';
 import { translations } from '../utils/translations';
-import type { OpponentProfile, BotStatsWithAF } from '../utils/opponentModel';
-import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { OpponentProfile } from '../utils/opponentModel';
 import {
   getGtoPostflopRecommendation,
   analyzeBoardWithEquity,
@@ -74,11 +73,6 @@ interface HandAnalysisProps {
     isAllIn?: boolean;
   } | null;
   opponentProfile?: OpponentProfile;
-  longStats?: PlayerLongStats[];
-  /** Bot 玩家的长期（跨会话）统计；「玩家数据」表的 Bot 行读它，而非当前会话。 */
-  botLongStats?: PlayerLongStats[];
-  viewingPlayerId?: PlayerId;
-  realPlayerSessionStats?: BotStatsWithAF[];
   positionLabel?: string;
   /** 完整对局状态，用于推断对手继续范围（范围权益） */
   gameState?: GameState;
@@ -110,96 +104,6 @@ function getRecColor(rec: string): string {
   if (rec.includes('Check')) return 'text-yellow-400';
   if (rec.includes('Fold')) return 'text-red-400';
   return 'text-white';
-}
-
-
-function getPlayerTypeColor(playerType: string): string {
-  switch (playerType) {
-    case 'TAG': return 'text-green-400';
-    case 'LAG': return 'text-orange-400';
-    case 'Nit': return 'text-blue-400';
-    case 'Calling Station': return 'text-red-400';
-    case 'Maniac': return 'text-purple-400';
-    case 'Others': return 'text-white';
-    default: return 'text-white/50';
-  }
-}
-
-function getVpipColor(v: number): string {
-  if (v <= 20) return 'text-red-400';
-  if (v <= 28) return 'text-orange-400';
-  if (v <= 35) return 'text-green-400';
-  return 'text-blue-400';
-}
-
-function getPfrColor(v: number): string {
-  if (v <= 17) return 'text-blue-400';
-  if (v <= 25) return 'text-green-400';
-  if (v <= 30) return 'text-orange-400';
-  return 'text-purple-400';
-}
-
-function getAfColor(v: number): string {
-  if (v < 1) return 'text-blue-400';
-  if (v <= 1.5) return 'text-green-400';
-  if (v <= 2.5) return 'text-orange-400';
-  if (v <= 3) return 'text-red-400';
-  return 'text-purple-400';
-}
-
-function getCbetColor(v: number): string {
-  if (v < 30) return 'text-blue-400';
-  if (v <= 55) return 'text-green-400';
-  if (v <= 77) return 'text-yellow-400';
-  return 'text-red-400';
-}
-
-function getWtsdColor(v: number): string {
-  if (v < 24) return 'text-red-400';
-  if (v <= 26) return 'text-orange-400';
-  if (v <= 32) return 'text-green-400';
-  if (v <= 38) return 'text-blue-400';
-  return 'text-purple-400';
-}
-
-function getCrColor(v: number): string {
-  if (v <= 4) return 'text-blue-400';
-  if (v <= 9) return 'text-green-400';
-  if (v <= 11) return 'text-orange-400';
-  if (v <= 18) return 'text-orange-400';
-  return 'text-red-400';
-}
-
-function getWsdColor(v: number): string {
-  if (v < 46) return 'text-red-400';
-  if (v < 48) return 'text-orange-400';
-  if (v <= 54) return 'text-green-400';
-  return 'text-blue-400';
-}
-
-function get3BetColor(v: number): string {
-  if (v < 5) return 'text-blue-400';
-  if (v <= 10) return 'text-green-400';
-  if (v <= 12) return 'text-orange-400';
-  return 'text-red-400';
-}
-
-function getFoldToCbetColor(v: number): string {
-  if (v < 40) return 'text-red-400';
-  if (v <= 60) return 'text-green-400';
-  return 'text-blue-400';
-}
-
-function getAFqColor(v: number): string {
-  if (v < 35) return 'text-blue-400';
-  if (v <= 55) return 'text-green-400';
-  return 'text-red-400';
-}
-
-function getTurnCbetColor(v: number): string {
-  if (v < 40) return 'text-blue-400';
-  if (v <= 65) return 'text-green-400';
-  return 'text-red-400';
 }
 
 function getGtoActionLabel(
@@ -474,6 +378,7 @@ function GridRow({
   color = 'text-white',
   highlight = false,
   title,
+  fullWidth = false,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
@@ -482,10 +387,16 @@ function GridRow({
   highlight?: boolean;
   /** 原生悬停提示：口径说明太长放不下时挂在这里，不占版面 */
   title?: string;
+  /**
+   * 独占整行（`col-span-2`）。面板最窄时是 `min-w-[216px]`，两列各只有约 96px；
+   * 标签长于半列的行（`范围权益 Equity` / `MDF防御频率` / `对手下注 V:B` …）必须
+   * 走整行，否则标签会被从中间折断成两行 —— 那比多占一行更难看。
+   */
+  fullWidth?: boolean;
 }) {
   return (
     <div
-      className={`flex items-center gap-1 ${
+      className={`flex items-center gap-1${fullWidth ? ' col-span-2' : ''} ${
         highlight ? 'border border-green-400/80 rounded' : ''
       }${title ? ' cursor-help' : ''}`}
       title={title}
@@ -508,10 +419,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   playerRaiseAmount,
   gtoRecommendation,
   opponentProfile,
-  longStats,
-  botLongStats,
-  viewingPlayerId,
-  realPlayerSessionStats,
   positionLabel,
   gameState,
   heroPlayer,
@@ -1057,8 +964,13 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
   // ⚠️ `w-54` 在 Tailwind v3 里**不是有效类** —— 间距刻度没有 54 这一档
   // （只有 52 = 13rem / 56 = 14rem），构建产物里根本没有这条规则，所以面板宽度
   // 一直是内容撑出来的。这里用 `min-w` 而不是 `w`：面板是 PlayerArea 里座位框的
-  // flex 兄弟节点，写死宽度会把 VPIP/PFR 那张表挤到换行；`min-w` 只兜底、
-  // 内容更宽时仍可自然撑开，也不会因为数字变宽变窄而抖动。
+  // flex 兄弟节点，写死宽度会把旁边的座位框挤走；`min-w` 只兜底、内容更宽时仍可
+  // 自然撑开，也不会因为数字变宽变窄而抖动。
+  //
+  // **216px 不再加宽**（原先「玩家数据」表挤在面板里时，13 列把面板撑到溢出边界，
+  // 面板又被座位可用空间压到最窄，两边互相挤兑 —— 现在那张表已移到页面右上角）。
+  // 半列放不下的行改走整行（`GridRow` 的 `fullWidth`），所以最窄时也不会把标签
+  // 从中间折断，宽度因此不需要为任何一行让步。
   return (
     <div className="min-w-[216px] bg-black/50 rounded-lg p-2 text-[10px] space-y-1 border border-white/10">
       <div className="text-white/50 font-medium text-center mb-1 tracking-wide text-[12px]">
@@ -1093,46 +1005,52 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* SPR (独立计算) + Current hand (需要 community cards) */}
-      <div className="border-t border-white/10 pt-1 mt-1">
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {/* Left column: SPR */}
-          {spr !== undefined && spr > 0 && (
-            <GridRow
-              label={translations.handAnalysis.spr}
-              value={
-                <>
-                  {spr.toFixed(1)}
-                  <StrengthBar
-                    value={Math.min(spr / 12, 1)}
-                    color={getSprBarColor(spr)}
-                  />
-                  <span className={`ml-1 text-[9px] ${getSprColor(spr)}`}>
-                    {getSprLabel(spr)}
-                  </span>
-                </>
-              }
-              color={getSprColor(spr)}
-            />
-          )}
-
-          {/* Right column: Current hand */}
+      {/* SPR (独立计算) + Current hand —— 两行都是整行，所以这里不再需要两列网格 */}
+      <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
+        {/* SPR：`Current Hand` 独占整行后，SPR 若还留在半列，右边会空出半格
+            （原先它俩并排，现在没有东西能和 SPR 配对）。索性也走整行 ——
+            顺带让「数值 + 强度条 + 深浅标签」拿到整行宽度。 */}
+        {spr !== undefined && spr > 0 && (
           <GridRow
-            label={translations.handAnalysis.currentHand}
-            value={shouldCalculate && currentHandRank ? HAND_RANK_NAMES[currentHandRank] : '...'}
-            color={getCurrentHandRankColor(currentHandRank ?? '')}
+            label={translations.handAnalysis.spr}
+            value={
+              <>
+                {spr.toFixed(1)}
+                <StrengthBar
+                  value={Math.min(spr / 12, 1)}
+                  color={getSprBarColor(spr)}
+                />
+                <span className={`ml-1 text-[9px] ${getSprColor(spr)}`}>
+                  {getSprLabel(spr)}
+                </span>
+              </>
+            }
+            color={getSprColor(spr)}
           />
-        </div>
+        )}
+
+        {/* Current hand：**整行**。牌型名是中英双语的（`一对 Pair` …
+            `皇家同花顺 Royal Flush`），配上 `Current Hand` 这个标签远超半列的约 96px
+            —— 只占半列就会把标签从中间折断。 */}
+        <GridRow
+          label={translations.handAnalysis.currentHand}
+          value={shouldCalculate && currentHandRank ? HAND_RANK_NAMES[currentHandRank] : '...'}
+          color={getCurrentHandRankColor(currentHandRank ?? '')}
+        />
       </div>
 
       {/* Win rate + Pod odds + Action */}
       {<div className="border-t border-white/10 pt-1 mt-1">
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
           {/* 随机权益：所有对手都按随机牌建模。口径说明（「vs 随机牌」+ 为什么翻前会
-              系统性高估）挂在这一行的 `title` 上 —— 它解释的正是这一行，而权益列每列
-              实测只有约 134.8px，塞进行内会挤掉数字；单独占一整行又白吃一行版面。
-              tooltip 不占版面，且悬停可见，是这类「解释性文案」最合适的落点。 */}
+              系统性高估）挂在这一行的 `title` 上 —— 它解释的正是这一行，塞进行内会挤掉
+              数字；单独占一整行又白吃一行版面。tooltip 不占版面，且悬停可见，是这类
+              「解释性文案」最合适的落点。
+
+              **独占整行**：半列只有约 96px，而「范围权益 Equity 24% [强度条]」这一行
+              要约 133px —— 不占整行就会把标签折断成「范围权益」/「Equity」两行。 */}
           <GridRow
+            fullWidth
             label={translations.handAnalysis.equity}
             highlight={decisionBasis === 'random'}
             title={translations.handAnalysis.equityVsRandom}
@@ -1151,8 +1069,10 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
             }
           />
 
-          {/* 范围权益：主要对手按推断的继续范围建模（决策依据） */}
+          {/* 范围权益：主要对手按推断的继续范围建模（决策依据）。与上面「随机权益」
+              同为整行 —— 两行是同一件事的两个口径，必须并排同宽才读得出来对比。 */}
           <GridRow
+            fullWidth
             label={translations.handAnalysis.rangeEquity}
             highlight={decisionBasis === 'range'}
             value={
@@ -1385,88 +1305,92 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* GTO Math: Two-Column Grid  MDF + EV */}
+      {/* GTO Math: 两列网格；标签长于半列的行（MDF / V:B / 牌力分类）走整行 */}
       <div className="border-t border-white/10 pt-1 mt-1">
         <div className="text-white/50 font-medium text-center tracking-wide text-[12px] mb-1">
           {translations.gtoMath.title}
         </div>
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {/* Left column: MDF + Call EV + Raise EV */}
-          <div className="space-y-1">
-            {gtoMath.mdf !== null && (
-              <GridRow
-                label={translations.gtoMath.mdf}
-                value={
-                  <>
-                    {(gtoMath.mdf * 100).toFixed(0)}%
-                    <StrengthBar
-                      value={gtoMath.mdf}
-                      color={getMDFBarColor(gtoMath.mdf)}
-                    />
-                  </>
-                }
-                color={getMDFColor(gtoMath.mdf)}
-              />
-            )}
-            {gtoMath.callEV !== null && (
-              <GridRow
-                label={translations.gtoMath.callEv}
-                value={
-                  <span className={getEVColor(gtoMath.callEV)}>
-                    {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
-                    {gtoMath.bestAction === 'call' && ' ✅call'}
-                    {gtoMath.bestAction === 'fold' && ' ❌fold'}
-                  </span>
-                }
-              />
-            )}
-            {gtoMath.raiseEV !== null && (
-              <GridRow
-                label={translations.gtoMath.raiseEV}
-                value={
-                  <span className={getEVColor(gtoMath.raiseEV)}>
-                    {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
-                    {gtoMath.bestAction === 'raise' && ' ✅'}
-                  </span>
-                }
-              />
-            )}
-          </div>
+          {/* MDF：标签「MDF防御频率」+ 百分比 + 强度条约 119px，半列（约 96px）放不下
+              → 独占整行。 */}
+          {gtoMath.mdf !== null && (
+            <GridRow
+              fullWidth
+              label={translations.gtoMath.mdf}
+              value={
+                <>
+                  {(gtoMath.mdf * 100).toFixed(0)}%
+                  <StrengthBar
+                    value={gtoMath.mdf}
+                    color={getMDFBarColor(gtoMath.mdf)}
+                  />
+                </>
+              }
+              color={getMDFColor(gtoMath.mdf)}
+            />
+          )}
 
-          {/* Right column: V:B ratio + Range classification */}
-          <div className="space-y-1">
-            {/* V:B 是「下注方」的指标，翻牌前没有意义（范围表驱动），不渲染。
-                主值用标准比（3:1），百分比降为副标签便于对照。 */}
-            {phase !== 'preflop' && gtoMath.vbRatio !== null && (
-              <GridRow
-                label={gtoMath.vbSource === 'facing'
-                  ? translations.gtoMath.vbRatioFacing
-                  : translations.gtoMath.vbRatioHero}
-                value={
-                  <>
-                    {gtoMath.vbRatio.ratio}{' '}
-                    <span className="text-[9px] text-white/40">
-                      {Math.round(gtoMath.vbRatio.valuePct * 100)}/
-                      {Math.round(gtoMath.vbRatio.bluffPct * 100)}
-                    </span>
-                  </>
-                }
-              />
-            )}
-            {gtoMath.rangeCat !== null && phase !== 'preflop' && (
-              <GridRow
-                label={translations.gtoMath.rangeCategory}
-                value={
-                  <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
-                    {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
-                    <span className="ml-1 text-[9px] text-white/40">
-                      {translations.gtoMath.heuristic}
-                    </span>
+          {/* 两个 EV 的标签都短（`Call EV` / `Raise EV`），并排各占半列 */}
+          {gtoMath.callEV !== null && (
+            <GridRow
+              label={translations.gtoMath.callEv}
+              value={
+                <span className={getEVColor(gtoMath.callEV)}>
+                  {gtoMath.callEV > 0 ? '+' : ''}{gtoMath.callEV.toFixed(1)}
+                  {gtoMath.bestAction === 'call' && ' ✅call'}
+                  {gtoMath.bestAction === 'fold' && ' ❌fold'}
+                </span>
+              }
+            />
+          )}
+          {gtoMath.raiseEV !== null && (
+            <GridRow
+              label={translations.gtoMath.raiseEV}
+              value={
+                <span className={getEVColor(gtoMath.raiseEV)}>
+                  {gtoMath.raiseEV > 0 ? '+' : ''}{gtoMath.raiseEV.toFixed(1)}
+                  {gtoMath.bestAction === 'raise' && ' ✅'}
+                </span>
+              }
+            />
+          )}
+
+          {/* V:B：标签是「对手下注 V:B」/「我方下注 V:B」，与数值一起超过半列
+              → 独占整行。翻牌前没有意义（范围表驱动），不渲染。
+              主值用标准比（3:1），百分比降为副标签便于对照。 */}
+          {phase !== 'preflop' && gtoMath.vbRatio !== null && (
+            <GridRow
+              fullWidth
+              label={gtoMath.vbSource === 'facing'
+                ? translations.gtoMath.vbRatioFacing
+                : translations.gtoMath.vbRatioHero}
+              value={
+                <>
+                  {gtoMath.vbRatio.ratio}{' '}
+                  <span className="text-[9px] text-white/40">
+                    {Math.round(gtoMath.vbRatio.valuePct * 100)}/
+                    {Math.round(gtoMath.vbRatio.bluffPct * 100)}
                   </span>
-                }
-              />
-            )}
-          </div>
+                </>
+              }
+            />
+          )}
+
+          {/* 牌力分类：值是「🟡 抓诈唬 启发式」，与标签一起超过半列 → 独占整行 */}
+          {gtoMath.rangeCat !== null && phase !== 'preflop' && (
+            <GridRow
+              fullWidth
+              label={translations.gtoMath.rangeCategory}
+              value={
+                <span className={getRangeCategoryColor(gtoMath.rangeCat)}>
+                  {getRangeCategoryEmoji(gtoMath.rangeCat)} {getRangeCategoryLabel(gtoMath.rangeCat)}
+                  <span className="ml-1 text-[9px] text-white/40">
+                    {translations.gtoMath.heuristic}
+                  </span>
+                </span>
+              }
+            />
+          )}
         </div>
 
         {/* 口径说明：本区块是单街闭式 + 单挑推导；抽水是否计入随 StartPage 设置变，
@@ -1527,148 +1451,6 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
           </div>
         </div>
       )}
-
-      {/* 统一玩家统计 VPIP/PFR/AF 表格。Bot 行与真人行同口径：都读长期（跨会话）统计，
-          不再用当前会话数据 —— `opponentProfile.botStats` 仍供 NodeLock 区块使用，
-          但不再驱动这张表。 */}
-      {(() => {
-        const botStats: PlayerLongStats[] = botLongStats ?? [];
-        const realStats: PlayerLongStats[] = longStats ?? [];
-        if (botStats.length === 0 && realStats.length === 0) return null;
-        return (
-          <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
-            <div className="text-white/50 font-medium text-center tracking-wide text-[12px]">
-              {translations.playerStats.title}
-            </div>
-            <table className="w-full text-[10px]">
-              <thead>
-                <tr className="text-white/30 text-[10px]">
-                  <th className="text-left" />
-                  <th colSpan={4} className="text-center border-b border-white/10">{translations.playerStats.preflop}</th>
-                  <th colSpan={6} className="text-center border-b border-white/10">{translations.playerStats.postflop}</th>
-                  <th colSpan={2} className="text-center border-b border-white/10">{translations.playerStats.showdown}</th>
-                </tr>
-                <tr className="text-white/50 text-[8px]">
-                  <th className="text-left">{translations.playerStats.name}</th>
-                  <th className="text-right">{translations.playerStats.vpip}</th>
-                  <th className="text-right">{translations.playerStats.pfr}</th>
-                  <th className="text-right">{translations.playerStats.threeBet}</th>
-                  <th className="text-right border-r border-white/10">{translations.playerStats.type}</th>
-                  <th className="text-right">{translations.playerStats.af}</th>
-                  <th className="text-right">{translations.playerStats.afq}</th>
-                  <th className="text-right">{translations.playerStats.cbet}</th>
-                  <th className="text-right">{translations.playerStats.foldToCbet}</th>
-                  <th className="text-right">{translations.playerStats.turnCbet}</th>
-                  <th className="text-right border-r border-white/10">{translations.playerStats.checkRaise}</th>
-                  <th className="text-right">{translations.playerStats.wtsd}</th>
-                  <th className="text-right">{translations.playerStats.wsd}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {botStats.map((stat) => {
-                  const typeLabel = translations.playerStats.types[stat.playerType] || stat.playerType;
-                  const typeColor = getPlayerTypeColor(stat.playerType);
-                  return (
-                    <tr key={`bot-${stat.playerId}`} className="text-white">
-                      <td className="text-left">{translations.playerArea.bot}{stat.playerId}</td>
-                      <td className={`text-right ${stat.handsDealt > 0 ? getVpipColor(stat.vpip * 100) : ''}`}>
-                        {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.handsDealt > 0 ? getPfrColor(stat.pfr * 100) : ''}`}>
-                        {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.threeBet !== null ? get3BetColor(stat.threeBet) : ''}`}>
-                        {stat.threeBet !== null ? `${stat.threeBet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
-                        {stat.playerType === 'Unknown' && stat.handsDealt < 10
-                          ? translations.playerStats.insufficientData
-                          : typeLabel}
-                      </td>
-                      <td className={`text-right ${stat.af !== null ? getAfColor(stat.af) : ''}`}>
-                        {stat.af !== null ? stat.af.toFixed(1) : '—'}
-                      </td>
-                      <td className={`text-right ${stat.afq !== null ? getAFqColor(stat.afq) : ''}`}>
-                        {stat.afq !== null ? `${stat.afq.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.cbet !== null ? getCbetColor(stat.cbet) : ''}`}>
-                        {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.foldToCbet !== null ? getFoldToCbetColor(stat.foldToCbet) : ''}`}>
-                        {stat.foldToCbet !== null ? `${stat.foldToCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.turnCbet !== null ? getTurnCbetColor(stat.turnCbet) : ''}`}>
-                        {stat.turnCbet !== null ? `${stat.turnCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right border-r border-white/10 ${stat.checkRaise !== null ? getCrColor(stat.checkRaise) : ''}`}>
-                        {stat.checkRaise !== null ? `${stat.checkRaise.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.wtsd !== null ? getWtsdColor(stat.wtsd) : ''}`}>
-                        {stat.wtsd !== null ? `${stat.wtsd.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${stat.wsd !== null ? getWsdColor(stat.wsd) : ''}`}>
-                        {stat.wsd !== null ? `${stat.wsd.toFixed(0)}%` : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {realStats.map((stat) => {
-                  const isViewing = stat.playerId === viewingPlayerId;
-                  const sessionStat = realPlayerSessionStats?.find(
-                    (s) => s.playerId === stat.playerId,
-                  );
-                  const display = isViewing || !sessionStat ? stat : sessionStat;
-                  const typeLabel = translations.playerStats.types[display.playerType] || display.playerType;
-                  const typeColor = getPlayerTypeColor(display.playerType);
-                  return (
-                    <tr key={`real-${stat.playerId}`} className="text-white">
-                      <td className="text-left">P{stat.playerId}</td>
-                      <td className={`text-right ${display.handsDealt > 0 ? getVpipColor(display.vpip * 100) : ''}`}>
-                        {display.handsDealt > 0 ? `${(display.vpip * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.handsDealt > 0 ? getPfrColor(display.pfr * 100) : ''}`}>
-                        {display.handsDealt > 0 ? `${(display.pfr * 100).toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.threeBet !== null ? get3BetColor(display.threeBet) : ''}`}>
-                        {display.threeBet !== null ? `${display.threeBet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right font-medium border-r border-white/10 ${typeColor}`}>
-                        {display.playerType === 'Unknown' && display.handsDealt < 10
-                          ? translations.playerStats.insufficientData
-                          : typeLabel}
-                      </td>
-                      <td className={`text-right ${display.af !== null ? getAfColor(display.af) : ''}`}>
-                        {display.af !== null ? display.af.toFixed(1) : '—'}
-                      </td>
-                      <td className={`text-right ${display.afq !== null ? getAFqColor(display.afq) : ''}`}>
-                        {display.afq !== null ? `${display.afq.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.cbet !== null ? getCbetColor(display.cbet) : ''}`}>
-                        {display.cbet !== null ? `${display.cbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.foldToCbet !== null ? getFoldToCbetColor(display.foldToCbet) : ''}`}>
-                        {display.foldToCbet !== null ? `${display.foldToCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.turnCbet !== null ? getTurnCbetColor(display.turnCbet) : ''}`}>
-                        {display.turnCbet !== null ? `${display.turnCbet.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right border-r border-white/10 ${display.checkRaise !== null ? getCrColor(display.checkRaise) : ''}`}>
-                        {display.checkRaise !== null ? `${display.checkRaise.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.wtsd !== null ? getWtsdColor(display.wtsd) : ''}`}>
-                        {display.wtsd !== null ? `${display.wtsd.toFixed(0)}%` : '—'}
-                      </td>
-                      <td className={`text-right ${display.wsd !== null ? getWsdColor(display.wsd) : ''}`}>
-                        {display.wsd !== null ? `${display.wsd.toFixed(0)}%` : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      })()}
     </div>
   );
 };

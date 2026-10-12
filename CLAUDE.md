@@ -80,7 +80,7 @@ The GTO modules in `src/utils/` are consulted by both the bots and the player-fa
 
 Decision code must call `calculateRangeAwareEquity`, not raw `calculateEquity` — the deliberate exception is board-texture calibration, which uses random opponents on purpose. `expandRange` must always apply card removal against hero + board.
 
-The `HandAnalysis` panel surfaces both layers side by side (random equity vs. range equity) and runs from preflop onward. Its recompute signature folds in `currentHandEventSignature()` so a check-check (which adds an event without changing bets) still re-runs the estimate. When narrowing or exploitation actually bit, the panel renders the `rangeNarrowed` / `rangeExploitative` captions so the user knows the figure is no longer a pure preflop GTO range. The `vs 随机牌` caveat for the random-equity figure is **not** inline — it lives in that row's `title` (hover tooltip), because the equity grid's columns are only ~134.8px wide and inline caveat text steals room from the numbers. Preflop is real Monte Carlo, **not** the Chen score from `preflopHandStrength.ts` — that file returns a 2–20 strength score, never a probability, and feeding it into EV math silently inflates the numbers. Any 0–1 probability passed to `gtoMath.ts` must come from an equity calculation.
+The `HandAnalysis` panel surfaces both layers side by side (random equity vs. range equity) and runs from preflop onward. Its recompute signature folds in `currentHandEventSignature()` so a check-check (which adds an event without changing bets) still re-runs the estimate. When narrowing or exploitation actually bit, the panel renders the `rangeNarrowed` / `rangeExploitative` captions so the user knows the figure is no longer a pure preflop GTO range. The `vs 随机牌` caveat for the random-equity figure is **not** inline — it lives in that row's `title` (hover tooltip), because inline caveat text would steal room from the number in that row. Preflop is real Monte Carlo, **not** the Chen score from `preflopHandStrength.ts` — that file returns a 2–20 strength score, never a probability, and feeding it into EV math silently inflates the numbers. Any 0–1 probability passed to `gtoMath.ts` must come from an equity calculation.
 
 ### Board texture (`boardTexture.ts`)
 
@@ -90,8 +90,9 @@ The `HandAnalysis` panel surfaces both layers side by side (random equity vs. ra
 ### Opponent modeling — three layers
 
 - `opponentModelUtil.ts` — pure computations from `ActionEvent`s: VPIP, PFR, AF, C-bet, WTSD, W$D, check-raise, 3-bet, fold-to-c-bet, player-type classification (Nit/TAG/LAG/Calling Station/Maniac).
-- `opponentModel.ts` — session-scoped event/hand store (localStorage key `texas-poker-session-stats`); feeds bot adjustments (`calculateOpponentProfile`, `getOpponentAdjustments`) and the stats panel. Reset per session via `resetOpponentStats`.
-- `longOpponentModel.ts` — persistent cross-session stats (localStorage key `texas-poker-long-stats`) with JSON export/import.
+- `opponentModel.ts` — session-scoped event/hand store (localStorage key `texas-poker-session-stats`); feeds bot adjustments (`calculateOpponentProfile`, `getOpponentAdjustments`) and the panel's NodeLock block. The `玩家数据 Player Stats` table does **not** read it — that table (a collapsible popover at the top-right of `GameBoard`) is long-term-only for bots and real players alike. Reset per session via `resetOpponentStats`.
+- `longOpponentModel.ts` — persistent cross-session stats (localStorage key `texas-poker-long-stats`) with JSON export/import. `getAllPlayerLongStats(ids)` takes **any** ids (bots included) because a `HandRecord` stores the whole hand, so it is the single source for the stats table.
+- `PlayerStatsTable.tsx` — the `玩家数据 Player Stats` table itself (pure presentational, rendered inside a collapsible popover at the top-right of `GameBoard`). **Real players first, bots below**; every `<th>` carries `whitespace-nowrap` because `3-Bet` / `Turn CB` / `F/CB` contain hyphen / space / slash break opportunities and would otherwise fold onto two lines in narrow columns. Data cells stay wrappable **except the type column**, which also carries `whitespace-nowrap` (`Nit 紧弱` / `TAG 紧凶` are bilingual labels whose middle space is a break opportunity and would otherwise fold onto two lines).
 
 `ActionEvent` / `HandRecord` types live in `src/types/stats.ts`.
 
@@ -113,5 +114,5 @@ The `HandAnalysis` panel surfaces both layers side by side (random equity vs. ra
 
 - `src/utils/__tests__/` — algorithm correctness (pots, equity, draws, board texture, each GTO module, preflop strength, range equity, postflop range narrowing).
 - `src/hooks/__tests__/` — reducer/side-pot behavior; `src/e2eTests/useGameState.integration.test.ts` — full-hand flows asserting chip conservation and pot splitting.
-- `src/components/__tests__/` — GameBoard blind logic, showdown settlement, and the equity panel (rendered equity values + the `GameBoard → PlayerArea → HandAnalysis` prop chain).
+- `src/components/__tests__/` — GameBoard blind logic, showdown settlement, the equity panel (rendered equity values + the `GameBoard → PlayerArea → HandAnalysis` prop chain), and the top-right player-stats popover (`PlayerStatsTable` row caliber + the `GameBoard` open/close behavior).
 - Any change to betting/pot logic must keep the chip-conservation tests green; add scenarios with mixed all-in amounts when touching that area.

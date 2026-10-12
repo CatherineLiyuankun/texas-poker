@@ -6,6 +6,7 @@ import { PotDisplay } from './PotDisplay';
 import { ActionButtons } from './ActionButtons';
 import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
+import { PlayerStatsTable } from './PlayerStatsTable';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
@@ -19,7 +20,7 @@ import {
 } from '../utils/gtoPreflop';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, getRealPlayerSessionStats, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
 import {
   saveHand,
   getAllPlayerLongStats,
@@ -81,6 +82,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
   const [gameScale, setGameScale] = useState(1);
   const [chipSummaryOpen, setChipSummaryOpen] = useState(false);
+  // 「玩家数据 Player Stats」浮层：默认收起，只显示右上角按钮。
+  const [playerStatsOpen, setPlayerStatsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 引擎轴：把 UI 状态**双向**同步进全局配置。
@@ -440,9 +443,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const longStats = realPlayerIds.length > 0 ? getAllPlayerLongStats(realPlayerIds) : undefined;
   // Bot 行和真人行同口径：都读长期库（跨会话），不再只算当前会话。
   const botLongStats = botPlayerIds.length > 0 ? getAllPlayerLongStats(botPlayerIds) : undefined;
-  const allRealSessionStats = realPlayerIds.length > 1
-    ? getRealPlayerSessionStats(realPlayerIds)
-    : undefined;
+  // 「玩家数据 Player Stats」表原先挤在 AI 分析面板内部（13 列把面板撑到溢出边界，
+  // 面板又被座位可用空间压到最窄，两边互相挤兑）。现在整块搬到右上角按钮的浮层里，
+  // 口径统一为**所有玩家都读长期统计**（真人 + Bot 同源），不再有「自己看长期、
+  // 对手看本局」的分叉。
+  const handDealt = state.players.some((p) => p.hand.length > 0);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-900 to-green-800 p-2 overflow-x-hidden">
@@ -456,33 +461,55 @@ export const GameBoard: React.FC<GameBoardProps> = ({
               {translations.gameBoard.backToMenu}
             </button>
           </div>
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
-            {/* 引擎轴：GTO / 启发式。全局配置的同步交给上面的 effect，这里只改 UI 状态。 */}
-            <button
-              onClick={() => setGtoEnabled(!gtoEnabled)}
-              className={`px-2 py-1 text-xs rounded font-bold ${
-                gtoEnabled
-                  ? 'bg-green-700/60 text-green-300 hover:bg-green-600/70'
-                  : 'bg-gray-800/40 text-white/50 hover:text-white/70'
-              }`}
-            >
-              {translations.gtoStrategy.toggle} {gtoEnabled ? translations.gtoStrategy.on : translations.gtoStrategy.off}
-            </button>
-            {/* 赛制轴：现金局 / 锦标赛。与引擎轴正交，两个开关互不影响。 */}
-            <button
-              onClick={() => setScenario(scenario === 'cash' ? 'tournament' : 'cash')}
-              className={`px-2 py-1 text-xs rounded font-bold ${
-                scenario === 'tournament'
-                  ? 'bg-amber-700/60 text-amber-200 hover:bg-amber-600/70'
-                  : 'bg-gray-800/40 text-white/50 hover:text-white/70'
-              }`}
-            >
-              {translations.scenario.toggle} {scenario === 'tournament' ? translations.scenario.tournament : translations.scenario.cash}
-            </button>
-            <div className="text-white/60 text-xs sm:text-sm whitespace-nowrap">
-              {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
-              {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
+              {/* 引擎轴：GTO / 启发式。全局配置的同步交给上面的 effect，这里只改 UI 状态。 */}
+              <button
+                onClick={() => setGtoEnabled(!gtoEnabled)}
+                className={`px-2 py-1 text-xs rounded font-bold ${
+                  gtoEnabled
+                    ? 'bg-green-700/60 text-green-300 hover:bg-green-600/70'
+                    : 'bg-gray-800/40 text-white/50 hover:text-white/70'
+                }`}
+              >
+                {translations.gtoStrategy.toggle} {gtoEnabled ? translations.gtoStrategy.on : translations.gtoStrategy.off}
+              </button>
+              {/* 赛制轴：现金局 / 锦标赛。与引擎轴正交，两个开关互不影响。 */}
+              <button
+                onClick={() => setScenario(scenario === 'cash' ? 'tournament' : 'cash')}
+                className={`px-2 py-1 text-xs rounded font-bold ${
+                  scenario === 'tournament'
+                    ? 'bg-amber-700/60 text-amber-200 hover:bg-amber-600/70'
+                    : 'bg-gray-800/40 text-white/50 hover:text-white/70'
+                }`}
+              >
+                {translations.scenario.toggle} {scenario === 'tournament' ? translations.scenario.tournament : translations.scenario.cash}
+              </button>
+              <div className="text-white/60 text-xs sm:text-sm whitespace-nowrap">
+                {translations.gameBoard.realPlayers}: {playerConfig.realPlayers} |{' '}
+                {translations.gameBoard.botPlayers}: {playerConfig.botPlayers}
+              </div>
             </div>
+
+            {/* 玩家数据 Player Stats：默认收起，只显示按钮；展开的表格是**绝对定位浮层**，
+                不参与文档流，所以展开/收起都不会把牌桌往下推。z-[90] 高于座位（z-[70]）
+                与筹码汇总（z-[50]）。发牌前（还没开局）不显示 —— 那时没有任何数据。 */}
+            {handDealt && (
+              <div className="relative">
+                <button
+                  onClick={() => setPlayerStatsOpen((v) => !v)}
+                  aria-expanded={playerStatsOpen}
+                  className="px-2 py-1 text-xs rounded font-bold bg-gray-800/60 text-white/70 hover:bg-gray-700/70 hover:text-white"
+                >
+                  {translations.playerStats.title} {playerStatsOpen ? '▾' : '▸'}
+                </button>
+                {playerStatsOpen && (
+                  <div className="absolute right-0 top-full mt-1 z-[90] max-w-[calc(100vw-1rem)] overflow-x-auto bg-black/85 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                    <PlayerStatsTable longStats={longStats} botLongStats={botLongStats} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -679,14 +706,6 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         opponentProfile={
                           player.isRealPlayer
                             ? calculateOpponentProfile(state.players, player.id)
-                            : undefined
-                        }
-                        longStats={player.isRealPlayer ? longStats : undefined}
-                        botLongStats={player.isRealPlayer ? botLongStats : undefined}
-                        viewingPlayerId={player.isRealPlayer ? player.id : undefined}
-                        realPlayerSessionStats={
-                          player.isRealPlayer && allRealSessionStats
-                            ? allRealSessionStats.filter((s) => s.playerId !== player.id)
                             : undefined
                         }
                         smallBlind={state.smallBlind}
