@@ -862,6 +862,10 @@ describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
   // 口径标注是纯文本，直接断言页面上出现了哪一句话 —— 比按 class 找元素稳。
   const caveat = () => document.body.textContent ?? '';
 
+  // 锦标赛下的 ICM 子句：取到溢价时带数值（`未计 ICM（机器人溢价 +16%）`），
+  // 溢价恰为 0 时退回不带数值的 `未计 ICM（机器人已计）`。
+  const ICM_TOURNAMENT_CLAUSE = /未计 ICM（机器人(已计|溢价 [+-]?\d+%)）/;
+
   beforeEach(() => {
     resetOpponentStats();
     resetRakeConfig();
@@ -913,19 +917,53 @@ describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
     await renderAA('tournament');
     expect(caveat()).toContain(translations.gtoMath.caveat.noRake);
     expect(caveat()).not.toContain(translations.gtoMath.caveat.rake);
-    // 面板**从不**做 ICM 调整，所以两种赛制下都出现「未计 ICM」；锦标赛那句只是
-    // `未计 ICM（机器人已计）`，前半段与现金局完全一致。
+    // 面板**从不**做 ICM 调整，所以两种赛制下都出现「未计 ICM」；锦标赛那句补注
+    // 机器人侧的溢价（`未计 ICM（机器人溢价 +X%）`，溢价取不到时为「机器人已计」），
+    // 前半段与现金局完全一致。
     expect(caveat()).toContain(translations.gtoMath.caveat.noIcm);
-    expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+    expect(caveat()).toMatch(ICM_TOURNAMENT_CLAUSE);
     // 翻前 + 锦标赛 → 范围收紧也标出来。
     expect(caveat()).toContain(translations.gtoMath.caveat.rangeTightened);
   });
 
+  it('锦标赛 + 6 人桌：ICM 标注带上机器人侧的风险溢价数值', async () => {
+    const hero = mkPlayer({
+      id: 1,
+      isRealPlayer: true,
+      hand: [card('♠', 'A'), card('♥', 'A')],
+      totalBet: 20,
+    });
+    const villains = Array.from({ length: 5 }, (_, i) =>
+      mkPlayer({ id: (i + 2) as PlayerId, hand: [card('♦', 'K'), card('♣', 'K')], totalBet: 20 }),
+    );
+
+    await renderPanel(
+      hero,
+      mkState([hero, ...villains], 'preflop'),
+      5,
+      'preflop',
+      [],
+      { scenario: 'tournament' },
+    );
+
+    // 6 人桌均势筹码的溢价约 +0.16（见 gtoICM 文件头「实测」）。面板把它标出来，
+    // 但**不把它算进任何面板数字** —— 见下一条契约用例。
+    expect(caveat()).toMatch(/未计 ICM（机器人溢价 \+\d+%）/);
+  });
+
   it('ICM 文案的契约：两种赛制都以「未计」开头（面板侧永不声称已计入 ICM）', () => {
-    // 面板不 import `gtoICM`，任何「计 ICM」的写法都会被读成「面板数字已含 ICM」。
-    // 这条用例把「面板从不计 ICM」钉成契约，防止文案回退成 `计 ICM（锦标赛）`。
+    // 面板只用 `riskPremiumFor` 取一个**用于显示**的数，不把它算进任何面板数字。
+    // 任何「计 ICM」的写法都会被读成「面板数字已含 ICM」，所以三种文案都必须
+    // 以「未计」开头。这条用例把「面板从不计 ICM」钉成契约，
+    // 防止文案回退成 `计 ICM（锦标赛）`。
     expect(translations.gtoMath.caveat.noIcm.startsWith('未计')).toBe(true);
     expect(translations.gtoMath.caveat.icm.startsWith('未计')).toBe(true);
+    // 带数值的那句同样受契约约束（正负溢价都一样）。
+    expect(translations.gtoMath.caveat.icmPremium(16).startsWith('未计')).toBe(true);
+    expect(translations.gtoMath.caveat.icmPremium(-26).startsWith('未计')).toBe(true);
+    // 溢价有符号：正数补 `+`、负数自带 `-`。
+    expect(translations.gtoMath.caveat.icmPremium(16)).toContain('+16%');
+    expect(translations.gtoMath.caveat.icmPremium(-26)).toContain('-26%');
   });
 
   it('锦标赛 + 翻后：不再标注范围收紧（翻后不查范围表）', async () => {
@@ -956,7 +994,7 @@ describe('GTO Math 口径标注：抽水与 ICM 互斥（B3-b）', () => {
       { scenario: 'tournament' },
     );
     // ICM 标注还在（与街无关），但范围收紧只属于翻前。
-    expect(caveat()).toContain(translations.gtoMath.caveat.icm);
+    expect(caveat()).toMatch(ICM_TOURNAMENT_CLAUSE);
     expect(caveat()).not.toContain(
       translations.gtoMath.caveat.rangeTightened,
     );

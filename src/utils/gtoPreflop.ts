@@ -1,5 +1,8 @@
 import type { Card, Player, GameState, Action } from '../types/poker';
 import { effectiveStackBB, stackBand, type StackBand } from './stackDepth';
+// SPR 尺度修正（`shouldAllInBySPR`）的唯一来源 —— 本文件原先自带一份，与
+// `gtoPostflop` 的那份逐位相同，属于重复实现，已删除。
+import { shouldAllInBySPR } from './spr';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { random } from './random';
 // 强度序的两个权威（档位网格 + Chen 分）—— 锦标赛范围收紧按它们排序。
@@ -927,21 +930,6 @@ function getGto4betSize(
   threeBetSize: number,
 ): number {
   return Math.floor(threeBetSize * (isOOP ? 2.5 : 2.2));
-}
-
-function shouldAllInBySPR(
-  playerChips: number,
-  toCall: number,
-  totalPot: number,
-  playerBet: number,
-  raiseTarget: number,
-): boolean {
-  if (raiseTarget >= playerChips) return true;
-  const potAfterCall = totalPot + toCall + playerBet + toCall;
-  const remainingAfterCall = playerChips - toCall;
-  if (remainingAfterCall <= 0) return true;
-  const spr = potAfterCall > 0 ? remainingAfterCall / potAfterCall : 999;
-  return spr < 2.0 || raiseTarget >= playerChips * 0.5;
 }
 
 

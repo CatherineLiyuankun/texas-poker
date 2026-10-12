@@ -21,6 +21,13 @@ import { getDeepStackRecommendation } from './gtoDeepStack';
 import { getShortStackRecommendation } from './gtoShortStack';
 // 筹码深度的**唯一**来源：换算与分档都在这里，本文件不再自己写阈值。
 import { effectiveStackBB, stackBand } from './stackDepth';
+// SPR（底池相对深度）的唯一来源。GTO OFF 的翻后 / 河牌现在也按它分档 ——
+// 以前这两条路径完全不看 SPR（只有 >150bb 才路由到 gtoDeepStack），
+// 于是同一个局面在 GTO ON / OFF 下对「顶对该不该 stack off」给出相反答案。
+import { sprFromState } from './spr';
+// SPR 承诺档（commit / control / cautious）→ 翻后修正。与 GTO ON 的 gtoPostflop
+// **共用同一套**，两边不再各写一份边界（见 sprStrategy）。
+import { sprPostflopAdjustment } from './sprStrategy';
 // 策略随机数的唯一来源：不要直接调 Math.random()（否则不受 setRandomSeed 控制）。
 import { getRandomSource, mulberry32, random, setRandomSource } from './random';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数，否则同一手牌两边胜率不同。
@@ -29,6 +36,7 @@ import {
   getICMRecommendation,
   getICMConfig,
   riskPremiumFor,
+  riskAdjustedThreshold,
   BUBBLE_PREMIUM_THRESHOLD,
   type Position,
 } from './gtoICM';
@@ -807,8 +815,31 @@ function decidePostflop(
   // 因为对手已经 all-in 或大幅加注，不可能弃牌
   const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
 
-  // 强牌：胜率 >= 75% + 对手画像调整
-  if (equity >= 0.75 + adj.callPenalty) {
+  // ICM 风险溢价（现金局恒为 0）叠加到跟注门槛上 —— 以前只有翻前吃 ICM
+  // （本文件 `decidePreflop` 的 ICM 分支），翻后却按现金局逻辑照跟。
+  //
+  // 刻意**不改 `ctx.potOdds` 本身**：它同时是「这注便宜不便宜」的价格判据
+  // （`ctx.potOdds < 0.12` 之类），且翻前 ICM 分支会把它当基础门槛再叠一次溢价
+  // （`getICMRecommendation` 内部），整体替换会双重计数。这里只抬高权益要求。
+  const callBase = riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player));
+
+  // SPR 承诺档修正 —— 与 GTO ON 的 `decidePostflopGTO` 共用 `sprStrategy` 的分档
+  // （commit / control / cautious，边界 3 / 6）。GTO OFF 以前翻后完全不看筹码深度，
+  // 这是「机器人真实动作不考虑 SPR」的另一半原因（前一半在 gtoPostflop）。
+  const spr = sprFromState(player, state.players, ctx.totalPot);
+  const sprAdj = sprPostflopAdjustment(spr);
+  // 跟注所需的额外权益余量：commit 档归零（顶对按直接赔率跟即可），
+  // control / cautious 要求门槛 + 0.05 —— 与 `decidePostflopGTO` 逐值一致。
+  const callThreshold = callBase + sprAdj.callMargin;
+  // commit 档把「中等牌」并入「强牌」：底池相对身后筹码已经很大，顶对就是
+  // stack-off 牌。实现上直接把强牌门槛降到中等门槛，等价于 gtoPostflop 的
+  // `mediumIsValue`（那边是 `betStrength = mediumIsValue ? 'strong' : strength`）。
+  const strongThreshold = sprAdj.mediumIsValue
+    ? 0.55 + adj.callPenalty - effectiveRaiseBonus
+    : 0.75 + adj.callPenalty;
+
+  // 强牌：胜率 >= strongThreshold + 对手画像调整
+  if (equity >= strongThreshold) {
     if (isFacingBigRaise && !hasPlayersBehind) {
       // 面对 all-in/大加注且后面无人: 全下或跟注，raise 无意义
       if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
@@ -829,10 +860,11 @@ function decidePostflop(
   }
 
   // 中等牌力：胜率 >= 55% + 对手画像调整
+  // （commit 档下这个分支不可达 —— 上面的强牌门槛已经降到同一水平，中等牌按价值牌走。）
   if (equity >= 0.55 + adj.callPenalty - effectiveRaiseBonus) {
     // 面对大额加注时，中等牌力改为倾向跟注/过牌，不主动加注
     if (isFacingBigRaise) {
-      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
       if (flags.canCallResult) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
@@ -847,7 +879,7 @@ function decidePostflop(
       return { action: 'check' };
     }
     // 跟注：10% 概率
-    if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+    if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
     if (flags.canCallResult) return { action: 'call' };
   }
 
@@ -855,14 +887,15 @@ function decidePostflop(
   if (equity >= 0.35 + adj.callPenalty - effectiveRaiseBonus) {
     // 面对大额加注时，禁止诈唬，改为跟注/弃牌
     if (isFacingBigRaise) {
-      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
       if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
       if (flags.canFoldResult) return { action: 'fold' };
       if (flags.canCheckResult) return { action: 'check' };
       return { action: flags.canCallResult ? 'call' : 'fold' };
     }
-    // 诈唬下注：30% 概率（少对手时）
-    const bluffProb = ctx.numOpponents <= 2 ? 0.30 : 0;
+    // 诈唬下注：30% 概率（少对手时）。commit 档下乘数归零 —— 对手已被底池套牢，
+    // 诈唬没有弃牌收益（与 gtoPostflop 的 `bluffMultiplier` 同口径）。
+    const bluffProb = (ctx.numOpponents <= 2 ? 0.30 : 0) * sprAdj.bluffMultiplier;
     if (flags.canRaiseResult && random() < bluffProb) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.7) };
     }
@@ -871,7 +904,7 @@ function decidePostflop(
       return { action: 'check' };
     }
     // 跟注：20% 概率
-    if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+    if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
     if (flags.canCallResult && ctx.potOdds < 0.12) return { action: 'call' };
   }
 
@@ -884,7 +917,7 @@ function decidePostflop(
     ctx.numOpponents <= 2 &&
     equity >= 0.15 &&
     adj.raiseBonus > 0 &&
-    random() < 0.2
+    random() < 0.2 * sprAdj.bluffMultiplier
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
   }
@@ -928,8 +961,23 @@ function decideRiver(
   // 面对大额加注/all-in 时，raiseBonus 不适用
   const effectiveRaiseBonus = (isFacingBigRaise && adj.raiseBonus > 0) ? 0 : adj.raiseBonus;
 
-  // 强牌：胜率 >= 70% + 对手画像调整
-  if (equity >= 0.70 + adj.callPenalty) {
+  // ICM 风险溢价（现金局恒为 0）—— 口径与 `decidePostflop` 完全一致。
+  const callBase = riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player));
+
+  // SPR 承诺档修正 —— 与 `decidePostflop` / GTO ON 的 `decideRiverGTO` 同一套。
+  const spr = sprFromState(player, state.players, ctx.totalPot);
+  const sprAdj = sprPostflopAdjustment(spr);
+  // 河牌本来就是「跟注所需的额外权益余量」——这里把原来硬编码的 0.05 换成
+  // `sprAdj.callMargin`：control / cautious 仍是 0.05（逐值不变），commit 档归零
+  // （底池已经大到按直接赔率跟即可）。
+  const callThreshold = callBase + sprAdj.callMargin;
+  // commit 档把「中等牌」并入「强牌」（同 `decidePostflop`）。
+  const strongThreshold = sprAdj.mediumIsValue
+    ? 0.50 + adj.callPenalty - effectiveRaiseBonus
+    : 0.70 + adj.callPenalty;
+
+  // 强牌：胜率 >= strongThreshold + 对手画像调整
+  if (equity >= strongThreshold) {
     if (isFacingBigRaise && !hasPlayersBehind) {
       // 面对 all-in/大加注且后面无人: 全下或跟注，raise 无意义
       if (flags.canAllInResult && player.chips <= ctx.totalPot * 2) {
@@ -950,10 +998,11 @@ function decideRiver(
   }
 
   // 中等牌力：胜率 >= 50% + 对手画像调整
+  // （commit 档下不可达 —— 强牌门槛已降到同一水平。）
   if (equity >= 0.50 + adj.callPenalty - effectiveRaiseBonus) {
     // 面对大额加注时，中等牌力改为倾向跟注/过牌
     if (isFacingBigRaise) {
-      if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+      if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
       if (flags.canCheckResult) return { action: 'check' };
       if (flags.canFoldResult) return { action: 'fold' };
       if (flags.canCallResult) return { action: 'call' };
@@ -968,7 +1017,7 @@ function decideRiver(
       return { action: 'check' };
     }
     // 跟注：15% 概率
-    if (flags.canCallResult && equity >= ctx.potOdds) return { action: 'call' };
+    if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
     if (flags.canCallResult && ctx.isHeadsUp) return { action: 'call' };
   }
 
@@ -981,7 +1030,7 @@ function decideRiver(
     ctx.numOpponents <= 2 &&
     equity >= 0.15 &&
     adj.raiseBonus > 0 &&
-    random() < 0.25
+    random() < 0.25 * sprAdj.bluffMultiplier
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
   }
@@ -990,7 +1039,7 @@ function decideRiver(
   if (
     equity >= 0.30 + adj.callPenalty &&
     flags.canCallResult &&
-    equity >= ctx.potOdds + 0.05
+    equity >= callThreshold
   ) {
     return { action: 'call' };
   }

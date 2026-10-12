@@ -11,6 +11,11 @@ import { random } from './random';
 // 权益迭代次数的唯一来源：面板与各引擎必须用同一个数。
 import { equityIterations } from './equityIterations';
 import { calculateBluffFrequency } from './gtoMath';
+// SPR 的唯一来源（有效筹码 / 底池）与承诺档 —— 与 gtoPostflop / gtoDeepStack 共用。
+import { sprBand, sprFromState } from './spr';
+import { sprDecisionOf } from './sprStrategy';
+// ICM 风险溢价（锦标赛）与「门槛 = 赔率 + 溢价」的唯一来源。现金局恒为 0。
+import { riskAdjustedThreshold, riskPremiumFor } from './gtoICM';
 
 export const HandStrength = {
   NUTS: 'nuts',
@@ -184,39 +189,57 @@ export function classifyRiverStrength(
   return HandStrength.AIR;
 }
 
+/**
+ * 河牌的价值下注尺度（相对底池）。
+ *
+ * 尺度由**强度 + 牌面纹理 + 位置**决定，再受 **SPR** 约束下限 —— 低 SPR 下小尺度
+ * 不成立（打完一层就没筹码），直接按满池打，等价于把筹码压进去。
+ * 不传 `spr`（或非有限值）时退回纯强度口径，保持既有调用方行为不变。
+ */
 export function calculateOptimalSizing(
   strength: HandStrength,
   texture: BoardTexture,
   isIP: boolean,
   isMultiway: boolean,
+  spr?: number,
 ): number {
-  if (isMultiway) {
-    if (strength === HandStrength.NUTS) {
-      return 0.67;
-    }
-    if (strength === HandStrength.STRONG) {
+  const base = (() => {
+    if (isMultiway) {
+      if (strength === HandStrength.NUTS) {
+        return 0.67;
+      }
+      if (strength === HandStrength.STRONG) {
+        return 0.5;
+      }
       return 0.5;
     }
+
+    if (strength === HandStrength.NUTS) {
+      return texture.wetness > 5 ? 0.75 : 0.67;
+    }
+
+    if (strength === HandStrength.STRONG) {
+      return 0.67;
+    }
+
+    if (texture.wetness > 7) {
+      return 0.5;
+    }
+
+    if (isIP) {
+      return 0.67;
+    }
+
     return 0.5;
-  }
+  })();
 
-  if (strength === HandStrength.NUTS) {
-    return texture.wetness > 5 ? 0.75 : 0.67;
-  }
-
-  if (strength === HandStrength.STRONG) {
-    return 0.67;
-  }
-
-  if (texture.wetness > 7) {
-    return 0.5;
-  }
-
-  if (isIP) {
-    return 0.67;
-  }
-
-  return 0.5;
+  if (spr === undefined || !Number.isFinite(spr)) return base;
+  const band = sprBand(spr);
+  // 极低 SPR：小尺度没有意义，按满池打（`createBetAction` 会在筹码处封顶 → 全下）。
+  if (band === 'veryLow') return Math.max(base, 1.0);
+  // 低 SPR：至少 3/4 池，避免给对手便宜的看牌 / 跟注。
+  if (band === 'low') return Math.max(base, 0.75);
+  return base;
 }
 
 /**
@@ -294,6 +317,16 @@ export interface RiverStrategyInput {
   /** 手牌与公共牌，仅用于诈唬的阻断牌评分 */
   hand: Card[];
   community: Card[];
+  /**
+   * SPR（有效筹码 / 底池）。缺省视为最深（不施加 SPR 修正），
+   * 这样不传 SPR 的既有调用方输出与以前逐位一致。
+   */
+  spr?: number;
+  /**
+   * ICM 风险溢价（锦标赛；现金局为 0）。缺省 0 —— 面板**不做 ICM 调整**
+   * （见 `translations` 的 `noIcm` 说明），只有机器人 `decideRiverGTO` 会传。
+   */
+  riskPremium?: number;
   /** 对手画像调整；面板传 undefined 表示纯 GTO 基线 */
   adjustments?: OpponentAdjustments;
 }
@@ -333,6 +366,14 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
   const ip = input.isIP;
   const isMultiway = input.isMultiway;
   const potOdds = input.potOdds;
+  // 缺省最深：不传 SPR 的调用方（含既有单测）行为逐位不变。
+  const spr = input.spr ?? Number.POSITIVE_INFINITY;
+  // commit 档（SPR < 3）：筹码相对底池已经很浅，跟注更宽松、诈唬无效。
+  const commitBand = sprDecisionOf(spr) === 'commit';
+  // 跟注门槛 = 直接赔率 + ICM 风险溢价。现金局溢价恒为 0 → 与以前逐位一致。
+  const callBase = riskAdjustedThreshold(potOdds, input.riskPremium ?? 0);
+  // commit 档下筹码已经很浅，抓诈唬不再额外要求 0.05 的余量（顶对按直接赔率跟）。
+  const strongMargin = commitBand ? 0 : 0.05;
 
   const strength = classifyRiverStrength(input.equity, input.handRank);
   const equity = input.adjustments
@@ -355,8 +396,8 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
       const canContinue =
         strength === HandStrength.NUTS ||
         (strength === HandStrength.MEDIUM
-          ? equity >= potOdds
-          : equity >= potOdds + 0.05);
+          ? equity >= callBase
+          : equity >= callBase + strongMargin);
 
       return canContinue
         ? {
@@ -377,7 +418,7 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
         };
 
       case HandStrength.STRONG:
-        return equity >= potOdds + 0.05
+        return equity >= callBase + strongMargin
           ? {
               ...base, action: 'call', fallback: 'fold',
               reasoning: `Call with strong hand: ${fmtEqOdds(equity, potOdds)}`,
@@ -388,7 +429,7 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
             };
 
       case HandStrength.MEDIUM:
-        return equity >= potOdds
+        return equity >= callBase
           ? {
               ...base, action: 'call', fallback: 'fold',
               reasoning: `Call with medium hand: ${fmtEqOdds(equity, potOdds)}`,
@@ -399,7 +440,7 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
             };
 
       default:
-        return equity >= potOdds + 0.05
+        return equity >= callBase + 0.05
           ? {
               ...base, action: 'call', fallback: 'fold',
               reasoning: `Call: ${fmtEqOdds(equity, potOdds)}`,
@@ -412,7 +453,7 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
   }
 
   // ── 无人下注 ──────────────────────────────────────────────
-  const sizing = calculateOptimalSizing(strength, texture, ip, isMultiway);
+  const sizing = calculateOptimalSizing(strength, texture, ip, isMultiway, spr);
 
   if (strength === HandStrength.NUTS) {
     return {
@@ -435,9 +476,13 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
     };
   }
 
-  const bluffProb = bluffProbability(
-    hand, community, equity, totalPot * sizing, totalPot, ip, isMultiway,
-  );
+  // 低 SPR（commit 档）下诈唬无效：对手已被底池套牢，弃牌率趋近 0，
+  // 白白把自己的筹码送进一个对手必跟的底池。
+  const bluffProb = commitBand
+    ? 0
+    : bluffProbability(
+        hand, community, equity, totalPot * sizing, totalPot, ip, isMultiway,
+      );
 
   if (bluffProb > 0) {
     return {
@@ -514,6 +559,10 @@ export function decideRiverGTO(
   const texture = analyzeBoardWithEquity(community);
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents, equityIterations(state.phase));
   const evaluated = evaluateHand(player.hand, community);
+  // SPR 由 spr.ts 统一取「有效筹码 / 底池」；以前河牌这条路径**完全没有 SPR**。
+  const spr = sprFromState(player, state.players, ctx.totalPot);
+  // ICM 风险溢价（现金局恒为 0）。以前河牌不吃 ICM，翻前却吃 —— 前后不一致。
+  const riskPremium = riskPremiumFor(state, player);
 
   const strategy = getRiverStrategy({
     equity,
@@ -530,6 +579,8 @@ export function decideRiverGTO(
     totalPot: ctx.totalPot,
     hand: player.hand,
     community,
+    spr,
+    riskPremium,
     adjustments: adj,
   });
 
@@ -587,6 +638,11 @@ export function getGtoRiverRecommendation(params: {
   toCall: number;
   totalPot: number;
   smallBlind: number;
+  /**
+   * SPR（有效筹码 / 底池）。缺省不施加 SPR 修正（视为最深），
+   * 与机器人 `decideRiverGTO` 传同一个数时两边结论一致。
+   */
+  spr?: number;
 }): GtoRiverRecommendation {
   const community = params.communityCards;
   const texture = analyzeBoardWithEquity(community);
@@ -610,6 +666,7 @@ export function getGtoRiverRecommendation(params: {
     totalPot: params.totalPot,
     hand: params.hand,
     community,
+    spr: params.spr,
   });
 
   const sizingPercent =

@@ -10,6 +10,8 @@ import { PlayerStatsTable } from './PlayerStatsTable';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
 import { getBotAction } from '../utils/botAI';
 import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
+// SPR / 有效筹码的唯一来源：面板 SPR 行不再自己内联 `min(hero, 各活跃对手) / pot`。
+import { sprFromState } from '../utils/spr';
 import { NO_RAKE, setRakeConfig, type RakeConfig } from '../utils/rake';
 import {
   getGtoPreflopRecommendation,
@@ -718,17 +720,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         spr={(() => {
                           const totalPot = potOddsInfo.totalPot;
                           if (totalPot <= 0) return undefined;
-                          const activeOpponents = state.players.filter(
-                            (p) => !p.folded && p.id !== player.id,
-                          );
-                          const effectiveStack =
-                            activeOpponents.length > 0
-                              ? Math.min(
-                                  player.chips,
-                                  ...activeOpponents.map((p) => p.chips),
-                                )
-                              : player.chips;
-                          return effectiveStack / totalPot;
+                          // 与机器人同口径：有效筹码（自己与未弃牌对手的 min）/ 底池。
+                          return sprFromState(player, state.players, totalPot);
                         })()}
                         playerRaiseAmount={playerRaiseAmounts[player.id] ?? null}
                         gtoRecommendation={(() => {

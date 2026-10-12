@@ -146,7 +146,9 @@ describe('gtoDeepStack', () => {
 
     it('should determine SPR decision correctly', () => {
       const hand = [createCard('A', '♥'), createCard('K', '♥')];
-      const adjustments = getDeepStackAdjustments(hand, 30); // SPR < 4
+      // 该 helper 的简化口径是 spr = bb / 10，所以 15bb → SPR 1.5，落在 commit 档
+      // （分档边界已统一到 spr.sprBand：<1.5 veryLow / <3 low / <6 medium / <12 high）。
+      const adjustments = getDeepStackAdjustments(hand, 15); // SPR < 3
       expect(adjustments.sprDecision).toBe('commit');
     });
   });

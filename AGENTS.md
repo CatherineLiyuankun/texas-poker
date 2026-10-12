@@ -228,22 +228,24 @@ fields of one config object**, not two module-level `let`s. Read via `getGtoConf
 `isGtoEngine()` / `isTournamentScenario()`; write via `setGtoConfig(patch)`, which merges
 because the two UI toggles write independently.
 
-`scenario` gates three things, and they must stay mutually consistent:
+`scenario` gates four things, and they must stay mutually consistent:
 
 | Gate | Cash | Tournament |
 | --- | --- | --- |
-| ICM risk premium (`gtoICM.riskPremiumFor`) | 0 | derived from the stack-relative bubble factor |
+| ICM risk premium (`gtoICM.riskPremiumFor`) | 0 | derived from the stack-relative bubble factor; folded into the call threshold on **every** street (preflop, postflop, river) via `gtoICM.riskAdjustedThreshold` |
 | Rake (`rake.effectiveRakeConfigFor`) | user config | always `NO_RAKE` |
 | Preflop ranges (`gtoPreflop`) | base tables | derived, tighter tables |
+| Analysis-panel caveat text (`HandAnalysis`) | "未计 ICM" | "未计 ICM（机器人溢价 ±X%）" |
 
 **Rules:**
 
 - **Render layer takes the scenario as a parameter; decision layer reads the global.**
   `GameBoard` mirrors its `scenario` state into `gtoConfig` inside a `useEffect`, so on the
   frame the toggle flips the prop has changed and the global has not. Anything that paints
-  (`rake.effectiveRakeConfigFor(scenario)`, `gtoPreflop.getGtoPreflopRecommendation({
-  ..., gameScenario })`) must take it as an argument; anything that decides
-  (`decidePreflopGTO`, `getPreflopRangeClasses`) may read the global.
+  (`rake.effectiveRakeConfigFor(scenario)`, `gtoICM.riskPremiumForScenario(state, hero,
+  scenario)`, `gtoPreflop.getGtoPreflopRecommendation({ ..., gameScenario })`) must take it as
+  an argument; anything that decides (`decidePreflopGTO`, `getPreflopRangeClasses`,
+  `gtoICM.riskPremiumFor`) may read the global.
 - Rake and ICM are **alternatives, not additive**: tournaments do not rake per hand, they
   punish marginal decisions through ICM. Never let both apply.
 - `botAI.getBotAction` computes `ctx.potOdds` once via `rake.callThresholdWithRake(...)`
