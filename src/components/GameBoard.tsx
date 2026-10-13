@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useGameState, bettingComplete } from '../hooks/useGameState';
+import { useGameState, bettingComplete, isActionAccepted } from '../hooks/useGameState';
 import { PlayerArea } from './PlayerArea';
 import { CommunityCards } from './CommunityCards';
 import { PotDisplay } from './PotDisplay';
@@ -359,6 +359,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       : (decision.action === 'check' ? 400 : 600);
 
     const timer = setTimeout(() => {
+      // 非法动作（金额越界 / 欠注 / 无权限等）会被 reducer 拒绝，此时**不得**
+      // 记录统计事件 —— 否则统计里会出现一条从未真正发生过的动作（方案 §7.4）。
+      if (!isActionAccepted(state, currentPlayer.id, decision.action, decision.amount)) {
+        return;
+      }
       playerAction(currentPlayer.id, decision.action, decision.amount);
       // Record action event for opponentModel
       const event = createActionEvent(
@@ -382,6 +387,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleAction = (action: Action, amount?: number) => {
     const playerId = state.currentPlayer;
     const currentPhase = state.phase;
+    // 与 reducer 共用同一接受口径：被拒绝的动作不派发、也不记统计事件。
+    if (!isActionAccepted(state, playerId, action, amount)) return;
     playerAction(playerId, action, amount);
     const player = state.players.find((p) => p.id === playerId);
     if (player) {
