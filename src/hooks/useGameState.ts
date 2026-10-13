@@ -1266,21 +1266,28 @@ export function useGameState() {
           const newDealer = ((state.dealer % state.players.length) +
             1) as PlayerId;
           const resetInitialChips = (state.smallBlind || SMALL_BLIND) * 200;
-          const newPlayers = state.players.map((p, index) => ({
-            ...p,
-            chips: p.chips > 0 ? p.chips : p.chips + resetInitialChips,
-            buyInCount: p.chips > 0 ? p.buyInCount : p.buyInCount + 1,
-            bet: 0,
-            totalBet: 0,
-            hand: [],
-            hasActed: false,
-            folded: false,
-            revealed: false,
-            lastAction: undefined,
-            isRealPlayer: index < state.realPlayerCount,
-            // 下一手**完整继承**本盘分配（决策 35：盘内只读），重新派生视图
-            botType: state.botPersonalityEnabled ? state.botTypes?.[p.id] : undefined,
-          }));
+          const newPlayers = state.players.map((p, index) => {
+            const isRealPlayer = index < state.realPlayerCount;
+            return {
+              ...p,
+              chips: p.chips > 0 ? p.chips : p.chips + resetInitialChips,
+              buyInCount: p.chips > 0 ? p.buyInCount : p.buyInCount + 1,
+              bet: 0,
+              totalBet: 0,
+              hand: [],
+              hasActed: false,
+              folded: false,
+              revealed: false,
+              lastAction: undefined,
+              isRealPlayer,
+              // 下一手**完整继承**本盘分配（决策 35：盘内只读），重新派生视图；
+              // 与 `START_GAME` 同口径：真人**绝不**赋 `botType`（方案 §6.1）。
+              botType:
+                state.botPersonalityEnabled && !isRealPlayer
+                  ? state.botTypes?.[p.id]
+                  : undefined,
+            };
+          });
           const newState = {
             phase: 'preflop',
             mainPot: 0,

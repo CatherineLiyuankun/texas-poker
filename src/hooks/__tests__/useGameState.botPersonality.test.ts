@@ -90,4 +90,24 @@ describe('useGameState Bot 性格接线（§6.2/§6.3）', () => {
       jest.useRealTimers();
     }
   });
+
+  it('下一手派生同样排除真人：map 含真人座位键也不注入', () => {
+    jest.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useGameState());
+      // 座位 1/2 是真人，故意在 map 里塞真人键
+      startWithPersonality(result, { 1: 'Maniac', 2: 'Nit', 3: 'LAG' });
+
+      act(() => {
+        result.current.resetRound();
+        jest.runOnlyPendingTimers();
+      });
+
+      expect(result.current.state.players[0].botType).toBeUndefined();
+      expect(result.current.state.players[1].botType).toBeUndefined();
+      expect(result.current.state.players[2].botType).toBe('LAG');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
