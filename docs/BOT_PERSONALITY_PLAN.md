@@ -664,7 +664,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 - 长闭环独立显式runner/命令，不让默认Jest自动收集；不并入普通PR套件制造30分钟附加等待。
 - 所有通过数/耗时在真正执行后记录，本轮没有新增实现验收数字；对旧JSON和规则反例的只读复算不代表生产实现已通过。
 
-## 15. 源码索引（行号基于 e54d4e3；P0a/P0b 已改动处见第 16 节）
+## 15. 源码索引（行号基于 e54d4e3；P0a–P0g 已改动处见第 16 节，行号不再逐条对齐）
 
 | 文件                                                                                  | 关键位置/事实                                                                                                                                                       |
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -699,10 +699,36 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | --- | --- | --- | --- |
 | P0a | `a2da19c` | VPIP/PFR 改**整手**语义（先 call 后 raise、BB check 后 raise 不再漏记）；AF 区分加注式/跟注式 all-in 并返回三态 `computeAFDetailFromEvents`（A/C/unknownAllIns 计数，不持久化 Infinity）；AFq 同步修正 all-in 语义 | 4 聚焦套件 66 通过 + 3 面板/集成套件 53 通过；`tsc -b` 通过；eslint 0 error |
 | P0b | `0220ed7` | `HandRecord` 增 `flopSeenPlayers` / `showdownWinners`；GameBoard 结算时生产并同步会话模型；WTSD 用真实见翻牌名单（含翻前 all-in runout）、WSD 用多赢家/边池事实；字段缺失回退旧口径 | 8 聚焦套件 81 通过（含新增 `opponentModelUtil.wtsdWsd.test.ts` 与结算生产端断言）；`tsc -b` 通过；eslint 0 error |
+| P0c | `fc72a3b` | 机会分母按**真实行动链**重建（CBet / 3Bet / FoldToCbet / TurnCBet / CheckRaise）：donk 不算 c-bet 机会、c-bet 后被插入加注不算 fold-to-cbet、turn c-bet 分母须打到转牌（否则 null）、check-raise 须先 check 后真实面对下注；每手/每街最多计 1 | 8 聚焦套件 109 通过（含新增 `opponentModelUtil.opportunityCounts.test.ts`）；`tsc -b` 通过；eslint 0 error |
+| P0d | `f51aff3` | 翻前场景改读状态机**已接受**的投入链（新增可选字段 `GameState.preflopChain`，盲注不入链、跟注式全下按跟注记）；`detectPreflopScenario` / `getOpenerPosition` / `botAI` ICM spot 共用真实判定，禁止用金额倍数猜历史 | gtoPreflop/botAI/useGameState 相关套件 156 通过（含新增 `useGameState.preflopChain.test.ts` 9 用例）；`tsc -b` 通过；eslint 0 error |
+| P0e | `39ea1b5` | 加注金额走**最终合法化层** `legalizeRaise`（finite / 取整数筹码单位 / 非负 / 超筹码按合法全下截断 / 最小全额加注 / 加注权 / 无人可应）；新增 `isActionAccepted` 作为 reducer 与 GameBoard 共用的**唯一**接受口径，被拒绝的动作不派发也不记统计事件；`check` 面对下注拒绝、`call` 跟注不够拒绝、已弃牌/已全下玩家不再行动 | 12 聚焦套件 158 通过（含新增 `useGameState.actionLegality.test.ts`，覆盖 §7.4 反例）；`tsc -b` 通过；eslint 0 error |
+| P0f | `1743459` | 会话画像改**按盘累积**（决策 40）：`resetRound` 不再每手清空统计；`startNewHand` 对同一 handId 幂等（当前手不重复）；「新盘清」仍由 GameBoard 初始挂载与牌桌内开新局按钮负责；`useGameState` 因此不再依赖 `opponentModel` | 8 聚焦套件 190 通过（含新增 `useGameState.sessionLifecycle.test.ts`）；`tsc -b` 通过；eslint 0 error |
+| P0g | `8baa8ca` | 位置标志抽成共用 `computePositionFlags`（botAI `ctx` 与面板展示共用一份公式，删除面板的第二份拷贝）；**早位排除盲位**（决策 41，详见 §16.1） | 9 聚焦套件 283 通过（含新增 `position.test.ts`）；`tsc -b` 通过；eslint 0 error |
 
-- 已完成：P0a、P0b。待实施：P0c（机会分母）、P0d（真实翻前场景）、P0e（合法动作/金额防御）、P0f（会话画像生命周期）、P0g（7/8 盲位身份修复），随后 P1 golden、P2 分类器、P3–P9。
-- 期间新增两个聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、`opponentModelUtil.wtsdWsd.test.ts`（P0b）。
-- 仍未生成 golden fixture、未接线 persona、未跑全量 Unit+e2e（全量只在 PR 关口跑）。
+### 16.1 P0g 复核结论（决策 41，先复核后修）
+
+- 旧公式 `isEarlyPosition = position > 0 && position < floor(N*0.3)` 会让盲位同时是早位：
+  7/8/9 人桌 `floor(N*0.3) === 2` → **小盲（position 1）** 同时是 early 与 blind；
+  10 人桌 `floor(N*0.3) === 3` → **大盲（position 2）** 也同时是 early 与 blind。
+- **真实触发复核**：小盲翻前恒面对大盲（`toCall = bigBlind - smallBlind > 0`），
+  `isFacingRaise === true`，故 `isEarlyPosition && !isFacingRaise` 分支**不可达** →
+  **7/8 人桌净变化为 0**（与 §10.1「不能直接断言当前总走某加注档」一致）。
+  而大盲免费看牌时 `toCall === 0` → `isFacingRaise === false` → 10 人桌会**真的**走进
+  「早位 30% 加注 / 20% 跟注 / 50% 弃牌」，正确行为是 check/fold。
+- **修复**：早位改为 `position > 2 && position < floor(N*0.3)`，盲位与早位互斥；
+  其余六个标志逐位未改。6 人桌早位本就是空集（`floor(1.8) === 1`）→ 净变化 0。
+- **已知残留（均属「完整位置统一」，仍独立后续，不在本次前置）**：
+  ① ≤10 人桌下早位恒为空集（`floor(N*0.3) <= 3`），即「GTO 早位不可达」的策略退化；
+  ② 6 人桌 UTG（position 3）同时落进 `isMiddlePosition` 与 `isLatePosition`；
+  ③ 小桌（2–4 人）的 `isLatePosition` 仍会命中盲位。
+
+- 已完成：**P0a–P0g（前置修复全部完成）**。
+- 期间新增聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、
+  `opponentModelUtil.wtsdWsd.test.ts`（P0b）、`opponentModelUtil.opportunityCounts.test.ts`（P0c）、
+  `useGameState.preflopChain.test.ts`（P0d）、`useGameState.actionLegality.test.ts`（P0e）、
+  `useGameState.sessionLifecycle.test.ts`（P0f）、`position.test.ts`（P0g）。
+- 下一步：P1 基线 fixture（须在**全部前置修复之后、接线 persona 之前**生成 SHA，不得用
+  `e350939` 锁死修复前行为），随后 P2 分类器、P3–P9。
 - 实现细节以本文件为准；提交历史见上述 SHA。
 
 ## 17. 明确不做与下一步
@@ -710,4 +736,6 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 - 不写六套独立AI、不把TAG/LAG标签当实力保证、不修改已决分类树以追校准数字。
 - 不增加滑动窗口、不删除/重置用户1166手统计、不依据当前座位补写历史分配身份。
 - 不把7/8完整位置统一、任意中途续手、真实身份ID、gtoShortStack既有其他债自动捆入本次实现；已发现风险按第13节（决策 34/41/42）范围处理。
-- 本轮已启动 P0 前置修复（P0a/P0b 已提交，见第 16 节）；仍未生成 fixture、未接线 persona、未跑全量长测。下一轮按 P0c→P0g 顺序继续独立修复。
+- 本轮已完成 P0 前置修复 **P0a–P0g**（逐项独立提交，含 P0g 复核结论见 16.1）；仍**未**生成
+  fixture、**未**接线 persona。下一轮从 P1 基线 fixture 开始（须在前置修复之后生成 SHA），
+  按 P1→P10 顺序继续。
