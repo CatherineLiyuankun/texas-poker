@@ -277,6 +277,32 @@ export function postflopParams(params: PersonalityParams | undefined): PostflopP
   };
 }
 
+/**
+ * 按 `aggression` 缩放**进取权重**并归一化（方案 §7.3 第 3、6 条）。
+ *
+ * `aggressiveWeight` / `passiveWeight` 是调用侧本来的分支权重（**二者之和为 1**，
+ * 例如「60% 下注 / 30% 过牌 / 10% 跟注」里进取 0.60、保守 0.40）。返回进取动作的
+ * 归一化概率 `w·g / (w·g + p)`，夹到 [0,1] —— 这就是 §7.3 第 3 条的
+ * `p(a) = w(a) / sum(w)`：先缩放权重，再重新归一，而不是让概率之和超过 1。
+ *
+ * **`aggression === 1` 时与 `aggressiveWeight` 逐位相同**（`× 1.0` 精确、且
+ * `w + p === 1`），所以无 persona 时调用侧拿到的概率与接线前完全一致 —— 这是
+ * 「P1 golden 不变」的前提。`total <= 0` / `NaN` 时返回 0（不产生 NaN 概率）。
+ *
+ * 保守动作之间的**相对**比例不受影响：调用侧用 `1 - p` 作分母算条件概率时，
+ * 过牌/跟注的分配与接线前一样（它们的权重都没被缩放）。
+ */
+export function renormalizeAggression(
+  aggressiveWeight: number,
+  passiveWeight: number,
+  aggression: number,
+): number {
+  const scaled = aggressiveWeight * aggression;
+  const total = passiveWeight + scaled;
+  if (!(total > 0)) return 0;
+  return Math.min(1, Math.max(0, scaled / total));
+}
+
 /** 普通新局的 Bot 上限（决策 19：这是 **Bot 数**上限，不是总人数上限）。 */
 export const MAX_BOTS_FOR_NEW_GAME = 6;
 

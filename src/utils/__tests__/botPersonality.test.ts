@@ -25,6 +25,7 @@ import {
   PERSONALITY_PARAMS,
   postflopParams,
   preflopWidths,
+  renormalizeAggression,
   shiftThreshold,
   toBotTypeMap,
   type BotPersonality,
@@ -633,5 +634,49 @@ describe('botPersonality：翻后派生量与 callShift 映射（P6b）', () => 
     expect(at('Fish')).toBeCloseTo(0.65, 12);
     expect(at('Calling Station')).toBeCloseTo(0.63, 12);
     expect(at('Maniac')).toBeCloseTo(0.67, 12);
+  });
+
+  it('renormalizeAggression：aggression 为 1 时逐位等于原权重', () => {
+    // 这是「无 persona 逐位不变」在频率维度的保证：0.6·1/(0.4+0.6·1) === 0.6。
+    expect(renormalizeAggression(0.6, 0.4, 1)).toBe(0.6);
+    expect(renormalizeAggression(0.3, 0.7, 1)).toBe(0.3);
+    expect(renormalizeAggression(0.2, 0.8, 1)).toBe(0.2);
+    expect(renormalizeAggression(0, 1, 1)).toBe(0);
+  });
+
+  it('renormalizeAggression：对 aggression 单调递增且恒在 [0,1]', () => {
+    const prev: number[] = [];
+    for (const g of [0, 0.3, 0.7, 1, 1.4, 2.5, 10]) {
+      const p = renormalizeAggression(0.6, 0.4, g);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThanOrEqual(1);
+      if (prev.length) expect(p).toBeGreaterThanOrEqual(prev[prev.length - 1]);
+      prev.push(p);
+    }
+    // 极端值不会把概率推爆：g→∞ 时 p 渐近到 1 但严格小于 1
+    // （600 / (0.4 + 600) = 0.99933…），这不是缺陷，是「保守动作权重不为零」的必然结果。
+    expect(renormalizeAggression(0.6, 0.4, 1000)).toBeLessThan(1);
+    expect(renormalizeAggression(0.6, 0.4, 1000)).toBeGreaterThan(0.999);
+    // 只有保守权重为 0 时才真的取到 1
+    expect(renormalizeAggression(0.6, 0, 2)).toBe(1);
+  });
+
+  it('renormalizeAggression：六类的激进度排序体现在进取概率上', () => {
+    const at = (p: keyof typeof PERSONALITY_PARAMS) =>
+      renormalizeAggression(0.6, 0.4, postflopParams(PERSONALITY_PARAMS[p]).aggression);
+    expect(at('Calling Station')).toBeLessThan(at('Fish'));
+    expect(at('Fish')).toBeLessThan(at('TAG'));
+    expect(at('TAG')).toBeLessThan(at('LAG'));
+    expect(at('LAG')).toBeLessThan(at('Maniac'));
+    expect(at('TAG')).toBeCloseTo(0.6, 12);
+    expect(at('Maniac')).toBeCloseTo(1.5 / 1.9, 12);
+    expect(at('Calling Station')).toBeCloseTo(0.18 / 0.58, 12);
+  });
+
+  it('renormalizeAggression：权重全为 0 / NaN 时返回 0，不产生 NaN 概率', () => {
+    // `random() < NaN` 恒假会静默禁用动作，所以这里必须收敛到 0 而不是 NaN。
+    expect(renormalizeAggression(0, 0, 1)).toBe(0);
+    expect(renormalizeAggression(Number.NaN, 0.4, 1)).toBe(0);
+    expect(renormalizeAggression(0.6, Number.NaN, 1)).toBe(0);
   });
 });
