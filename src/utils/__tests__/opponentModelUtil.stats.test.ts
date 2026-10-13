@@ -19,17 +19,18 @@ function ev(
   phase: GamePhase,
   action: Action,
   timestamp: number,
+  toCall: number = 0,
 ): ActionEvent {
   return {
     handId,
     playerId,
     phase,
     action,
-    toCall: 0,
-    currentBet: 0,
+    toCall,
+    currentBet: toCall,
     potSize: 0,
     position: 0,
-    isFacingRaise: false,
+    isFacingRaise: toCall > 0,
     timestamp,
   };
 }
@@ -41,7 +42,7 @@ const handA: HandRecord = {
   players: [P1, P2],
   events: [
     ev('A', P2, 'preflop', 'raise', 1),
-    ev('A', P1, 'preflop', 'call', 2),
+    ev('A', P1, 'preflop', 'call', 2, 2),
     ev('A', P2, 'flop', 'raise', 3),
     ev('A', P1, 'flop', 'fold', 4),
   ],
@@ -70,7 +71,7 @@ const handC: HandRecord = {
   players: [P1, P2],
   events: [
     ev('C', P2, 'preflop', 'raise', 1),
-    ev('C', P1, 'preflop', 'call', 2),
+    ev('C', P1, 'preflop', 'call', 2, 2),
     ev('C', P2, 'flop', 'check', 3),
     ev('C', P1, 'flop', 'check', 4),
     ev('C', P2, 'turn', 'check', 5),
@@ -87,7 +88,7 @@ const handD: HandRecord = {
   players: [P2, 3],
   events: [
     ev('D', P2, 'preflop', 'raise', 1),
-    ev('D', 3, 'preflop', 'call', 2),
+    ev('D', 3, 'preflop', 'call', 2, 2),
   ],
 };
 

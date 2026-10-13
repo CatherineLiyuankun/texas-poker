@@ -60,6 +60,65 @@ export interface HandRecordLike {
   result?: { winner: PlayerId | null; potAmount: number };
 }
 
+/**
+ * 翻前「自愿投入」判定（VPIP 分子）。
+ *
+ * 整手语义：只要该玩家本手翻前**任意一次**动作是自愿投钱，就算 VPIP ——
+ * 不再只看第一个动作（旧口径会漏掉 BB 先 check 后 raise、limp 后再加注等）。
+ *
+ * - 强制盲注不产生事件，天然不会误计；
+ * - `call` 只有 `toCall > 0` 才是自愿投入（`toCall = 0` 的 call 等价于 check，
+ *   reducer 里筹码不变；真实数据里不存在这种事件，防御性排除）；
+ * - `allin`：新事件带 `amount`（本次追加筹码），`amount > 0` 即自愿；
+ *   旧数据 `amount === undefined` 时，事件本身来自主动决策路径
+ *   （0 筹码被动全-in 玩家不会产生决策事件），按自愿计（legacy 估计）。
+ */
+function isVoluntaryPreflopEntry(e: ActionEvent): boolean {
+  switch (e.action) {
+    case 'raise':
+      return true;
+    case 'call':
+      return e.toCall > 0;
+    case 'allin':
+      return e.amount === undefined ? true : e.amount > 0;
+    default:
+      return false; // check / fold
+  }
+}
+
+/**
+ * 翻前「主动加注」判定（PFR 分子）。
+ *
+ * - `raise` 事件恒为加注；
+ * - `allin` 带 `amount` 时：`amount > toCall` 才是加注式全下，
+ *   `amount <= toCall` 是跟注式全下（不算 PFR）；
+ * - 旧数据 `amount === undefined`：`toCall === 0` 时面对无人下注的全下
+ *   只可能是下注式全下（legacy 估计，计为加注）；`toCall > 0` 时无法区分
+ *   加注/跟注全下，**保守不计**（与旧实现的 PFR 行为一致）。
+ */
+function isPreflopRaise(e: ActionEvent): boolean {
+  if (e.action === 'raise') return true;
+  if (e.action === 'allin') {
+    if (e.amount !== undefined) return e.amount > e.toCall;
+    return e.toCall === 0;
+  }
+  return false;
+}
+
+/**
+ * 翻后 all-in 的进攻/跟注归类。
+ *
+ * 返回 `null` 表示**证据缺失**（旧事件无 `amount` 且 `toCall > 0`，
+ * 无法区分加注式还是跟注式全下）——调用方应把它排除在 A/C 之外单独计数，
+ * 而不是猜一边。
+ */
+function classifyAllInAggression(e: ActionEvent): boolean | null {
+  if (e.amount !== undefined) return e.amount > e.toCall;
+  // legacy：面对无人下注（toCall=0）的全下只能是下注式（进攻）；
+  // toCall > 0 则无从判断。
+  return e.toCall === 0 ? true : null;
+}
+
 export function computeVPIPFromEvents(
   events: ActionEvent[],
   handsDealt: number
@@ -70,21 +129,14 @@ export function computeVPIPFromEvents(
   let vpipCount = 0;
 
   for (const handEvents of eventsByHand.values()) {
-    // Sort by timestamp and get the first preflop action
-    const preflopEvents = handEvents
-      .filter(e => e.phase === 'preflop')
-      .sort((a, b) => a.timestamp - b.timestamp);
-    
-    if (preflopEvents.length === 0) continue;
-    
-    const firstAction = preflopEvents[0];
-    // VPIP: voluntarily put money in pot (call, raise, or allin)
-    const isVpip = 
-      firstAction.action === 'call' || 
-      firstAction.action === 'raise' ||
-      firstAction.action === 'allin';
-    
-    if (isVpip) vpipCount++;
+    // 整手任意一次自愿投入即算（不再只看第一个翻前动作）
+    if (
+      handEvents.some(
+        e => e.phase === 'preflop' && isVoluntaryPreflopEntry(e)
+      )
+    ) {
+      vpipCount++;
+    }
   }
 
   return vpipCount / handsDealt;
@@ -100,36 +152,74 @@ export function computePFRFromEvents(
   let pfrCount = 0;
 
   for (const handEvents of eventsByHand.values()) {
-    // Sort by timestamp and get the first preflop action
-    const preflopEvents = handEvents
-      .filter(e => e.phase === 'preflop')
-      .sort((a, b) => a.timestamp - b.timestamp);
-    
-    if (preflopEvents.length === 0) continue;
-    
-    const firstAction = preflopEvents[0];
-    const isPfr = 
-      firstAction.action === 'raise' ||
-      (firstAction.action === 'allin' && firstAction.amount !== undefined && firstAction.amount > firstAction.toCall);
-    
-    if (isPfr) pfrCount++;
+    // 整手任意一次主动加注即算 —— 先 call 后 raise（limp-reraise）、
+    // BB check 后 raise 都不再被漏记
+    if (
+      handEvents.some(e => e.phase === 'preflop' && isPreflopRaise(e))
+    ) {
+      pfrCount++;
+    }
   }
 
   return pfrCount / handsDealt;
 }
 
-export function computeAFFromEvents(events: ActionEvent[]): number | null {
+/** AF 的三态（plan 决策 37）：区分「没打过翻后」与「打过但零跟注」。 */
+export type AFState = 'no-actions' | 'finite' | 'no-calls';
+
+export interface AFDetail {
+  /** C > 0 时为 A/C；否则 null（含 no-calls —— 不持久化 Infinity）。 */
+  af: number | null;
+  state: AFState;
+  /** 翻后进攻动作数（raise / 加注式 all-in）。 */
+  aggressive: number;
+  /** 翻后跟注动作数（call / 跟注式 all-in）。 */
+  calls: number;
+  /** 证据缺失的旧 all-in 事件数（无 amount 且 toCall > 0），不进 A 也不进 C。 */
+  unknownAllIns: number;
+}
+
+/**
+ * AF 明细（分子/分母/状态分开返回）。
+ *
+ * 旧实现把所有 `allin` 都算进攻、且「零跟注」与「没动作」都返回 null，
+ * 无法区分「翻后极凶（A>0, C=0）」与「根本没打到翻后」。现在：
+ * - 跟注式 all-in（`amount <= toCall`）计入 C；
+ * - 加注式 all-in（`amount > toCall`）计入 A；
+ * - 证据缺失的旧事件单独计数，不猜。
+ */
+export function computeAFDetailFromEvents(events: ActionEvent[]): AFDetail {
   const postflopEvents = events.filter(e => e.phase !== 'preflop');
 
-  const aggressive = postflopEvents.filter(
-    e => e.action === 'raise' || e.action === 'allin'
-  ).length;
+  let aggressive = 0;
+  let calls = 0;
+  let unknownAllIns = 0;
 
-  const passive = postflopEvents.filter(
-    e => e.action === 'call'
-  ).length;
+  for (const e of postflopEvents) {
+    if (e.action === 'raise') {
+      aggressive++;
+    } else if (e.action === 'call') {
+      calls++;
+    } else if (e.action === 'allin') {
+      const isAggressive = classifyAllInAggression(e);
+      if (isAggressive === null) unknownAllIns++;
+      else if (isAggressive) aggressive++;
+      else calls++;
+    }
+    // check / fold 不进 A 也不进 C
+  }
 
-  return passive > 0 ? aggressive / passive : null;
+  if (calls > 0) {
+    return { af: aggressive / calls, state: 'finite', aggressive, calls, unknownAllIns };
+  }
+  if (aggressive > 0) {
+    return { af: null, state: 'no-calls', aggressive, calls, unknownAllIns };
+  }
+  return { af: null, state: 'no-actions', aggressive, calls, unknownAllIns };
+}
+
+export function computeAFFromEvents(events: ActionEvent[]): number | null {
+  return computeAFDetailFromEvents(events).af;
 }
 
 export function detectLimpersFromEvents(
@@ -373,11 +463,27 @@ export function computeAFqFromEvents(events: ActionEvent[]): number | null {
   const postflopEvents = events.filter(e => e.phase !== 'preflop');
   if (postflopEvents.length === 0) return null;
 
-  const aggressive = postflopEvents.filter(
-    e => e.action === 'raise' || e.action === 'allin'
-  ).length;
+  // all-in 语义与 AF 一致：加注式计入分子、跟注式不计；
+  // 证据缺失的旧事件（无 amount 且 toCall > 0）既不进分子也不进分母，不猜。
+  let aggressive = 0;
+  let classified = 0;
 
-  return (aggressive / postflopEvents.length) * 100;
+  for (const e of postflopEvents) {
+    if (e.action === 'raise') {
+      aggressive++;
+      classified++;
+    } else if (e.action === 'allin') {
+      const isAggressive = classifyAllInAggression(e);
+      if (isAggressive === null) continue;
+      if (isAggressive) aggressive++;
+      classified++;
+    } else {
+      classified++;
+    }
+  }
+
+  if (classified === 0) return null;
+  return (aggressive / classified) * 100;
 }
 
 /**
@@ -440,6 +546,19 @@ export function computeTurnCbetFromEvents(
  */
 export interface PlayerStats extends VpipPfrStats {
   af: number | null;
+  /**
+   * AF 三态（决策 37）。`no-calls` = 翻后有进攻但零跟注 —— 比较时视为高于
+   * 任意有限 AF 阈值（Maniac/LAG 判据），但 `af` 保持 `null`、不持久化
+   * Infinity。`no-actions` 与旧版 null 等价（没打到翻后）。
+   * 生产代码总会填充；手工构造的测试桩可省略（可选字段）。
+   */
+  afState?: AFState;
+  /** 翻后进攻动作数（raise / 加注式 all-in）。 */
+  afAggressive?: number;
+  /** 翻后跟注动作数（call / 跟注式 all-in）。 */
+  afCalls?: number;
+  /** 证据缺失的旧 all-in 事件数（无 amount 且 toCall > 0），不进 A 也不进 C。 */
+  afUnknownAllIns?: number;
   cbet: number | null;
   wtsd: number | null;
   wsd: number | null;
@@ -562,6 +681,7 @@ export function computePlayerStatsFromEvents(
 
   const vpip = computeVPIPFromEvents(events, handsDealt);
   const pfr = computePFRFromEvents(events, handsDealt);
+  const afDetail = computeAFDetailFromEvents(events);
 
   return {
     playerId,
@@ -570,7 +690,11 @@ export function computePlayerStatsFromEvents(
     pfr,
     gap: vpip - pfr,
     playerType: classifyPlayerType(vpip, pfr, handsDealt),
-    af: computeAFFromEvents(events),
+    af: afDetail.af,
+    afState: afDetail.state,
+    afAggressive: afDetail.aggressive,
+    afCalls: afDetail.calls,
+    afUnknownAllIns: afDetail.unknownAllIns,
     checkRaise: computeCheckRaiseFromEvents(events),
     afq: computeAFqFromEvents(events),
     // 只看自己的动作 → 用过滤后的手牌

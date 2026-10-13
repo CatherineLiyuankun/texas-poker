@@ -274,12 +274,21 @@ describe('per-hand VPIP/PFR tracking', () => {
     expect(stats.pfr).toBe(1);
   });
 
-  it('recordAction call 只计入 VPIP', () => {
+  it('recordAction call（面对下注）计入 VPIP', () => {
     currentHandId = 'hand-1';
     startNewHand('hand-1', [3]);
-    recordAction(createActionEvent(3, 'call'));
+    recordAction(createActionEvent(3, 'call', 'preflop', undefined, 20));
     const stats = getOpponentVpipPfr(3);
     expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(0);
+  });
+
+  it('call 但 toCall=0（等价过牌）不计入 VPIP', () => {
+    currentHandId = 'hand-1';
+    startNewHand('hand-1', [3]);
+    recordAction(createActionEvent(3, 'call')); // toCall 默认 0
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(0);
     expect(stats.pfr).toBe(0);
   });
 
@@ -292,14 +301,14 @@ describe('per-hand VPIP/PFR tracking', () => {
     expect(stats.pfr).toBe(0);
   });
 
-  it('每手牌只记录首次翻牌前动作', () => {
+  it('整手任意翻前加注都计入 PFR（先 call 后 raise）', () => {
     currentHandId = 'hand-1';
     startNewHand('hand-1', [3]);
-    recordAction(createActionEvent(3, 'call'));
+    recordAction(createActionEvent(3, 'call', 'preflop', undefined, 20));
     recordAction(createActionEvent(3, 'raise'));
     const stats = getOpponentVpipPfr(3);
     expect(stats.vpip).toBe(1);
-    expect(stats.pfr).toBe(0);
+    expect(stats.pfr).toBe(1);
   });
 
   it('allin 金额 > 当前下注时计入 PFR', () => {
