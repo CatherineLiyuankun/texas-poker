@@ -90,6 +90,26 @@ export function setCurrentHandShowdownPlayers(players: PlayerId[]): void {
   }
 }
 
+/** 翻牌发出时冻结的未弃牌名单（含翻前 all-in），见 `HandRecord.flopSeenPlayers`。 */
+export function setCurrentHandFlopSeenPlayers(players: PlayerId[]): void {
+  loadFromStorage();
+
+  if (sessionData.currentHand) {
+    sessionData.currentHand.flopSeenPlayers = players;
+    saveToStorage();
+  }
+}
+
+/** 摊牌中从任意奖池获得 > 0 份额的玩家（含平分/边池），见 `HandRecord.showdownWinners`。 */
+export function setCurrentHandShowdownWinners(players: PlayerId[]): void {
+  loadFromStorage();
+
+  if (sessionData.currentHand) {
+    sessionData.currentHand.showdownWinners = players;
+    saveToStorage();
+  }
+}
+
 export function resetOpponentStats(): void {
   sessionData = {
     version: 1,

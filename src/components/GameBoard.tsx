@@ -22,7 +22,7 @@ import {
 } from '../utils/gtoPreflop';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers, setCurrentHandFlopSeenPlayers, setCurrentHandShowdownWinners } from '../utils/opponentModel';
 import {
   saveHand,
   getAllPlayerLongStats,
@@ -271,7 +271,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   useEffect(() => {
     if (roundSettled) {
       const currentHand = getCurrentHand();
-      const showdownPlayers = state.phase === 'showdown'
+      const isShowdown = state.phase === 'showdown';
+      const showdownPlayers = isShowdown
         ? state.players.filter(p => !p.folded).map(p => p.id)
         : undefined;
 
@@ -279,10 +280,42 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         setCurrentHandShowdownPlayers(showdownPlayers);
       }
 
+      // 翻牌是否真的发出：phase 一旦离开 preflop 就说明发了翻牌
+      // （弃牌胜保留当前 phase，全下 runout 会推进到 showdown）。
+      // 见翻牌名单 = 翻前未弃牌者，含翻前 all-in 后无动作的 runout ——
+      // 不能用「本人是否有 flop 动作」推断（那样会漏掉全下者）。
+      const preflopFoldedIds = new Set(
+        (currentHand?.events ?? [])
+          .filter(e => e.phase === 'preflop' && e.action === 'fold')
+          .map(e => e.playerId),
+      );
+      const flopSeenPlayers = state.phase !== 'preflop'
+        ? state.players.filter(p => !preflopFoldedIds.has(p.id)).map(p => p.id)
+        : undefined;
+
+      // 摊牌获奖者：从 potDistribution 汇总所有奖池中 > 0 的份额（含平分/边池）。
+      // 单个 state.winner 无法表达多赢家/边池结果（WSD 需要真实获奖事实）。
+      const showdownWinners = isShowdown
+        ? state.players
+            .filter((_, idx) =>
+              state.potDistribution.some(pd => (pd.winnings[idx] ?? 0) > 0),
+            )
+            .map(p => p.id)
+        : undefined;
+
+      if (flopSeenPlayers) {
+        setCurrentHandFlopSeenPlayers(flopSeenPlayers);
+      }
+      if (showdownWinners) {
+        setCurrentHandShowdownWinners(showdownWinners);
+      }
+
       if (currentHand) {
         const handWithResult: typeof currentHand = {
           ...currentHand,
+          flopSeenPlayers,
           showdownPlayers,
+          showdownWinners,
           result: {
             winner: state.winner,
             potAmount: state.players.reduce((sum, p) => sum + p.totalBet, 0),
@@ -291,7 +324,13 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         saveHand(handWithResult);
       }
     }
-  }, [roundSettled, state.winner, state.players]);
+  }, [
+    roundSettled,
+    state.winner,
+    state.players,
+    state.phase,
+    state.potDistribution,
+  ]);
 
   const noRealCanAct = !state.players.some(
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,

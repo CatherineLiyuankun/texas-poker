@@ -56,7 +56,17 @@ export interface HandRecordLike {
   events: ActionEvent[];
   /** 参与该手牌的玩家。缺失时退化为「是否留下过动作」判断。 */
   players?: PlayerId[];
+  /**
+   * 翻牌发出时未弃牌的参与者（含翻前 all-in）。缺失时回退到旧口径：
+   * 「本人有翻后动作才算看翻牌」（会漏翻前 all-in 的 runout）。
+   */
+  flopSeenPlayers?: PlayerId[];
   showdownPlayers?: PlayerId[];
+  /**
+   * 摊牌中从任意奖池获得 > 0 份额的玩家（含平分/边池）。
+   * 缺失时回退到 `result.winner`（无法表达多赢家）。
+   */
+  showdownWinners?: PlayerId[];
   result?: { winner: PlayerId | null; potAmount: number };
 }
 
@@ -277,10 +287,26 @@ export function computeCBetFromEvents(hands: HandRecordLike[]): number | null {
 }
 
 /**
- * 见到翻牌后走到摊牌的比例（WTSD）。入参是**该玩家自己**的手牌记录。
+ * 该 player-hand 是否**真实看到翻牌**。
+ *
+ * 优先用 `flopSeenPlayers`（翻牌发出时冻结的未弃牌名单，含翻前 all-in 的
+ * runout）；字段缺失（历史记录）时回退到旧口径：本人有翻后动作即视为看到
+ * 翻牌 —— 这是旧行为的**单调超集**（有 turn/river 动作必然见过 flop），
+ * 仍会漏掉翻前 all-in 后无动作的 runout，属历史记录已知限制。
+ */
+function sawFlop(hand: HandRecordLike, playerId: PlayerId): boolean {
+  if (hand.flopSeenPlayers) return hand.flopSeenPlayers.includes(playerId);
+  return hand.events.some(
+    e => e.playerId === playerId && e.phase !== 'preflop',
+  );
+}
+
+/**
+ * 见到翻牌后走到摊牌的比例（WTSD）。
  *
  * 玩家身份显式传入，不再从 `hand.events[0]` 推断 —— 一旦喂进完整记录，
  * 那个推断会取到「本手第一个动作的人」，把统计算到别人头上。
+ * 入参可以是该玩家自己的手牌记录，也可以是完整记录（回退分支按 `playerId` 过滤）。
  */
 export function computeWTSDFromEvents(
   playerId: PlayerId,
@@ -290,7 +316,7 @@ export function computeWTSDFromEvents(
   let showdowns = 0;
 
   for (const hand of hands) {
-    if (!hand.events.some(e => e.phase === 'flop')) continue;
+    if (!sawFlop(hand, playerId)) continue;
 
     flopsSeen++;
 
@@ -300,6 +326,17 @@ export function computeWTSDFromEvents(
   }
 
   return flopsSeen > 0 ? (showdowns / flopsSeen) * 100 : null;
+}
+
+/**
+ * 该 player-hand 在摊牌中是否赢得**任意**奖池份额。
+ *
+ * 优先用 `showdownWinners`（结算时从 potDistribution 汇总，含平分与边池）；
+ * 字段缺失（历史记录）时回退到单个 `result.winner`（无法表达多赢家）。
+ */
+function wonAnyShare(hand: HandRecordLike, playerId: PlayerId): boolean {
+  if (hand.showdownWinners) return hand.showdownWinners.includes(playerId);
+  return hand.result?.winner === playerId;
 }
 
 /** 摊牌胜率（WSD）。入参是**该玩家自己**的手牌记录；玩家身份显式传入（理由同 WTSD）。 */
@@ -315,7 +352,7 @@ export function computeWSDFromEvents(
 
     showdowns++;
 
-    if (hand.result?.winner === playerId) {
+    if (wonAnyShare(hand, playerId)) {
       wins++;
     }
   }
@@ -674,7 +711,9 @@ export function computePlayerStatsFromEvents(
   const playerHands: HandRecordLike[] = dealtHands.map(hand => ({
     handId: hand.handId,
     events: hand.events.filter(e => e.playerId === playerId),
+    flopSeenPlayers: hand.flopSeenPlayers,
     showdownPlayers: hand.showdownPlayers,
+    showdownWinners: hand.showdownWinners,
     result: hand.result,
   }));
   const events = playerHands.flatMap(hand => hand.events);
