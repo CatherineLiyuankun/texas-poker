@@ -42,6 +42,11 @@ function saveToStorage(): void {
 export function startNewHand(handId: string, players: PlayerId[]): void {
   loadFromStorage();
 
+  // 同一手重复开局（组件重挂载 / StrictMode 双调用 / 新盘与恢复交错）时**必须**
+  // 幂等：否则上一份 `currentHand` 会被推进 `sessionHands`，同一手在
+  // `sessionHandRecords()` 里出现两次，统计被重复计数（决策 40「当前手不重复」）。
+  if (sessionData.currentHand?.handId === handId) return;
+
   if (sessionData.currentHand) {
     sessionData.sessionHands.push(sessionData.currentHand);
   }

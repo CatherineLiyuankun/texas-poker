@@ -15,7 +15,6 @@ import type {
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
 import { calculatePots, computeContributions } from '../utils/potCalculator';
-import { resetOpponentStats } from '../utils/opponentModel';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = [
@@ -1343,7 +1342,9 @@ export function useGameState() {
   }, []);
 
   const resetRound = useCallback(() => {
-    resetOpponentStats();
+    // 会话画像按**盘**累积（决策 40）：开下一手时**不再**清空统计，
+    // 由 GameBoard 的 `startNewHand` 把上一手归档进 `sessionHands` 再开新的一手。
+    // 清空只发生在「开新盘」（GameBoard 初始挂载 / 牌桌内开新局按钮）。
     dispatch({ type: 'RESET_ROUND' });
     setTimeout(() => {
       const latest = stateRef.current;
