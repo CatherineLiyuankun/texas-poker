@@ -1,6 +1,6 @@
 # Bot 性格（Player Personality）改动计划
 
-> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节）。persona **尚未进入决策入口**（P6 才接线），决策行为仍等于无 persona 路径。  
+> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节）。翻后 / 河牌 / 短深筹码的 persona **尚未接线**（P6b/P6c），聚合侧尚未消费开手快照（P7）；**无 persona 路径逐位不变**（P1 golden 仍绿）。  
 > 本文件是本次讨论的唯一权威方案；继续讨论时更新此文件，不另建版本副本。
 >
 > **最后更新**：2026-10-13  
@@ -334,6 +334,17 @@ TAG=1不证明原策略就是TAG；Maniac callBias=0.3只是初值，不能声�
 6. aggressionMult分别作用可选价值/诈唬权重，不把已被赔率/筹码/行动权限否决的动作重新启用。
 
 不再承诺“控制流一行不动”；共享结构不等于可以不增加范围候选或策略权重层。所有无persona分支仍保持独立可回归性。
+
+**实施决策（P6a 落地，2026-10-13）**：
+
+- **恒等即原对象**：`preflopWidths(undefined)` 返回写死的 `{open:1, defend:1, threeBet:1}`（**不是** `PERSONALITY_PARAMS.TAG` —— TAG 初值恰好恒等只是巧合，会随 P9 校准漂移）。三档全 1 时 `derivePreflopRangeTable` / `rangeTablesForPersona` **直接返回基表对象本身**，连一次拷贝都没有；引擎侧所有概率表达式是 `× 1.0`（IEEE-754 下精确），所以无 persona 逐位不变、随机消费次数一个不增。
+- **宽度按组合数**：`cellCombos` = 对子 6 / 同花 4 / 非同花 12，与 §7.3 第 1 条一致；强度序复用 `cellStrengthKey`（`getPreflopTier × 100 − Chen`，升序），`Array.prototype.sort` 在 ES2019 起稳定 → 同键保持 `(i,j)` 遍历序，扩展/收紧结果完全可复现并有快照测试钉住。
+- **收紧复用一份实现**：`factor < 1` 时直接调用既有的锦标赛 `tightenCells`（保留最强部分、其余转 `donateTo`），不新写第二套收紧逻辑。
+- **`facing` 两动作分开、顺序固定为先 C 后 R**：`C` 按 `defend` 缩放（放宽吃 `F`、收紧退 `F`），`R` 按 `threeBet` 缩放（放宽**先吃 `C` 再吃 `F`**、收紧退 `C`）。于是 `threeBetFreq` 是 **R 与 C/F 之间的转移**，`R ∪ C` 组合数守恒（实测：UTG 开池 → BB 防守，`threeBetFreq 1.6` 使 `R` 42→70、`C` 212→184，加进 `R` 的恰是从 `C` 拿走的 `AJs/AQs/JJ/KJs/KQs/TT`）。
+- **赛制与性格的叠加顺序只有一处**：`rangeTablesForPersona(scenario, persona)` 先选赛制基表（锦标赛表本身就是从现金表派生的），再在其上派生性格；结果按 `赛制|三档倍率` 做**纯 memo**（`Map`），入参唯一决定结果、调用方一律只读 —— 这不是 `gtoConfig` 那种「可被外部改写的模块级 `let`」。
+- **两个入口的赛制来源不同（既有契约，非本次引入）**：`decidePreflopGTO` 读全局 `getGtoConfig().scenario`；`getGtoPreflopRecommendation` 读 **query 里的 `gameScenario`**（渲染层 prop）。测试若只 `setGtoConfig({scenario:'tournament'})` 而 query 不传 `gameScenario`，走的仍是现金表 —— P6a 测试已按此修正。
+- **`callShift` 映射推迟到 P6b，P6a 用乘性近似**：§7.3 第 5 条要求 `callThreshold' = clamp(base + callShift(callBias), 0, 1)`，并注明「映射函数尚需实施前固定（推荐单调、基值 1 对应 0）」。P6a 的启发式翻前只接了三档宽度，尚未接 `callBias`，因此这里落的是**乘性口径** `entryOdds(base) = min(base × callWidth, 1)`（`callWidth` = 开池场景 `openWiden`、面对加注场景 `defendVsOpen`），语义是「门槛随防守宽度等比放大、夹到 1」；`callBias` 在 P6a **完全未使用**。**推荐映射（P6b 固定并写测试）**：`callShift(b) = clamp(0.30 × ln(b), −0.30, +0.30)` —— 单调、`callShift(1) = 0` 精确、量级与现有门槛（0.08–0.48）同阶。P6b 落地时再决定它如何与宽度项组合（叠加还是相乘），并把该组合写进测试。**在 P6b 落地前，不得声称 `callBias` 已生效。**
+- **启发式的真实杠杆已实测（重要，防止后续再踩）**：`decidePreflop` 里的 `isFacingRaise = ctx.toCall > 0` 语义是「我必须再掏筹码」，**非盲位恒为 true**（要补大盲注），而盲位没有任何位置标志 —— 于是 `ctx.isXxx && !isFacingRaise` 那棵开池树**对所有座位都不可达**（实测 BTN/CO/HJ/UTG 拿 A9o 时策略随机消费 **0** 次）。真正决定「要不要进池」的是**跟注价格门槛**（`entryOdds`）与**硬编码的反加概率字面量**（`raiseWidth`）。因此 P6a 用 `detectPreflopScenario(state, player) === 'rfi'` 选旋钮，而不是复用 `isFacingRaise`。`aceRaiseFactor` 的站点**全部**在 `!isFacingRaise` 块内（已逐站点核对），所以开池树的不可达不影响 `raiseWidth` 在可 reach 站点（tier 3/4/5 的盲位防守、tier 6）的正确性。
 
 ### 7.4 amount与合法动作契约
 
@@ -711,6 +722,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P3 | `554e4f1` | **persona 参数与配额纯数据**（方案 §5/§7.1，决策 8/19/36）：新增 `src/utils/botPersonality.ts` —— 六类枚举（不含 Others/Unknown）、`PERSONALITY_PARAMS` 七参数（§7.1 初值，TAG 为基准）、`botTypeQuota`（B0–6 的 A′ 多重集 + B7–10 兼容外推；负数/非整数/>10 抛 `RangeError`，不静默钳人数）、`allocateBotTypes`（Fisher–Yates 洗牌 + 可注入随机源，与策略随机源独立）、`isValidBotPersonality`（恢复校验用）、`toBotTypeMap`。**纯数据/纯函数、未接线**，不 import 引擎或组件 | `npx jest botPersonality`：1 套件 36 通过；`tsc -b` 通过；eslint 0 error。另：累计全量 `npm test`（unit+e2e）**72 套件 1335 通过 / 2 跳过 / 0 失败 / 2088.7s**（覆盖 P0+P1+P2，e2e 三套件全 PASS） |
 | P4 | `4b4d6b0`（+ `2d312c1` 补漏） | **生命周期、开关与持久化**（方案 §5/§6，决策 15/17/19/31/35/36）：`botPersonality` 增 `botIdsForRange`（前缀布局座位推导）与 `normalizeBotPersonalityConfig`（§6.2 恢复状态表：严格 `true` 才启用；`B=0` 空 map 但保留开关意图；`true`+map 缺失/损坏/缺项/非法 → **整盘退回关闭**、不静默随机补齐；多余键剔除）；`SavedProgress`/`GameState` 增 `botPersonalityEnabled` + `botTypes`，`Player.botType` 为有效 map 的**派生视图**（真人恒 undefined）；`START_GAME` 显式写开关/map 并按座位派生（**关闭时 map 必为空**；真人**绝不**赋 botType），`RESET_ROUND` + 随后的 `START_GAME` 完整继承、不重抽（`RESET_ROUND` 同口径排除真人 —— `2d312c1` 补漏，因 `BotTypeMap` 类型允许真人键）；`App` 在**新盘边界（事件处理器）分配一次**（StrictMode 不重抽）、恢复共用同一份规范化、**名单非前缀布局则拒绝恢复并提示**（§6.2）；`StartPage` 新增性格开关（决策 17：默认开，作为 `onStartGame` 第 5 参透传），玩家总数边界改用共用常量；`GameBoard` 透传开关/map（初始化 effect + 牌桌内开新局按钮）并在两处 `saveGameProgress` 落盘有效开关/map | 聚焦 16 套件 200 通过 / 2 跳过（既有 `GameBoard.blind.logic.test.tsx` 两例）；新增 `useGameState.botPersonality` 7/7（先抓出「关闭时仍保留残留 map」的契约缺口、后抓出「RESET_ROUND 未排除真人」）、`gamePersistence.personality` 14/14（名单前缀校验 + 字段往返 + version 3 导入往返）、`botPersonality` 恢复规范化 12 例、`StartPage.personality` 5 例（`StartPage.rake` 同步补第 5 参断言）；`tsc -b` 通过；eslint 0 error |
 | P5 | `6a1700d`（+ `f9389c0` 回归用例） | **开手快照与稳定手牌身份**（方案 §8.1/§8.2/§8.3）：`HandRecord` 增 `playerTypes?`（开手复制的有效分配 map）与 `playerRoles?`（开手每座位 `human`/`bot`）+ 导出 `PlayerRole`；两者都是可选字段（缺失 = 旧记录，聚合侧按 §8.3 归 Bot Unknown），**关闭性格时写空 map 而非省略字段**，以区分「新记录且关闭」与「旧记录无字段」；`startNewHand` 增第 3/4 参写入快照并对 `players`/`playerTypes`/`playerRoles` 全部**复制**（不引用随后可变对象）；新增稳定手牌身份 `beginSession()` / `getSessionId()` / `makeHandId(ordinal)`，身份 = `sessionId + 盘内手序`，**旧记录保留原 id 不批量重写**；`GameBoard` 在两个新盘边界（初始化 effect + 牌桌内开新局按钮）调 `beginSession()`，手牌键与 handId 改用 sessionId 公式，`createActionEvent` 与容器记录**共用 `handIdRef`**（不再两处各拼一遍字符串）；`longOpponentModel` 补文档说明其 `recordAction` 增量路径不写快照（事件不带快照），生产链路走 `startNewHand` + 结算 `saveHand` 整份覆盖。**顺带修既有 id 缺陷**：旧 handId 用组件 ref 计数，返回菜单重挂载后归零，「同 dealer + 同底牌」的新盘第一手会与上一盘撞同一个 id → 长期库 `saveHand` 覆盖吃掉旧手牌。`beginSession` **刻意不消耗随机源**（它在洗牌前调用，多消耗一个 `Math.random()` 会把播种的洗牌序列整体错位） | 聚焦 7 套件 **77 通过 / 0 失败**（含新增 `GameBoard.handSnapshot` 4 例：开手快照写入与同手多 Bot、关闭时空 map、结算保存不丢快照 + 事件与容器 handId 同源；`opponentModel` 快照/副本隔离/幂等/会话身份 +11 例；`longOpponentModel` 覆盖保存保留快照 + 导入往返且重复 pair 不重复计数 +2 例）；`f9389c0` 追加跨盘 id 不碰撞回归用例（`GameBoard.handSnapshot` 5/5，已实测在等价旧公式下如实失败）；既有 `GameBoard.showdown.settlement`（播种发牌未受扰动）与 `botAI.decisionBaseline`（P1 基线）全绿；`tsc -b` 通过；eslint 0 error |
+| P6a | `2a1c21f` | **翻前 persona 与范围派生**（方案 §7.1/§7.2 第 1–2 行/§7.3）：`botPersonality` 新增 `personaParamsFor(botType)`（判据**只有** `Player.botType`，不再查开关 —— 避免「关闭」的两种口径）、`PreflopWidths` + `preflopWidths(persona)`（`undefined` → **写死的恒等 `{1,1,1}`**，不是 `PERSONALITY_PARAMS.TAG`；`safeMultiplier` 让 `NaN`/负/`Infinity` 退回 1，避免 `random() < NaN` 恒假而静默禁用动作）；`gtoPreflop` 新增范围派生段（`cellCombos` 组合数计宽 / `cellStrengthKey` 稳定强度序 / 复用锦标赛 `tightenCells` 收紧 / `rescaleActionCells` 放宽时按 donor 优先级从强到弱补格 / `derivePreflopRangeTable` **恒等时返回基表对象本身** / `deriveRangeTableSet` / `rangeTablesForPersona` 按 `赛制\|三档` 纯 memo），`decidePreflopGTO` 与 `getGtoPreflopRecommendation` 接可选尾参 `persona`，`getFacingOpenTable` 改为接收 `tables`；`botAI.decidePreflop` 接可选尾参 `persona`，**按 `detectPreflopScenario(state, player) === 'rfi'` 选旋钮**（开池用 `openWiden`，面对加注用 `defendVsOpen` 跟注 / `threeBetFreq` 反加），`aceRaiseFactor` 折进 `raiseWidth`、6 处面对加注跟注点用 `defendCallFactor`、10 处跟注价格门槛用 `entryOdds(base)=min(base×callWidth,1)`、5 处硬编码反加字面量乘 `raiseWidth`；`getBotAction` **只解析一次** persona 并仅透传给翻前两入口（翻后/河牌/短深筹码留 P6b/P6c） | 3 聚焦套件 **85 通过 / 0 失败**（新增 `gtoPreflop.persona.test.ts`：无 persona 逐位不变含锦标赛、UTG/BTN RFI 放宽与收紧的组合数比、F 扩展具体清单、面对开池 `threeBetFreq` 转移（`R∪C` 守恒）、`defendVsOpen` 外扩、vs3bet/cold3bet 单调性与概率归一化、赛制叠加顺序、引擎入口与面板同口径；新增 `botAI.personaPreflop.test.ts` 11 例：6 座位×5 手牌 TAG≡无 botType（动作+随机消费全等）、开池 vs 面对开池**换旋钮**的直接对照、健壮性、翻后/河牌不泄漏；`botPersonality.test.ts` +8 例）；**回归 5 套件 204 通过 / 0 失败**（`botAI.decisionBaseline` P1 golden 全绿 → 无 persona 逐位不变、`equityCalls`/`strategyRandomCalls` 无新增；`gtoPreflop`、`botAI`、`botAI.spr`、`rangeEquity`）；`tsc -b` 通过；eslint 0 error（2 个既有 `GameBoard.tsx` hook 依赖 warning，与本次无关） |
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -732,16 +744,19 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 - 已完成：**P0a–P0g（前置修复全部完成）** + **P1（无 persona 基线 fixture，基线 SHA `5418246`）**
   + **P2（分类器重写 + Fish 展示）** + **P3（persona 参数与配额纯数据）**
   + **P4（生命周期、开关与持久化；persona 已接线到配置/存档，但尚未进入决策）**
-  + **P5（开手快照与稳定手牌身份；记录侧证据已就绪，聚合侧 P7 才消费）**。
+  + **P5（开手快照与稳定手牌身份；记录侧证据已就绪，聚合侧 P7 才消费）**
+  + **P6a（翻前 persona 与范围派生；GTO ON/OFF 的翻前两入口都已接，无 persona 路径逐位不变）**。
 - 期间新增聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、
   `opponentModelUtil.wtsdWsd.test.ts`（P0b）、`opponentModelUtil.opportunityCounts.test.ts`（P0c）、
   `useGameState.preflopChain.test.ts`（P0d）、`useGameState.actionLegality.test.ts`（P0e）、
   `useGameState.sessionLifecycle.test.ts`（P0f）、`position.test.ts`（P0g）、
   `botAI.decisionBaseline.test.ts` + `helpers/botDecisionBaseline.ts` + `__fixtures__/botDecisionBaseline.json`（P1）、
-  `playerType.test.ts`（P2）、`botPersonality.test.ts`（P3，P4 追加恢复规范化 12 例）、
+  `playerType.test.ts`（P2）、`botPersonality.test.ts`（P3，P4 追加恢复规范化 12 例，P6a 追加 8 例）、
   `useGameState.botPersonality.test.ts`、`gamePersistence.personality.test.ts`、
-  `StartPage.personality.test.tsx`（P4）、`GameBoard.handSnapshot.test.tsx`（P5）。
-- 下一步：P6a/b/c 分入口 persona 行为 → P7 按分配类型聚合 →
+  `StartPage.personality.test.tsx`（P4）、`GameBoard.handSnapshot.test.tsx`（P5）、
+  `gtoPreflop.persona.test.ts`、`botAI.personaPreflop.test.ts`（P6a）。
+- 下一步：P6b（flop/turn 及短/深筹码 persona，含固定 `callShift` 映射）→
+  P6c（river persona 与共用安全尺寸）→ P7 按分配类型聚合 →
   P8a/8b 座位标签与两行影子 → P9 闭环 runner 与参数校准 → P10 文档与发布门。
 - 实现细节以本文件为准；提交历史见上述 SHA。
 
@@ -758,6 +773,35 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   **跨盘碰撞**（重挂载后计数归零），已由 P5 的 sessionId 修掉，并在 `f9389c0` 补了
   能守住它的回归用例（实测在等价旧公式下失败）。
 
+### 16.3 P6a 复核结论（一个被实测推翻的实现假设，留档）
+
+- **最初实现（错误）**：把 persona 宽度乘进 `aceRaiseFactor` / `aceCallFactor`，并假定
+  `ctx.isXxx && !isFacingRaise` 的开池树会在非盲位生效，于是用 `isFacingRaise` 当场景判据。
+- **探针实测推翻**：`isFacingRaise = ctx.toCall > 0` 的真实语义是「我必须再掏筹码」，
+  **非盲位恒为 true**（要补大盲注）；盲位（SB/BB）又**没有任何位置标志**。于是
+  `ctx.isXxx && !isFacingRaise` 那棵开池树对**所有座位都不可达** —— 实测
+  BTN/CO/HJ/UTG 拿 A9o 时策略随机消费 **0** 次，决定完全由跟注价格门槛给出。
+  （这与 §16.1 记录的「小盲翻前恒面对大盲 → 早位分支不可达」是同一类问题的另一面。）
+- **修正**：改用 **`detectPreflopScenario(state, player)`**（P0d 的唯一真实场景口径）
+  选旋钮：`'rfi'` → 宽度取 `openWiden`；否则跟注取 `defendVsOpen`、反加取 `threeBetFreq`。
+  这正是 §7.2 第 1 行「按真实 unopened/limp/open/3bet 场景派生」的字面要求。
+- **直接证据（写进测试）**：同一座位、同一手牌（A9o，tier 5）、同一跟注价格 0.4，
+  **只**把 `preflopChain` 从空改成「有人真实加注过」：CS 在开池场景 `fold`
+  （`openWiden 0.7` → 门槛 0.21），在面对开池场景 `call`（`defendVsOpen 1.8` → 门槛夹到 1.0）。
+  同一局面换场景就翻转，证明换的确实是旋钮，而不是「全局统一放大」。
+- **附带核查**：`aceRaiseFactor` 的全部站点都在 `!isFacingRaise` 块内（逐站点核对），
+  所以开池树的不可达**不影响** `raiseWidth` 在可 reach 站点（tier 3/4/5 的盲位防守、
+  tier 6 的盲位/便宜跟注）上的正确性。
+- **测试里两个坑（已修，记录以免重踩）**：
+  ① 翻后/河牌走 `equityCalculator` 的蒙特卡洛，采样用 `Math.random()` —— 不 mock 就
+  **每次结果都不同**（这正是 P1 基线必须 mock 它的原因）；测试辅助改为「每次调用新建一条
+  `mulberry32` 流」，base 与 persona 两次运行的采样序列才完全一致。
+  ② 本仓库 rank 记法用 `'10'` 而非 `'T'`（`getPreflopTier` 的 `RI` 只认 `'10'`），
+  测试手牌写 `'T'` 会得到 `undefined` 行而抛 `TypeError`。
+- 另记录一条**既有契约**（非本次引入，但会让测试产生假阳性）：
+  `getGtoPreflopRecommendation` 的赛制来自 **query 的 `gameScenario`**（渲染层 prop），
+  不是全局配置；只 `setGtoConfig({scenario:'tournament'})` 而 query 不传，走的仍是现金表。
+
 ## 17. 明确不做与下一步
 
 - 不写六套独立AI、不把TAG/LAG标签当实力保证、不修改已决分类树以追校准数字。
@@ -765,9 +809,12 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 - 不把7/8完整位置统一、任意中途续手、真实身份ID、gtoShortStack既有其他债自动捆入本次实现；已发现风险按第13节（决策 34/41/42）范围处理。
 - 已完成 P0 前置修复 **P0a–P0g**（逐项独立提交，含 P0g 复核结论见 16.1）、**P1 无 persona
   基线 fixture**（`8ad5a80`，基线 SHA `5418246`）、**P2 分类器重写 + Fish 展示**（`506c471`）、
-  **P3 persona 参数与配额纯数据**（`554e4f1`）、**P4 生命周期/开关/持久化**（`4b4d6b0`，补漏 `2d312c1`）
-  与 **P5 开手快照/稳定手牌身份**（`6a1700d`，回归用例 `f9389c0`；复核结论见 16.2）。
-  P4 之后 persona 已接线到「新盘配置 / 存档恢复 / `Player.botType` 派生视图」，但**尚未**
-  进入任何决策入口（P6 才接线）；P5 之后手牌记录已带上开手快照，但**聚合侧尚未消费**
-  （P7 才按 `playerTypes` 分组），因此决策行为仍等于无 persona 路径。
-  下一轮从 P6a 分入口 persona 行为开始，按 P6a→P10 顺序继续。
+  **P3 persona 参数与配额纯数据**（`554e4f1`）、**P4 生命周期/开关/持久化**（`4b4d6b0`，补漏 `2d312c1`）、
+  **P5 开手快照/稳定手牌身份**（`6a1700d`，回归用例 `f9389c0`；复核结论见 16.2）
+  与 **P6a 翻前 persona 与范围派生**（`2a1c21f`；复核结论见 16.3）。
+  P4 之后 persona 已接线到「新盘配置 / 存档恢复 / `Player.botType` 派生视图」；
+  P5 之后手牌记录已带上开手快照，但**聚合侧尚未消费**（P7 才按 `playerTypes` 分组）；
+  P6a 之后 persona 已进入**翻前**两个入口（`decidePreflop` / `decidePreflopGTO`），
+  但**翻后 / 河牌 / 短深筹码尚未接线**（P6b/P6c），且**无 persona 路径逐位不变**
+  （P1 golden `botAI.decisionBaseline` 仍全绿）。
+  下一轮从 P6b（flop/turn 及短/深筹码 persona，含固定 `callShift` 映射）开始，按 P6b→P10 顺序继续。
