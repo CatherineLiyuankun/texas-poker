@@ -1,0 +1,1921 @@
+{
+  "meta": {
+    "baselineSha": "5418246",
+    "generatedAt": "2026-10-13",
+    "persona": "off（性格系统未接线；P1 阶段）",
+    "note": "前置统计/合法性修复（P0a–P0g）完成后的无 persona 决策基线；性格接线后用于零回归对比。"
+  },
+  "cases": [
+    {
+      "caseId": "preflop-heuristic-utg-aa",
+      "description": "6 人桌 UTG 拿 AA、未开池、面对大盲；启发式强牌加注（确定性分支）。",
+      "entry": "decidePreflop（heuristic / preflop）",
+      "playerId": 4,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 15,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1000,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 10,
+            "totalBet": 10,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "A"
+              },
+              {
+                "suit": "♥",
+                "rank": "A"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 4,
+        "dealer": 1,
+        "lastBet": 10,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "preflopChain": [],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261013,
+        "mathRandom": 20261013
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 22,
+        "equityCalls": 0,
+        "equityIterations": [],
+        "equityNumOpponents": [],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "preflop-heuristic-bb-72o",
+      "description": "6 人桌大盲拿 72o、无人加注（免费看牌）；启发式弱牌应 check。",
+      "entry": "decidePreflop（heuristic / preflop）",
+      "playerId": 3,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 15,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1000,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 10,
+            "totalBet": 10,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♦",
+                "rank": "7"
+              },
+              {
+                "suit": "♣",
+                "rank": "2"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 3,
+        "dealer": 1,
+        "lastBet": 10,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "preflopChain": [],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261014,
+        "mathRandom": 20261014
+      },
+      "expected": {
+        "action": "check",
+        "amount": null,
+        "equityCalls": 0,
+        "equityIterations": [],
+        "equityNumOpponents": [],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "preflop-heuristic-utg-jj-mixed",
+      "description": "6 人桌 UTG 拿 JJ（tier 2）、未开池；启发式混合频率分支（设陷阱/加注）。",
+      "entry": "decidePreflop（heuristic / preflop，混合分支）",
+      "playerId": 4,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 15,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1000,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 10,
+            "totalBet": 10,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "J"
+              },
+              {
+                "suit": "♥",
+                "rank": "J"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 4,
+        "dealer": 1,
+        "lastBet": 10,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "preflopChain": [],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261015,
+        "mathRandom": 20261015
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 20,
+        "equityCalls": 0,
+        "equityIterations": [],
+        "equityNumOpponents": [],
+        "strategyRandomCalls": 1
+      }
+    },
+    {
+      "caseId": "preflop-heuristic-short-bb-push",
+      "description": "6 人桌大盲仅 9bb（push 档）、无人加注（toCall=0）；短筹码推注分支（shouldPush → allin）。",
+      "entry": "decidePreflop（heuristic / preflop，短筹码 shouldPush）",
+      "playerId": 3,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 15,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1000,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 90,
+            "bet": 10,
+            "totalBet": 10,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "A"
+              },
+              {
+                "suit": "♠",
+                "rank": "K"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 3,
+        "dealer": 1,
+        "lastBet": 10,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "preflopChain": [],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261016,
+        "mathRandom": 20261016
+      },
+      "expected": {
+        "action": "allin",
+        "amount": 9,
+        "equityCalls": 1,
+        "equityIterations": [
+          400
+        ],
+        "equityNumOpponents": [
+          5
+        ],
+        "strategyRandomCalls": 1
+      }
+    },
+    {
+      "caseId": "preflop-gto-btn-kqs",
+      "description": "6 人桌 BTN 拿 KQs、未开池；GTO 引擎的按钮位开池范围。",
+      "entry": "decidePreflopGTO（gto / preflop）",
+      "playerId": 1,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 15,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "K"
+              },
+              {
+                "suit": "♠",
+                "rank": "Q"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1000,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 10,
+            "totalBet": 10,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 1,
+        "dealer": 1,
+        "lastBet": 10,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "preflopChain": [],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "gto",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261017,
+        "mathRandom": 20261017
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 20,
+        "equityCalls": 0,
+        "equityIterations": [],
+        "equityNumOpponents": [],
+        "strategyRandomCalls": 2
+      }
+    },
+    {
+      "caseId": "preflop-gto-sb-qq-vs-3bet",
+      "description": "6 人桌小盲拿 QQ、面对 BTN 开池 + 大盲 3bet（真实已接受加注链）；GTO 冷防守分支。",
+      "entry": "decidePreflopGTO（gto / preflop，facing 3bet）",
+      "playerId": 2,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 125,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1000,
+            "bet": 30,
+            "totalBet": 30,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1000,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "Q"
+              },
+              {
+                "suit": "♥",
+                "rank": "Q"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 90,
+            "totalBet": 90,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 2,
+        "dealer": 1,
+        "lastBet": 90,
+        "lastRaiseBet": 80,
+        "raiseRightsOpened": true,
+        "preflopChain": [
+          {
+            "playerId": 1,
+            "kind": "raise",
+            "fullRaise": true
+          },
+          {
+            "playerId": 3,
+            "kind": "raise",
+            "fullRaise": true
+          }
+        ],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "gto",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261018,
+        "mathRandom": 20261018
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 225,
+        "equityCalls": 0,
+        "equityIterations": [],
+        "equityNumOpponents": [],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "flop-heuristic-tptk-rake",
+      "description": "3 人池翻牌 A♦7♣2♠、hero（SB）拿 A♠K♥（顶对顶踢）、面对 CO 的 30 下注；带抽水。",
+      "entry": "decidePostflop（heuristic / flop，抽水接入跟注价格）",
+      "playerId": 2,
+      "state": {
+        "phase": "flop",
+        "mainPot": 120,
+        "sidePots": [],
+        "communityCards": [
+          {
+            "suit": "♦",
+            "rank": "A"
+          },
+          {
+            "suit": "♣",
+            "rank": "7"
+          },
+          {
+            "suit": "♠",
+            "rank": "2"
+          }
+        ],
+        "players": [
+          {
+            "id": 1,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "A"
+              },
+              {
+                "suit": "♥",
+                "rank": "K"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 970,
+            "bet": 30,
+            "totalBet": 30,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 2,
+        "dealer": 1,
+        "lastBet": 30,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": {
+        "mode": "percent",
+        "value": 5,
+        "capBB": 3
+      },
+      "session": null,
+      "seeds": {
+        "strategy": 20261019,
+        "mathRandom": 20261019
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 120,
+        "equityCalls": 1,
+        "equityIterations": [
+          350
+        ],
+        "equityNumOpponents": [
+          2
+        ],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "flop-heuristic-deep-400bb",
+      "description": "3 人池翻牌 K♥9♠3♦、hero（SB）拿 K♠Q♣（顶对）、双方 400bb；深筹码分支。",
+      "entry": "decidePostflop（heuristic / flop，veryDeep → gtoDeepStack）",
+      "playerId": 2,
+      "state": {
+        "phase": "flop",
+        "mainPot": 120,
+        "sidePots": [],
+        "communityCards": [
+          {
+            "suit": "♥",
+            "rank": "K"
+          },
+          {
+            "suit": "♠",
+            "rank": "9"
+          },
+          {
+            "suit": "♦",
+            "rank": "3"
+          }
+        ],
+        "players": [
+          {
+            "id": 1,
+            "chips": 3970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 3970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "K"
+              },
+              {
+                "suit": "♣",
+                "rank": "Q"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 3970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 3970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 3970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 3970,
+            "bet": 30,
+            "totalBet": 30,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 2,
+        "dealer": 1,
+        "lastBet": 30,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261020,
+        "mathRandom": 20261020
+      },
+      "expected": {
+        "action": "call",
+        "amount": null,
+        "equityCalls": 2,
+        "equityIterations": [
+          300,
+          350
+        ],
+        "equityNumOpponents": [
+          1,
+          2
+        ],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "flop-gto-flushdraw",
+      "description": "3 人池翻牌 Q♥8♥2♣、hero（SB）拿 A♥J♥（坚果同花听）、面对 CO 的 30 下注；GTO 翻牌引擎。",
+      "entry": "decidePostflopGTO（gto / flop）",
+      "playerId": 2,
+      "state": {
+        "phase": "flop",
+        "mainPot": 120,
+        "sidePots": [],
+        "communityCards": [
+          {
+            "suit": "♥",
+            "rank": "Q"
+          },
+          {
+            "suit": "♥",
+            "rank": "8"
+          },
+          {
+            "suit": "♣",
+            "rank": "2"
+          }
+        ],
+        "players": [
+          {
+            "id": 1,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♥",
+                "rank": "A"
+              },
+              {
+                "suit": "♥",
+                "rank": "J"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 970,
+            "bet": 30,
+            "totalBet": 30,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 2,
+        "dealer": 1,
+        "lastBet": 30,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "gto",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261021,
+        "mathRandom": 20261021
+      },
+      "expected": {
+        "action": "fold",
+        "amount": null,
+        "equityCalls": 2,
+        "equityIterations": [
+          300,
+          350
+        ],
+        "equityNumOpponents": [
+          1,
+          2
+        ],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "turn-heuristic-session-aggressive",
+      "description": "3 人池转牌 10♠6♦2♣J♥、hero（SB）拿 J♦10♣（两对）、面对 CO 的 60 下注；会话画像里对手激进。",
+      "entry": "decidePostflop（heuristic / turn，对手调整非零）",
+      "playerId": 2,
+      "state": {
+        "phase": "turn",
+        "mainPot": 200,
+        "sidePots": [],
+        "communityCards": [
+          {
+            "suit": "♠",
+            "rank": "10"
+          },
+          {
+            "suit": "♦",
+            "rank": "6"
+          },
+          {
+            "suit": "♣",
+            "rank": "2"
+          },
+          {
+            "suit": "♥",
+            "rank": "J"
+          }
+        ],
+        "players": [
+          {
+            "id": 1,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♦",
+                "rank": "J"
+              },
+              {
+                "suit": "♣",
+                "rank": "10"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 970,
+            "bet": 60,
+            "totalBet": 60,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 2,
+        "dealer": 1,
+        "lastBet": 60,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": {
+        "currentHand": null,
+        "sessionHands": [
+          {
+            "handId": "session-h1",
+            "timestamp": 0,
+            "events": [
+              {
+                "handId": "session-h1",
+                "toCall": 0,
+                "currentBet": 0,
+                "potSize": 0,
+                "position": 0,
+                "isFacingRaise": false,
+                "timestamp": 0,
+                "playerId": 6,
+                "action": "raise",
+                "phase": "preflop"
+              },
+              {
+                "handId": "session-h1",
+                "toCall": 0,
+                "currentBet": 0,
+                "potSize": 0,
+                "position": 0,
+                "isFacingRaise": false,
+                "timestamp": 0,
+                "playerId": 6,
+                "action": "raise",
+                "phase": "flop"
+              },
+              {
+                "handId": "session-h1",
+                "toCall": 0,
+                "currentBet": 0,
+                "potSize": 0,
+                "position": 0,
+                "isFacingRaise": false,
+                "timestamp": 0,
+                "playerId": 6,
+                "action": "raise",
+                "phase": "turn"
+              },
+              {
+                "handId": "session-h1",
+                "toCall": 0,
+                "currentBet": 0,
+                "potSize": 0,
+                "position": 0,
+                "isFacingRaise": false,
+                "timestamp": 0,
+                "playerId": 6,
+                "action": "raise",
+                "phase": "river"
+              },
+              {
+                "handId": "session-h1",
+                "toCall": 0,
+                "currentBet": 0,
+                "potSize": 0,
+                "position": 0,
+                "isFacingRaise": false,
+                "timestamp": 0,
+                "playerId": 6,
+                "action": "raise",
+                "phase": "preflop"
+              }
+            ],
+            "players": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ]
+          }
+        ]
+      },
+      "seeds": {
+        "strategy": 20261022,
+        "mathRandom": 20261022
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 260,
+        "equityCalls": 1,
+        "equityIterations": [
+          300
+        ],
+        "equityNumOpponents": [
+          2
+        ],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "river-heuristic-bluffcatch-rake",
+      "description": "3 人池河牌 A♠8♦5♣K♥2♠、hero（SB）拿 9♠9♥（中对）、面对 CO 的 100 下注；带抽水。",
+      "entry": "decideRiver（heuristic / river，抽水）",
+      "playerId": 2,
+      "state": {
+        "phase": "river",
+        "mainPot": 300,
+        "sidePots": [],
+        "communityCards": [
+          {
+            "suit": "♠",
+            "rank": "A"
+          },
+          {
+            "suit": "♦",
+            "rank": "8"
+          },
+          {
+            "suit": "♣",
+            "rank": "5"
+          },
+          {
+            "suit": "♥",
+            "rank": "K"
+          },
+          {
+            "suit": "♠",
+            "rank": "2"
+          }
+        ],
+        "players": [
+          {
+            "id": 1,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 970,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♠",
+                "rank": "9"
+              },
+              {
+                "suit": "♥",
+                "rank": "9"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1000,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": true,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 970,
+            "bet": 100,
+            "totalBet": 100,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": true,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 2,
+        "dealer": 1,
+        "lastBet": 100,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "heuristic",
+        "scenario": "cash"
+      },
+      "rake": {
+        "mode": "percent",
+        "value": 5,
+        "capBB": 3
+      },
+      "session": null,
+      "seeds": {
+        "strategy": 20261023,
+        "mathRandom": 20261023
+      },
+      "expected": {
+        "action": "call",
+        "amount": null,
+        "equityCalls": 1,
+        "equityIterations": [
+          300
+        ],
+        "equityNumOpponents": [
+          2
+        ],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "river-gto-hu-exact",
+      "description": "单挑河牌 A♠8♦5♣K♥2♠、hero 拿 A♣Q♦（顶对）、面对 100 下注；GTO 河牌 HU 穷举分支。",
+      "entry": "decideRiverGTO（gto / river，HU exact）",
+      "playerId": 1,
+      "state": {
+        "phase": "river",
+        "mainPot": 300,
+        "sidePots": [],
+        "communityCards": [
+          {
+            "suit": "♥",
+            "rank": "A"
+          },
+          {
+            "suit": "♠",
+            "rank": "8"
+          },
+          {
+            "suit": "♦",
+            "rank": "5"
+          },
+          {
+            "suit": "♣",
+            "rank": "K"
+          },
+          {
+            "suit": "♦",
+            "rank": "2"
+          }
+        ],
+        "players": [
+          {
+            "id": 1,
+            "chips": 900,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♣",
+                "rank": "A"
+              },
+              {
+                "suit": "♦",
+                "rank": "Q"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 900,
+            "bet": 100,
+            "totalBet": 100,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 1,
+        "dealer": 1,
+        "lastBet": 100,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 1,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "gto",
+        "scenario": "cash"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261024,
+        "mathRandom": 20261024
+      },
+      "expected": {
+        "action": "call",
+        "amount": null,
+        "equityCalls": 1,
+        "equityIterations": [
+          300
+        ],
+        "equityNumOpponents": [
+          1
+        ],
+        "strategyRandomCalls": 0
+      }
+    },
+    {
+      "caseId": "icm-tournament-preflop-aqs",
+      "description": "6 人桌锦标赛（均势 1500 筹码）、UTG 拿 A♥Q♥、未开池；ICM 接管门槛。",
+      "entry": "decidePreflopGTO（gto / preflop，tournament → ICM）",
+      "playerId": 4,
+      "state": {
+        "phase": "preflop",
+        "mainPot": 15,
+        "sidePots": [],
+        "communityCards": [],
+        "players": [
+          {
+            "id": 1,
+            "chips": 1500,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 2,
+            "chips": 1500,
+            "bet": 5,
+            "totalBet": 5,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 3,
+            "chips": 1500,
+            "bet": 10,
+            "totalBet": 10,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 4,
+            "chips": 1500,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [
+              {
+                "suit": "♥",
+                "rank": "A"
+              },
+              {
+                "suit": "♥",
+                "rank": "Q"
+              }
+            ],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 5,
+            "chips": 1500,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          },
+          {
+            "id": 6,
+            "chips": 1500,
+            "bet": 0,
+            "totalBet": 0,
+            "isRealPlayer": false,
+            "hand": [],
+            "buyInCount": 0,
+            "revealed": false,
+            "hasActed": false,
+            "folded": false,
+            "allIn": false
+          }
+        ],
+        "currentPlayer": 4,
+        "dealer": 1,
+        "lastBet": 10,
+        "lastRaiseBet": 10,
+        "raiseRightsOpened": true,
+        "preflopChain": [],
+        "winner": null,
+        "handRank": null,
+        "winningCards": [],
+        "realPlayerCount": 1,
+        "botPlayerCount": 5,
+        "smallBlind": 5,
+        "chipsAtRoundStart": [],
+        "chipsBeforeSettlement": [],
+        "potDistribution": []
+      },
+      "config": {
+        "engine": "gto",
+        "scenario": "tournament"
+      },
+      "rake": null,
+      "session": null,
+      "seeds": {
+        "strategy": 20261025,
+        "mathRandom": 20261025
+      },
+      "expected": {
+        "action": "raise",
+        "amount": 25,
+        "equityCalls": 0,
+        "equityIterations": [],
+        "equityNumOpponents": [],
+        "strategyRandomCalls": 2
+      }
+    }
+  ]
+}
