@@ -1,6 +1,6 @@
 # Bot 性格（Player Personality）改动计划
 
-> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节）。persona **尚未进入决策入口**（P6 才接线），决策行为仍等于无 persona 路径。  
+> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节）。persona **尚未进入决策入口**（P6 才接线），决策行为仍等于无 persona 路径。  
 > 本文件是本次讨论的唯一权威方案；继续讨论时更新此文件，不另建版本副本。
 >
 > **最后更新**：2026-10-13  
@@ -373,6 +373,8 @@ reducer的amount是**本次追加筹码**，不是raise-to。设`toCall=max(0,la
 
 仅改接口不会自动生产这些字段。开手、到flop、接受动作、结算分别是不同写入点；类型/roles开手快照后不得改。
 
+**实施状态**：`playerTypes` / `playerRoles` 与稳定手牌身份（`sessionId + handOrdinal`）已在 **P5**（`6a1700d`）落地，开手写入点 = `GameBoard` 的手牌检测 effect，结算整份覆盖 = `saveHand`；`flopSeenPlayers` / `showdownPlayers` / `showdownWinners` 已在 **P0b**（`0220ed7`）落地。**聚合侧尚未消费这些字段**（按快照分组在 P7），因此当前统计口径与 P5 之前一致。
+
 ### 8.3 历史兼容政策
 
 - 新记录角色为bot、无分配（关闭）进入**Bot Unknown**；有合法分配按对应类型。
@@ -708,6 +710,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P2 | `506c471` | **分类器重写 + Fish 展示**（方案 §3.1/§3.2/§3.3）：旧独立区间分类器 → 六档有序规则树（命中即停，新增 `Fish`，旧的大面积 `Others` 不再出现）；内核 `classifyPlayerTypePercent`（0–100 百分数入参）返回类型 + 诊断 `reason`，`classifyPlayerType` 保留为 0–1 适配层（**只换算一次**）；AF/WTSD 缺失显式守卫、`no-calls` 视为高于任意有限阈值（决策 37）、非法输入 → Unknown 不夹取、样本门槛 10 保持；`computePlayerStatsFromEvents` 传 `af`/`afState`/`wtsd`；translations 新增 `Fish 松被动`、CS 改 `CS 站桩`（决策 9）；`PlayerStatsTable` 新增 Fish 颜色 | `npx jest "playerType\|opponentModel\|PlayerStatsTable"`：8 套件 152 通过（含新增 `playerType.test.ts`：§3.5 反例 11 条、阈值恰值及两侧、sample 9/10、null/no-calls、非法输入、单位适配、§3.6 网格四组 2556 点一致）；`GameBoard.playerStats` + `HandAnalysis.botAction` 2 套件 6 通过；`tsc -b` 通过；eslint 0 error |
 | P3 | `554e4f1` | **persona 参数与配额纯数据**（方案 §5/§7.1，决策 8/19/36）：新增 `src/utils/botPersonality.ts` —— 六类枚举（不含 Others/Unknown）、`PERSONALITY_PARAMS` 七参数（§7.1 初值，TAG 为基准）、`botTypeQuota`（B0–6 的 A′ 多重集 + B7–10 兼容外推；负数/非整数/>10 抛 `RangeError`，不静默钳人数）、`allocateBotTypes`（Fisher–Yates 洗牌 + 可注入随机源，与策略随机源独立）、`isValidBotPersonality`（恢复校验用）、`toBotTypeMap`。**纯数据/纯函数、未接线**，不 import 引擎或组件 | `npx jest botPersonality`：1 套件 36 通过；`tsc -b` 通过；eslint 0 error。另：累计全量 `npm test`（unit+e2e）**72 套件 1335 通过 / 2 跳过 / 0 失败 / 2088.7s**（覆盖 P0+P1+P2，e2e 三套件全 PASS） |
 | P4 | `4b4d6b0`（+ `2d312c1` 补漏） | **生命周期、开关与持久化**（方案 §5/§6，决策 15/17/19/31/35/36）：`botPersonality` 增 `botIdsForRange`（前缀布局座位推导）与 `normalizeBotPersonalityConfig`（§6.2 恢复状态表：严格 `true` 才启用；`B=0` 空 map 但保留开关意图；`true`+map 缺失/损坏/缺项/非法 → **整盘退回关闭**、不静默随机补齐；多余键剔除）；`SavedProgress`/`GameState` 增 `botPersonalityEnabled` + `botTypes`，`Player.botType` 为有效 map 的**派生视图**（真人恒 undefined）；`START_GAME` 显式写开关/map 并按座位派生（**关闭时 map 必为空**；真人**绝不**赋 botType），`RESET_ROUND` + 随后的 `START_GAME` 完整继承、不重抽（`RESET_ROUND` 同口径排除真人 —— `2d312c1` 补漏，因 `BotTypeMap` 类型允许真人键）；`App` 在**新盘边界（事件处理器）分配一次**（StrictMode 不重抽）、恢复共用同一份规范化、**名单非前缀布局则拒绝恢复并提示**（§6.2）；`StartPage` 新增性格开关（决策 17：默认开，作为 `onStartGame` 第 5 参透传），玩家总数边界改用共用常量；`GameBoard` 透传开关/map（初始化 effect + 牌桌内开新局按钮）并在两处 `saveGameProgress` 落盘有效开关/map | 聚焦 16 套件 200 通过 / 2 跳过（既有 `GameBoard.blind.logic.test.tsx` 两例）；新增 `useGameState.botPersonality` 7/7（先抓出「关闭时仍保留残留 map」的契约缺口、后抓出「RESET_ROUND 未排除真人」）、`gamePersistence.personality` 14/14（名单前缀校验 + 字段往返 + version 3 导入往返）、`botPersonality` 恢复规范化 12 例、`StartPage.personality` 5 例（`StartPage.rake` 同步补第 5 参断言）；`tsc -b` 通过；eslint 0 error |
+| P5 | `6a1700d`（+ `f9389c0` 回归用例） | **开手快照与稳定手牌身份**（方案 §8.1/§8.2/§8.3）：`HandRecord` 增 `playerTypes?`（开手复制的有效分配 map）与 `playerRoles?`（开手每座位 `human`/`bot`）+ 导出 `PlayerRole`；两者都是可选字段（缺失 = 旧记录，聚合侧按 §8.3 归 Bot Unknown），**关闭性格时写空 map 而非省略字段**，以区分「新记录且关闭」与「旧记录无字段」；`startNewHand` 增第 3/4 参写入快照并对 `players`/`playerTypes`/`playerRoles` 全部**复制**（不引用随后可变对象）；新增稳定手牌身份 `beginSession()` / `getSessionId()` / `makeHandId(ordinal)`，身份 = `sessionId + 盘内手序`，**旧记录保留原 id 不批量重写**；`GameBoard` 在两个新盘边界（初始化 effect + 牌桌内开新局按钮）调 `beginSession()`，手牌键与 handId 改用 sessionId 公式，`createActionEvent` 与容器记录**共用 `handIdRef`**（不再两处各拼一遍字符串）；`longOpponentModel` 补文档说明其 `recordAction` 增量路径不写快照（事件不带快照），生产链路走 `startNewHand` + 结算 `saveHand` 整份覆盖。**顺带修既有 id 缺陷**：旧 handId 用组件 ref 计数，返回菜单重挂载后归零，「同 dealer + 同底牌」的新盘第一手会与上一盘撞同一个 id → 长期库 `saveHand` 覆盖吃掉旧手牌。`beginSession` **刻意不消耗随机源**（它在洗牌前调用，多消耗一个 `Math.random()` 会把播种的洗牌序列整体错位） | 聚焦 7 套件 **77 通过 / 0 失败**（含新增 `GameBoard.handSnapshot` 4 例：开手快照写入与同手多 Bot、关闭时空 map、结算保存不丢快照 + 事件与容器 handId 同源；`opponentModel` 快照/副本隔离/幂等/会话身份 +11 例；`longOpponentModel` 覆盖保存保留快照 + 导入往返且重复 pair 不重复计数 +2 例）；`f9389c0` 追加跨盘 id 不碰撞回归用例（`GameBoard.handSnapshot` 5/5，已实测在等价旧公式下如实失败）；既有 `GameBoard.showdown.settlement`（播种发牌未受扰动）与 `botAI.decisionBaseline`（P1 基线）全绿；`tsc -b` 通过；eslint 0 error |
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -728,7 +731,8 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 
 - 已完成：**P0a–P0g（前置修复全部完成）** + **P1（无 persona 基线 fixture，基线 SHA `5418246`）**
   + **P2（分类器重写 + Fish 展示）** + **P3（persona 参数与配额纯数据）**
-  + **P4（生命周期、开关与持久化；persona 已接线到配置/存档，但尚未进入决策）**。
+  + **P4（生命周期、开关与持久化；persona 已接线到配置/存档，但尚未进入决策）**
+  + **P5（开手快照与稳定手牌身份；记录侧证据已就绪，聚合侧 P7 才消费）**。
 - 期间新增聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、
   `opponentModelUtil.wtsdWsd.test.ts`（P0b）、`opponentModelUtil.opportunityCounts.test.ts`（P0c）、
   `useGameState.preflopChain.test.ts`（P0d）、`useGameState.actionLegality.test.ts`（P0e）、
@@ -736,10 +740,23 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   `botAI.decisionBaseline.test.ts` + `helpers/botDecisionBaseline.ts` + `__fixtures__/botDecisionBaseline.json`（P1）、
   `playerType.test.ts`（P2）、`botPersonality.test.ts`（P3，P4 追加恢复规范化 12 例）、
   `useGameState.botPersonality.test.ts`、`gamePersistence.personality.test.ts`、
-  `StartPage.personality.test.tsx`（P4）。
-- 下一步：P5 开手快照与稳定 handId → P6a/b/c 分入口 persona 行为 → P7 按分配类型聚合 →
+  `StartPage.personality.test.tsx`（P4）、`GameBoard.handSnapshot.test.tsx`（P5）。
+- 下一步：P6a/b/c 分入口 persona 行为 → P7 按分配类型聚合 →
   P8a/8b 座位标签与两行影子 → P9 闭环 runner 与参数校准 → P10 文档与发布门。
 - 实现细节以本文件为准；提交历史见上述 SHA。
+
+### 16.2 P5 复核结论（一次被推翻的猜测，留档）
+
+- P5 实施中怀疑「同盘内相邻两手也会撞旧手牌键」：旧键是
+  `${handCounter}-${dealer}-${hero底牌点数}`，若同盘内两手 `dealer` 与 hero 底牌都相同，
+  第二手会被当成同一手（漏建记录、动作并入上一手、结算覆盖长期库）。
+- **实测推翻**：`handKeyRef` 只保存**上一手**的键，而 `RESET_ROUND` 每手把 dealer 轮转 1
+  （`((dealer % N) + 1)`），所以 ≥2 人桌相邻两手的 dealer 必然不同（1 人桌不可开局，
+  `MIN_TOTAL_PLAYERS = 2`）→ 同盘相邻手**不可能**撞键。
+  （诊断方法：常数 `Math.random` 下打印每手的键，第 3 手与第 1 手键相同但 `prev` 是第 2 手的键。）
+- 因此**没有**「同盘漏记一手」这个缺陷，不需要单独拆修；真正存在的既有 id 缺陷是
+  **跨盘碰撞**（重挂载后计数归零），已由 P5 的 sessionId 修掉，并在 `f9389c0` 补了
+  能守住它的回归用例（实测在等价旧公式下失败）。
 
 ## 17. 明确不做与下一步
 
@@ -748,7 +765,9 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 - 不把7/8完整位置统一、任意中途续手、真实身份ID、gtoShortStack既有其他债自动捆入本次实现；已发现风险按第13节（决策 34/41/42）范围处理。
 - 已完成 P0 前置修复 **P0a–P0g**（逐项独立提交，含 P0g 复核结论见 16.1）、**P1 无 persona
   基线 fixture**（`8ad5a80`，基线 SHA `5418246`）、**P2 分类器重写 + Fish 展示**（`506c471`）、
-  **P3 persona 参数与配额纯数据**（`554e4f1`）与 **P4 生命周期/开关/持久化**（`4b4d6b0`，补漏 `2d312c1`）。
+  **P3 persona 参数与配额纯数据**（`554e4f1`）、**P4 生命周期/开关/持久化**（`4b4d6b0`，补漏 `2d312c1`）
+  与 **P5 开手快照/稳定手牌身份**（`6a1700d`，回归用例 `f9389c0`；复核结论见 16.2）。
   P4 之后 persona 已接线到「新盘配置 / 存档恢复 / `Player.botType` 派生视图」，但**尚未**
-  进入任何决策入口（P6 才接线），因此决策行为仍等于无 persona 路径。
-  下一轮从 P5 开手快照与稳定 handId 开始，按 P5→P10 顺序继续。
+  进入任何决策入口（P6 才接线）；P5 之后手牌记录已带上开手快照，但**聚合侧尚未消费**
+  （P7 才按 `playerTypes` 分组），因此决策行为仍等于无 persona 路径。
+  下一轮从 P6a 分入口 persona 行为开始，按 P6a→P10 顺序继续。
