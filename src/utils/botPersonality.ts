@@ -10,8 +10,11 @@
  * 它与「策略混合频率」的 `random.ts` 随机源**互相独立** —— 注入 `setRandomSeed`
  * 不该改变新盘的座位分配，反之亦然。测试可显式注入 `random`。
  *
- * 接线（有效开关、map 落盘、`Player.botType` 派生视图、六入口透传）在 P4/P5/P6，
- * 不在本模块；本模块也**不**改变任何既有策略行为（未接线时零影响）。
+ * 3. persona 参数如何折成引擎要用的派生量（`personaParamsFor` / `preflopWidths`）。
+ *
+ * 接线（有效开关、map 落盘、`Player.botType` 派生视图、各入口透传）在 P4/P5/P6，
+ * 不在本模块；本模块也**不**改变任何既有策略行为 —— 派生量在无 persona 时是
+ * 精确恒等（`× 1.0`），调用侧可以无条件相乘而保持逐位不变。
  */
 import type { PlayerId } from '../types/poker';
 import type { RandomSource } from './random';
@@ -131,6 +134,71 @@ export function isValidBotPersonality(value: unknown): value is BotPersonality {
     typeof value === 'string' &&
     (BOT_PERSONALITY_TYPES as readonly string[]).includes(value)
   );
+}
+
+// ─── 参数解析与翻前宽度派生（方案 §7.1 / §7.3） ────────────────
+
+/**
+ * 座位的有效 persona 参数；无 persona 返回 `undefined`（方案 §7.1）。
+ *
+ * **唯一判据是 `botType`**：`Player.botType` 只在「本盘启用性格」时由有效
+ * `botTypes` 派生（P4），关闭 / 旧存档 / 真人座位恒为 `undefined`。这里**不再**
+ * 查一次开关 —— 两个来源会让「关闭」出现两种口径，而 `Player.botType` 已经
+ * 是那个单一来源。
+ *
+ * ⚠️ **不要**把 `undefined` 折成 `PERSONALITY_PARAMS.TAG`。TAG 的初值恰好是恒等
+ * 变换，但那是**校准结果**、可以随 P9 调整；「无 persona」必须永远是恒等，不能
+ * 跟着 TAG 一起漂移（方案 §7.1「不能自动当 TAG/Nit」）。
+ */
+export function personaParamsFor(
+  botType: BotPersonality | undefined,
+): PersonalityParams | undefined {
+  return botType === undefined ? undefined : PERSONALITY_PARAMS[botType];
+}
+
+/**
+ * 翻前三档宽度倍率（方案 §7.3）：恒等是**全部为 1**。
+ *
+ * 只含 `decidePreflop` / `decidePreflopGTO` 用得到的三参数 —— `valueShift` /
+ * `aggressionMult` / `callBias` / `sizingMult` 是翻后 / 尺寸维度，分别属于
+ * P6b（翻后）与 P6c（尺寸），不在这里混进来。
+ */
+export interface PreflopWidths {
+  /** 开池 / 隔离加注宽度倍率（未开池、limp 底池）。 */
+  open: number;
+  /** 面对加注时的防守（跟注 / 便宜看牌）宽度倍率。 */
+  defend: number;
+  /** 3bet / 4bet（再加注）频率倍率。 */
+  threeBet: number;
+}
+
+/**
+ * 非法倍率（`NaN` / 负数 / 非有限）一律退回 `1`。
+ *
+ * 必要性：倍率会直接乘进概率。一个 `NaN` 会让 `random() < NaN` 恒为假 ——
+ * 等于**静默禁用**该动作（表现为机器人再也不敢加注），且不会抛错、很难定位。
+ * 退回恒等比「让坏参数静默改变策略」更安全，也让 §7.3 的「概率恒在 [0,1]」
+ * 有可依赖的前提。
+ */
+function safeMultiplier(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 1;
+}
+
+/**
+ * 把 persona 三参数折成翻前宽度倍率。
+ *
+ * **`undefined` → 写死的恒等 `{1,1,1}`**，不是 `PERSONALITY_PARAMS.TAG` ——
+ * 理由见 `personaParamsFor`。恒等意味着调用侧可以无条件相乘，`× 1.0` 在
+ * IEEE-754 下是精确的，于是「无 persona」逐位等价于接线前的原表达式，
+ * 随机消费次数也一个不变（P1 golden 的前提）。
+ */
+export function preflopWidths(params: PersonalityParams | undefined): PreflopWidths {
+  if (params === undefined) return { open: 1, defend: 1, threeBet: 1 };
+  return {
+    open: safeMultiplier(params.openWiden),
+    defend: safeMultiplier(params.defendVsOpen),
+    threeBet: safeMultiplier(params.threeBetFreq),
+  };
 }
 
 /** 普通新局的 Bot 上限（决策 19：这是 **Bot 数**上限，不是总人数上限）。 */

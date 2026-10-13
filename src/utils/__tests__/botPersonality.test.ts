@@ -19,7 +19,9 @@ import {
   MAX_BOTS_FOR_EXTRAPOLATION,
   MAX_BOTS_FOR_NEW_GAME,
   normalizeBotPersonalityConfig,
+  personaParamsFor,
   PERSONALITY_PARAMS,
+  preflopWidths,
   toBotTypeMap,
   type BotPersonality,
 } from '../botPersonality';
@@ -402,5 +404,92 @@ describe('botPersonality：恢复规范化 normalizeBotPersonalityConfig（§6.2
     const result = normalizeBotPersonalityConfig(raw, botIds);
     expect(JSON.stringify(raw)).toBe(snapshot);
     expect(result.types).not.toBe(raw.botTypes);
+  });
+});
+
+/**
+ * P6a：persona 解析与翻前宽度派生（方案 §7.1 / §7.3）。
+ *
+ * 这一层的核心不变量是**无 persona = 精确恒等**：调用侧无条件相乘（`× 1.0`），
+ * 于是接线 persona 之后「关闭性格 / 旧存档 / 真人座位」逐位等于接线前。任何让
+ * `undefined` 取到非恒等值（例如顺手折成 `PERSONALITY_PARAMS.TAG`）的改动都会
+ * 静默改变所有无 persona 的局面，所以下面有专门一条钉住它。
+ */
+describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
+  it('personaParamsFor：六类各取到 §7.1 表里的同一个对象（不复制、不派生新对象）', () => {
+    for (const t of BOT_PERSONALITY_TYPES) {
+      expect(personaParamsFor(t)).toBe(PERSONALITY_PARAMS[t]);
+    }
+  });
+
+  it('personaParamsFor：undefined → undefined（不退化成 TAG / Nit）', () => {
+    expect(personaParamsFor(undefined)).toBeUndefined();
+  });
+
+  it('preflopWidths：undefined → 写死的恒等 {1,1,1}', () => {
+    expect(preflopWidths(undefined)).toEqual({ open: 1, defend: 1, threeBet: 1 });
+  });
+
+  it('preflopWidths：恒等与 TAG 的**来源**不同（TAG 改值也不影响 undefined）', () => {
+    // TAG 的初值恰好是恒等，但那是校准结果、可以变。用一个「TAG 的副本」证明
+    // undefined 走的不是 TAG 那条路：副本改了，undefined 仍是 1。
+    const tagWithWiderOpen = { ...PERSONALITY_PARAMS.TAG, openWiden: 1.4 };
+    expect(preflopWidths(tagWithWiderOpen).open).toBe(1.4);
+    expect(preflopWidths(undefined).open).toBe(1);
+  });
+
+  it('preflopWidths：三档各自映射到正确的旋钮', () => {
+    expect(preflopWidths(PERSONALITY_PARAMS.LAG)).toEqual({
+      open: 1.6,
+      defend: 1.5,
+      threeBet: 1.6,
+    });
+    expect(preflopWidths(PERSONALITY_PARAMS.Nit)).toEqual({
+      open: 0.6,
+      defend: 0.6,
+      threeBet: 0.4,
+    });
+    expect(preflopWidths(PERSONALITY_PARAMS.Maniac)).toEqual({
+      open: 2.2,
+      defend: 1.4,
+      threeBet: 2.0,
+    });
+  });
+
+  it('preflopWidths：TAG 恰好是恒等（记录这个巧合，但它不是实现依据）', () => {
+    expect(preflopWidths(PERSONALITY_PARAMS.TAG)).toEqual({
+      open: 1,
+      defend: 1,
+      threeBet: 1,
+    });
+  });
+
+  it('preflopWidths：非法倍率（NaN / 负 / Infinity）一律退回 1', () => {
+    // NaN 会让 `random() < NaN` 恒假 —— 等于静默禁用该动作，比退回恒等危险得多。
+    const broken = {
+      ...PERSONALITY_PARAMS.TAG,
+      openWiden: Number.NaN,
+      defendVsOpen: -1,
+      threeBetFreq: Number.POSITIVE_INFINITY,
+    };
+    expect(preflopWidths(broken)).toEqual({ open: 1, defend: 1, threeBet: 1 });
+  });
+
+  it('preflopWidths：返回新对象，改它不会污染 §7.1 参数表', () => {
+    const w = preflopWidths(PERSONALITY_PARAMS.LAG);
+    w.open = 99;
+    w.defend = 99;
+    expect(PERSONALITY_PARAMS.LAG.openWiden).toBe(1.6);
+    expect(PERSONALITY_PARAMS.LAG.defendVsOpen).toBe(1.5);
+  });
+
+  it('preflopWidths：persona 只读三档，不泄漏翻后参数', () => {
+    // 返回对象只有三个键 —— 翻后/尺寸参数（valueShift 等）属于 P6b/P6c，不能
+    // 从这里悄悄流进翻前。
+    expect(Object.keys(preflopWidths(PERSONALITY_PARAMS.Maniac)).sort()).toEqual([
+      'defend',
+      'open',
+      'threeBet',
+    ]);
   });
 });

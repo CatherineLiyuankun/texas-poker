@@ -8,6 +8,9 @@ import { random } from './random';
 // 强度序的两个权威（档位网格 + Chen 分）—— 锦标赛范围收紧按它们排序。
 import { getPreflopStrength, getPreflopTier } from './preflopHandStrength';
 import { getGtoConfig, type GameScenario } from './gtoConfig';
+// persona → 翻前宽度倍率（纯函数）。`undefined` 是**精确恒等**，所以下面的派生
+// 在无 persona 时返回原表对象本身，GTO 路径逐位不变（P1 golden 的前提）。
+import { preflopWidths, type PersonalityParams, type PreflopWidths } from './botPersonality';
 
 export interface BotDecision {
   action: Action;
@@ -836,6 +839,183 @@ function rangeTablesFor(scenario: GameScenario | undefined): RangeTableSet {
   return scenario === 'tournament' ? TOURNAMENT_RANGE_TABLES : CASH_RANGE_TABLES;
 }
 
+// ─── persona 范围派生（方案 §7.3） ────────────────────────────
+
+/** 派生角色：`rfi` 表只有 R/F；`facing` 表（防守 / 3bet / 4bet）有 R/C/F。 */
+export type RangeDeriveRole = 'rfi' | 'facing';
+
+function cloneTable(table: GtoAction[][]): GtoAction[][] {
+  return table.map((row) => [...row]);
+}
+
+/** 表里某个动作的格子，按强度序**从强到弱**（`cellStrengthKey` 升序，稳定排序）。 */
+function cellsOfAction(
+  table: GtoAction[][],
+  action: GtoAction,
+): { i: number; j: number; combos: number }[] {
+  const cells: { i: number; j: number; combos: number; key: number }[] = [];
+  for (let i = 0; i < 13; i++) {
+    for (let j = 0; j < 13; j++) {
+      if (table[i][j] !== action) continue;
+      cells.push({ i, j, combos: cellCombos(i, j), key: cellStrengthKey(i, j) });
+    }
+  }
+  // ES2019 的 sort 是稳定的：键相同的格子保持 (i,j) 遍历序，结果完全可复现。
+  cells.sort((a, b) => a.key - b.key);
+  return cells.map(({ i, j, combos }) => ({ i, j, combos }));
+}
+
+/**
+ * 把表里 `action` 的宽度按 `factor` 缩放（就地改 `table`）。
+ *
+ * - `factor < 1`（收紧）：只留**最强**的 `factor` 份组合，其余转 `donateTo`
+ *   （方案 §7.3「收紧时从边缘 C/R 转 F」）。保留口径直接复用锦标赛表那套
+ *   `tightenCells`，两个收紧实现不各写一份。
+ * - `factor > 1`（放宽）：按 `donors` 的**优先级**、每个 donor 内**从强到弱**
+ *   补格子，直到累计组合数达到 `ownCombos * factor`。这就是 §7.3 说的「F 扩展」：
+ *   原表里的 F 是硬 0，`0 × 倍率` 永远是 0，必须显式搬格子才扩得出来。
+ * - `factor === 1`：一个格子都不动（调用方通常已经提前返回原表）。
+ *
+ * 宽度按**组合数**计（pair=6 / suited=4 / offsuit=12），不是 169 格等权 —— 否则
+ * 同花与非同花的真实权重会被抹平（§7.3 第 1 条）。
+ */
+function rescaleActionCells(
+  table: GtoAction[][],
+  action: GtoAction,
+  factor: number,
+  donateTo: GtoAction,
+  donors: readonly GtoAction[],
+): void {
+  const own = cellsOfAction(table, action);
+  if (own.length === 0) return;
+  const ownCombos = own.reduce((sum, c) => sum + c.combos, 0);
+
+  if (factor < 1) {
+    const kept = new Set(tightenCells(table, action, factor).map((c) => `${c.i},${c.j}`));
+    for (const c of own) {
+      if (!kept.has(`${c.i},${c.j}`)) table[c.i][c.j] = donateTo;
+    }
+    return;
+  }
+
+  let need = ownCombos * (factor - 1);
+  for (const donor of donors) {
+    if (need <= 0) break;
+    for (const c of cellsOfAction(table, donor)) {
+      if (need <= 0) break;
+      table[c.i][c.j] = action;
+      need -= c.combos;
+    }
+  }
+}
+
+/**
+ * 按 persona 宽度倍率派生一张范围表（方案 §7.3 第 1–3 条）。
+ *
+ * **恒等（三档全 1）时直接返回 `base` 本身**，连一次拷贝都没有 —— 这是「无 persona
+ * 逐位不变」的实现保证，也顺带让无 persona 的调用零开销。
+ *
+ * `role = 'facing'` 时两个动作**分开派生**，且顺序固定为**先防守、后加注**：
+ * 1. `C` 按 `defend` 缩放（放宽吃 `F`、收紧退 `F`）；
+ * 2. `R` 按 `threeBet` 缩放（放宽**先吃 `C` 再吃 `F`**，收紧退 `C`）。
+ *
+ * 于是 `threeBetFreq` 是「R 与 C/F 之间的**转移**」，不是把三者各乘一遍再任由总
+ * 概率 > 1（§7.3 第 4 条）；`R` 的放宽会先消化防守范围里最边缘的部分，符合
+ * 「3bet 优先来自本来会跟注的边缘牌」的直觉。
+ *
+ * `rfi` 表只有 R/F：只按 `open` 缩放 `R`。
+ */
+export function derivePreflopRangeTable(
+  base: GtoAction[][],
+  role: RangeDeriveRole,
+  widths: PreflopWidths,
+): GtoAction[][] {
+  if (widths.open === 1 && widths.defend === 1 && widths.threeBet === 1) return base;
+
+  const out = cloneTable(base);
+  if (role === 'rfi') {
+    rescaleActionCells(out, 'R', widths.open, 'F', ['F']);
+    return out;
+  }
+  rescaleActionCells(out, 'C', widths.defend, 'F', ['F']);
+  rescaleActionCells(out, 'R', widths.threeBet, 'C', ['C', 'F']);
+  return out;
+}
+
+/** 一套范围表整体派生。恒等时返回原表集（与 `derivePreflopRangeTable` 同一约定）。 */
+function deriveRangeTableSet(
+  base: RangeTableSet,
+  widths: PreflopWidths,
+): RangeTableSet {
+  if (widths.open === 1 && widths.defend === 1 && widths.threeBet === 1) return base;
+
+  const rfi = {} as Record<Position, GtoAction[][]>;
+  for (const key of Object.keys(base.rfi) as Position[]) {
+    rfi[key] = derivePreflopRangeTable(base.rfi[key], 'rfi', widths);
+  }
+
+  const facingOpen: Record<string, Record<string, GtoAction[][]>> = {};
+  for (const opener of Object.keys(base.facingOpen)) {
+    const byDefender: Record<string, GtoAction[][]> = {};
+    for (const defender of Object.keys(base.facingOpen[opener])) {
+      byDefender[defender] = derivePreflopRangeTable(
+        base.facingOpen[opener][defender],
+        'facing',
+        widths,
+      );
+    }
+    facingOpen[opener] = byDefender;
+  }
+
+  const deriveMap = (map: Record<string, GtoAction[][]>): Record<string, GtoAction[][]> => {
+    const out: Record<string, GtoAction[][]> = {};
+    for (const key of Object.keys(map)) {
+      out[key] = derivePreflopRangeTable(map[key], 'facing', widths);
+    }
+    return out;
+  };
+
+  return {
+    rfi,
+    rfiBbLimp: derivePreflopRangeTable(base.rfiBbLimp, 'rfi', widths),
+    facingOpen,
+    vs3bet: deriveMap(base.vs3bet),
+    cold3bet: deriveMap(base.cold3bet),
+  };
+}
+
+/**
+ * 该赛制 + 该 persona 的范围表。
+ *
+ * 决策层与渲染层都从这里取表，于是「赛制收紧」与「性格派生」的叠加顺序只有一处
+ * （先赛制、后性格 —— 锦标赛表本身就是从现金局表派生的，性格再作用在它上面）。
+ *
+ * 恒等（无 persona）时**直接返回赛制基表**，连一次拷贝都没有。
+ *
+ * 派生结果按 `赛制|三档倍率` **纯 memo**：一套表派生一次要遍历 36 张 13×13 表，
+ * 而同一盘的 Bot 性格是固定的（跨盘才换），所以缓存命中率极高。这不是可变配置
+ * （`gtoConfig` 那种「模块级 let」要避免的是**可被外部改写的行为状态**），而是一个
+ * 由入参唯一决定的纯函数结果表 —— 调用方一律只读，不修改返回的表。
+ */
+const derivedRangeTableCache = new Map<string, RangeTableSet>();
+
+function rangeTablesForPersona(
+  scenario: GameScenario | undefined,
+  persona: PersonalityParams | undefined,
+): RangeTableSet {
+  const widths = preflopWidths(persona);
+  if (widths.open === 1 && widths.defend === 1 && widths.threeBet === 1) {
+    return rangeTablesFor(scenario);
+  }
+  const key = `${scenario ?? 'cash'}|${widths.open}|${widths.defend}|${widths.threeBet}`;
+  const cached = derivedRangeTableCache.get(key);
+  if (cached) return cached;
+
+  const derived = deriveRangeTableSet(rangeTablesFor(scenario), widths);
+  derivedRangeTableCache.set(key, derived);
+  return derived;
+}
+
 // ─── Mixed Frequency Data ────────────────────────────────────
 const RN = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
@@ -970,11 +1150,10 @@ function getDefenderType(pos: Position): DefenderType {
 }
 
 function getFacingOpenTable(
+  tables: RangeTableSet,
   openerPos: Position | null,
   defenderPos: Position,
-  scenario: GameScenario,
 ): GtoAction[][] {
-  const tables = rangeTablesFor(scenario);
   const oPos = openerPos || 'UTG';
   const dType = getDefenderType(defenderPos);
   return tables.facingOpen[oPos]?.[dType] ?? tables.facingOpen['UTG']['IP'];
@@ -1108,6 +1287,7 @@ export function decidePreflopGTO(
   flags: ActionFlags,
   ctx: ContextInfo,
   adj: OpponentAdjustments,
+  persona?: PersonalityParams,
 ): BotDecision {
   if (!player.hand || player.hand.length < 2) {
     return { action: 'fold' };
@@ -1120,9 +1300,10 @@ export function decidePreflopGTO(
   const facing3bet = scenario === 'facing_3bet';
   const cold3bet = scenario === 'cold_3bet';
 
-  // 范围表按赛制选：决策层读全局配置（渲染层走 prop，见 rangeTablesFor）。
+  // 范围表按赛制选，再按 persona 派生（无 persona 时是同一个表对象）。
+  // 决策层读全局配置（渲染层走 prop，见 rangeTablesForPersona）。
   const gameScenario = getGtoConfig().scenario;
-  const tables = rangeTablesFor(gameScenario);
+  const tables = rangeTablesForPersona(gameScenario, persona);
 
   // 对手调整因子：对手弃牌率高时鼓励偷盲，对手跟注率高时收紧
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
@@ -1197,7 +1378,7 @@ export function decidePreflopGTO(
   if (facingOpen) {
     const openerPos = getOpenerPosition(state, player);
     const defenderPos = getDefenderPosition(ctx);
-    const table = getFacingOpenTable(openerPos, defenderPos, gameScenario);
+    const table = getFacingOpenTable(tables, openerPos, defenderPos);
     const code = lookup(table, hand);
 
     if (code === 'R') {
@@ -1336,6 +1517,17 @@ export interface GtoPreflopQuery {
    * 缺省视作现金局。
    */
   gameScenario?: GameScenario;
+  /**
+   * 该座位的 persona 参数（方案 §7.2「同位置同 spot 范围派生」）。
+   *
+   * **缺省 `undefined` = 无 persona**，范围表逐位不变。由调用方传自己手上的
+   * `Player.botType` 解析结果（`personaParamsFor(player.botType)`）—— 本函数
+   * 不读全局、也不猜座位，和 `gameScenario` 同一个理由。
+   *
+   * ⚠️ 目前**没有生产调用方传它**：面板那两行（真人 / 机器人假设）的接线在 P8b，
+   * 那时才把座位 persona 透传进来。现在传它只影响返回值、不影响任何 UI。
+   */
+  persona?: PersonalityParams;
 }
 
 /**
@@ -1354,11 +1546,12 @@ export function getGtoPreflopRecommendation(query: GtoPreflopQuery): GtoRecommen
     currentBet,
     stackContext,
     gameScenario,
+    persona,
   } = query;
 
   const sb = smallBlind || 5;
   const bb = sb * 2;
-  const tables = rangeTablesFor(gameScenario);
+  const tables = rangeTablesForPersona(gameScenario, persona);
 
   const isAllInBySPR = (sizingChips: number): boolean => {
     if (!stackContext) return false;

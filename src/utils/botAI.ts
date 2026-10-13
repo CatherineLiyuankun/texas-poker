@@ -44,6 +44,9 @@ import { computePotOddsFor } from './potOdds';
 import { callThresholdWithRake } from './rake';
 // 引擎/赛制开关的**单一真相**在 gtoConfig（不再持有模块级 `let`，原因见该文件注释）。
 import { isGtoEngine } from './gtoConfig';
+// persona：`getBotAction` 解析一次、翻前两个入口各自消费（方案 §7.2「共用入口」）。
+// 无 persona 时 `preflopWidths` 返回**精确恒等**，`× 1.0` 逐位不变 —— P1 golden 的前提。
+import { personaParamsFor, preflopWidths, type PersonalityParams } from './botPersonality';
 
 export interface BotDecision {
   action: Action;
@@ -192,13 +195,25 @@ function handContainsAce(hand: { rank: string }[]): boolean {
   return hand.some(card => card.rank === 'A');
 }
 
+/**
+ * 启发式翻前（GTO OFF）。
+ *
+ * `persona` 是**可选尾参**：`undefined` 时 `widths` 是精确恒等，所有概率表达式
+ * 逐位等于接线前的写法，随机消费次数也一个不变（方案 §7.1 / P1 golden）。
+ *
+ * persona 只作用在**概率/门槛**上（`openWiden` / `defendVsOpen` / `threeBetFreq`
+ * 三档，见 §7.2 第 1 行），不动确定性分支、不动对手画像调整量（`stealBoost` /
+ * `foldBoost`）、不动 tier 1–2 的「顶级牌必打」结构 —— 那些不是性格维度。
+ */
 function decidePreflop(
   player: Player,
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
   adj: OpponentAdjustments,
+  persona?: PersonalityParams,
 ): BotDecision {
+  const widths = preflopWidths(persona);
   // 锦标赛 ICM：风险溢价显著时由 ICM 接管翻前决策。
   //
   // 触发条件以前是 `isTournamentBubble(state)` —— 它要求 `players.length > 6`，
@@ -261,15 +276,43 @@ function decidePreflop(
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
   const foldBoost = adj.foldPenalty > 0 ? 0.10 : 0;
 
-  // 手牌含 A 时的全局调整因子：
-  // - aceRaiseFactor: A 高牌更倾向加注（×1.10）
+  // ── persona 宽度（方案 §7.2 第 1 行：按**真实**翻前场景派生） ──
+  //
+  // ⚠️ 判据必须用 `detectPreflopScenario`，**不能**用下面的 `isFacingRaise`。
+  // `isFacingRaise = ctx.toCall > 0` 的真实含义是「我必须再掏筹码」，把「非盲位
+  // 补大盲注」也算成了面对加注；而盲位（SB/BB）没有任何位置标志，于是
+  // `ctx.isXxx && !isFacingRaise` 那棵开池树对**所有座位**都到不了。拿它当性格
+  // 维度判据，`openWiden` 会整个落在死分支上（已实测：BTN/CO/HJ/UTG 拿 A9o 时
+  // 随机消费 0 次，决定完全由下面的跟注价格门槛给出）。
+  //
+  // 所以按**真实场景**（P0d 的唯一判定口径：链上无自愿加注 = 开池 / 跛入）选旋钮：
+  // - 开池 / 跛入底池 → `openWiden`（范围是「要不要进池」的宽度）
+  // - 面对开池 / 3bet / 冷 3bet → 跟注用 `defendVsOpen`、再加注用 `threeBetFreq`
+  const openSpot = detectPreflopScenario(state, player) === 'rfi';
+  /** 继续入池（跟注 / 便宜看牌 / 跛入）的宽度倍率。 */
+  const callWidth = openSpot ? widths.open : widths.defend;
+  /** 主动加注的宽度倍率（开池 / 隔离加注 vs 3bet / 4bet）。 */
+  const raiseWidth = openSpot ? widths.open : widths.threeBet;
+
+  // 手牌含 A 时的全局调整因子 + persona 宽度倍率。两者都是「乘在概率上的因子」，
+  // 所以折进同一批变量，各站点侧不用逐个改公式：
+  // - aceRaiseFactor: A 高牌更倾向加注（×1.10）× `raiseWidth`。本变量**只**用在
+  //   `!isFacingRaise` 的加注点（已逐站点核对）。
   // - aceCallFactor:  A 高牌更倾向跟注/过牌（×1.40），同时作用于分子和条件概率分母
   //   adjCall = baseCallProb * aceCallFactor
   //   条件概率 = adjCall / max(1 - baseRaiseProb - adjCall, 0.01)
   //   Math.max 防止高 raiseProb 时分母 ≤ 0
+  // - defendCallFactor: 面对加注时的跟注倾向 = aceCallFactor × `callWidth`。
+  // - raiseWidth: 硬编码的反加概率字面量用它（它们本来就没走 aceRaiseFactor）。
+  // - entryOdds: 「跟注价格」门槛倍率（门槛随 `callWidth` 放大，夹到 1）。
+  //
+  // persona 为 undefined 时以上全部是 × 1.0 —— IEEE-754 下乘 1.0 精确，于是每个
+  // 概率表达式逐位等于接线前的写法，随机消费次数也一个不变（方案 §7.1）。
   const hasAce = handContainsAce(player.hand);
-  const aceRaiseFactor = hasAce ? 1.10 : 1.0;
+  const aceRaiseFactor = (hasAce ? 1.10 : 1.0) * raiseWidth;
   const aceCallFactor = hasAce ? 1.40 : 1.0;
+  const defendCallFactor = aceCallFactor * callWidth;
+  const entryOdds = (base: number): number => Math.min(base * callWidth, 1);
 
   // Tier 1-2（顶级牌/强牌）：AA, KK, QQ, AKs, AQs, AKo, JJ, TT 等
   // 策略：几乎 100% VPIP，永远不弃牌
@@ -298,11 +341,11 @@ function decidePreflop(
   if (tier === 3) {
     if (isFacingBigRaise) {
       if (ctx.isButton || ctx.isCutoff) {
-        // 晚期位面对大加注：20% 反加注，65% 跟注，15% 弃牌
-        if (flags.canRaiseResult && random() < 0.20) {
+        // 晚期位面对大加注：20% 反加注（× persona 加注宽度倍率），65% 跟注，15% 弃牌
+        if (flags.canRaiseResult && random() < 0.20 * raiseWidth) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
-        const adjCall = 0.65 * aceCallFactor;
+        const adjCall = 0.65 * defendCallFactor;
         if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.20 - adjCall, 0.01)) {
           return { action: 'call' };
         }
@@ -313,7 +356,7 @@ function decidePreflop(
         if (flags.canFoldResult && random() < foldProb) {
           return { action: 'fold' };
         }
-        const adjCall = 0.50 * aceCallFactor;
+        const adjCall = 0.50 * defendCallFactor;
         if (flags.canCallResult && random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
@@ -390,10 +433,10 @@ function decidePreflop(
     if (isFacingBigRaise) {
       if (ctx.isButton || ctx.isCutoff) {
         // 晚期位面对大加注：更积极地防守
-        if (flags.canRaiseResult && random() < 0.20) {
+        if (flags.canRaiseResult && random() < 0.20 * raiseWidth) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.2) };
         }
-        const adjCall = 0.60 * aceCallFactor;
+        const adjCall = 0.60 * defendCallFactor;
         if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.20 - adjCall, 0.01)) {
           return { action: 'call' };
         }
@@ -407,7 +450,7 @@ function decidePreflop(
         if (flags.canFoldResult && random() < foldProb) {
           return { action: 'fold' };
         }
-        const adjCall = 0.42 * aceCallFactor;
+        const adjCall = 0.42 * defendCallFactor;
         if (flags.canCallResult && random() < adjCall / Math.max(1 - foldProb - adjCall, 0.01)) {
           return { action: 'call' };
         }
@@ -492,18 +535,18 @@ function decidePreflop(
     
     // Late position 3-bet light against single raise
     if ((ctx.isButton || ctx.isCutoff) && isFacingRaise && !isFacingBigRaise) {
-      if (flags.canRaiseResult && random() < 0.18) {
+      if (flags.canRaiseResult && random() < 0.18 * raiseWidth) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.15) };
       }
     }
     
     // Call with good pot odds
-    if (flags.canCallResult && ctx.potOdds < (0.38 - tightenCall)) {
+    if (flags.canCallResult && ctx.potOdds < (entryOdds(0.38) - tightenCall)) {
       return { action: 'call' };
     }
     
     // Heads up: call more liberally
-    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.48 - tightenCall)) {
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (entryOdds(0.48) - tightenCall)) {
       return { action: 'call' };
     }
     
@@ -633,13 +676,13 @@ function decidePreflop(
 
     // Blind defense: call wider against late position raises
     if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
-      if (flags.canRaiseResult && random() < 0.22) {
+      if (flags.canRaiseResult && random() < 0.22 * raiseWidth) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
       }
-      if (flags.canCallResult && ctx.potOdds < (0.40 - tightenCall)) {
+      if (flags.canCallResult && ctx.potOdds < (entryOdds(0.40) - tightenCall)) {
         return { action: 'call' };
       }
-      const adjCall = 0.48 * aceCallFactor;
+      const adjCall = 0.48 * defendCallFactor;
       if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.22 - adjCall, 0.01)) {
         return { action: 'call' };
       }
@@ -647,26 +690,26 @@ function decidePreflop(
 
     // 盲位面对大加注/all-in: 边缘牌仅以极好的赔率防守
     if (isFacingBigRaise && ctx.isBlind) {
-      if (flags.canCallResult && ctx.potOdds < (0.20 - tightenCall)) {
+      if (flags.canCallResult && ctx.potOdds < (entryOdds(0.20) - tightenCall)) {
         return { action: 'call' };
       }
     }
 
     // Heads up: defend wider
-    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.28 - tightenCall)) {
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (entryOdds(0.28) - tightenCall)) {
       return { action: 'call' };
     }
 
     // 面对小额加注: 位置越靠后跟注范围越宽
     if (isFacingRaise && !isFacingBigRaise && flags.canCallResult) {
       const threshold = ctx.isLatePosition ? 0.30 : ctx.isMiddlePosition ? 0.25 : 0.20;
-      if (ctx.potOdds < (threshold - tightenCall)) {
+      if (ctx.potOdds < (entryOdds(threshold) - tightenCall)) {
         return { action: 'call' };
       }
     }
 
     // Very cheap calls with any position
-    if (flags.canCallResult && ctx.potOdds < (0.18 - tightenCall)) {
+    if (flags.canCallResult && ctx.potOdds < (entryOdds(0.18) - tightenCall)) {
       return { action: 'call' };
     }
 
@@ -796,25 +839,25 @@ function decidePreflop(
 
     // Blind defense: very tight even from blinds
     if (isFacingRaise && !isFacingBigRaise && ctx.isBlind) {
-      if (flags.canRaiseResult && random() < 0.10) {
+      if (flags.canRaiseResult && random() < 0.10 * raiseWidth) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.1) };
       }
-      if (flags.canCallResult && ctx.potOdds < (0.25 - tightenCall)) {
+      if (flags.canCallResult && ctx.potOdds < (entryOdds(0.25) - tightenCall)) {
         return { action: 'call' };
       }
-      const adjCall = 0.15 * aceCallFactor;
+      const adjCall = 0.15 * defendCallFactor;
       if (flags.canCallResult && random() < adjCall / Math.max(1 - 0.10 - adjCall, 0.01)) {
         return { action: 'call' };
       }
     }
 
     // Heads up: slightly wider but still tight
-    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (0.15 - tightenCall)) {
+    if (ctx.isHeadsUp && flags.canCallResult && ctx.potOdds < (entryOdds(0.15) - tightenCall)) {
       return { action: 'call' };
     }
 
     // Very cheap calls only
-    if (flags.canCallResult && ctx.potOdds < (0.08 - tightenCall)) {
+    if (flags.canCallResult && ctx.potOdds < (entryOdds(0.08) - tightenCall)) {
       return { action: 'call' };
     }
 
@@ -1183,11 +1226,20 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   // 权益。真正需要展示给用户的 nodelock 已在面板侧计算（`HandAnalysis` 调用
   // `getNodelockForOpponent`），机器人侧既没有消费它、也就不该在这里付这份成本。
 
+  // persona：**只在这里解析一次**（方案 §7.2「共用入口：选择参数、准备共享上下文」）。
+  // 判据只有 `Player.botType` —— 它只在「本盘启用性格」时由有效 `botTypes` 派生
+  // （P4），关闭 / 旧存档 / 真人座位恒为 `undefined`，所以这里**不需要**再查一次开关，
+  // 也就不会出现「关闭」的两种口径。
+  //
+  // 本步（P6a）只透传给**翻前**两个入口：翻后 / 河牌的 persona 在 P6b / P6c 接线，
+  // 短筹码 / 深筹码的早返回也在 P6b。`undefined` 时两个入口都是精确恒等路径。
+  const persona = personaParamsFor(player.botType);
+
   switch (state.phase) {
     case 'preflop':
       return isGtoEngine()
-        ? decidePreflopGTO(player, state, flags, ctx, adj)
-        : decidePreflop(player, state, flags, ctx, adj);
+        ? decidePreflopGTO(player, state, flags, ctx, adj, persona)
+        : decidePreflop(player, state, flags, ctx, adj, persona);
     case 'flop':
     case 'turn':
       return isGtoEngine()
