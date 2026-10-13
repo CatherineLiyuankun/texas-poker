@@ -1119,18 +1119,45 @@ function decidePostflop(
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
 
+/**
+ * 启发式河牌「中等牌」分支的**条件**过牌概率。
+ *
+ * 权重 bet 0.50 / check 0.35 / call 0.15，掷骰顺序 bet → check → call，所以第二掷
+ * `w_check/(w_check + w_call) = 0.35/0.50 = 0.70`，**与 `aggressionMult` 无关**。
+ * 推导与「为什么不能写 `1 − p_bet`」见 `MEDIUM_CHECK_GIVEN_NO_BET`。
+ */
+const RIVER_MEDIUM_CHECK_GIVEN_NO_BET = 0.35 / 0.50;
+
 // 河牌决策：胜率 + 赔率 + 对手画像综合判断
+/**
+ * 启发式河牌（GTO OFF）。
+ *
+ * `persona` 是**可选尾参**，三个旋钮的落法与 `decidePostflop` 完全一致
+ * （`valueShift` 平移整条权益阶梯、`callShift` 平移跟注门槛、`aggressionMult` 缩放
+ * 进取权重后归一化），`undefined` 时逐位不变、随机消费次数不增。
+ *
+ * ⚠️ §7.2 第 5 行：「河牌没有听牌收益，不能生搬 flop 诈唬/跟注公式」。本函数本来就没有
+ * 听牌分支（河牌 5 张牌已发完），所以这里只是把**既有**的河牌门槛/频率接上 persona，
+ * 没有从 flop 移植任何听牌逻辑。
+ *
+ * 尺寸（`sizingMult`）属 **P6c-3**，本步**不接** —— 见 §7.2 第 10 行「先变换下注或加注
+ * 增量，再最终合法化；不能对已合法 amount 末尾裸乘」。
+ */
 function decideRiver(
   player: Player,
   state: GameState,
   flags: ActionFlags,
   ctx: ContextInfo,
   adj: OpponentAdjustments,
+  persona?: PersonalityParams,
 ): BotDecision {
+  const pf = postflopParams(persona);
   // 深筹码（veryDeep 档：>150bb）走深筹码策略；阈值同样来自 stackDepth，不再自己写。
+  // persona：河牌深筹码也一并透传（P6c-1）—— 深筹码引擎自己按 valueShift/callShift
+  // 平移门槛，恒等时逐位不变。
   if (stackBand(effectiveStackBB(player.chips, state.smallBlind)) === 'veryDeep') {
     // 使用深筹码策略
-    const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
+    const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj, persona);
     return {
       action: deepStackRec.action,
       amount: deepStackRec.amount,
@@ -1162,11 +1189,16 @@ function decideRiver(
   // 河牌本来就是「跟注所需的额外权益余量」——这里把原来硬编码的 0.05 换成
   // `sprAdj.callMargin`：control / cautious 仍是 0.05（逐值不变），commit 档归零
   // （底池已经大到按直接赔率跟即可）。
-  const callThreshold = callBase + sprAdj.callMargin;
+  // persona：`callShift` 叠在整条跟注门槛上（与 `decidePostflop` 同口径）。
+  const callThreshold = shiftThreshold(callBase + sprAdj.callMargin, pf.callShift);
   // commit 档把「中等牌」并入「强牌」（同 `decidePostflop`）。
-  const strongThreshold = sprAdj.mediumIsValue
-    ? 0.50 + adj.callPenalty - effectiveRaiseBonus
-    : 0.70 + adj.callPenalty;
+  // persona：`valueShift` 平移强牌门槛。
+  const strongThreshold = shiftThreshold(
+    sprAdj.mediumIsValue
+      ? 0.50 + adj.callPenalty - effectiveRaiseBonus
+      : 0.70 + adj.callPenalty,
+    pf.valueShift,
+  );
 
   // 强牌：胜率 >= strongThreshold + 对手画像调整
   if (equity >= strongThreshold) {
@@ -1191,7 +1223,8 @@ function decideRiver(
 
   // 中等牌力：胜率 >= 50% + 对手画像调整
   // （commit 档下不可达 —— 强牌门槛已降到同一水平。）
-  if (equity >= 0.50 + adj.callPenalty - effectiveRaiseBonus) {
+  // persona：`valueShift` 平移中等牌门槛（与 `decidePostflop` 同口径）。
+  if (equity >= shiftThreshold(0.50 + adj.callPenalty - effectiveRaiseBonus, pf.valueShift)) {
     // 面对大额加注时，中等牌力改为倾向跟注/过牌
     if (isFacingBigRaise) {
       if (flags.canCallResult && equity >= callThreshold) return { action: 'call' };
@@ -1199,13 +1232,17 @@ function decideRiver(
       if (flags.canFoldResult) return { action: 'fold' };
       if (flags.canCallResult) return { action: 'call' };
     }
-    // 主动下注：50% 概率（河牌更谨慎）
-    if (flags.canRaiseResult && random() < 0.50) {
+    // 主动下注：50% 概率（河牌更谨慎）。persona：`aggressionMult` 缩放进取权重后归一化。
+    const riverBetProb = renormalizeAggression(0.50, 0.50, pf.aggression);
+    if (flags.canRaiseResult && random() < riverBetProb) {
       const mult = equity >= 0.60 ? 0.85 : 0.75;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
-    // 过牌：35% 概率（条件概率）
-    if (flags.canCheckResult && random() < 0.35 / (1 - 0.50)) {
+    // 过牌：35% 概率（条件概率 = 0.35 / (0.35 + 0.15)，与 persona 无关；见
+    // `RIVER_MEDIUM_CHECK_GIVEN_NO_BET`）。⚠️ 原式 `0.35 / (1 - 0.50)` 数值上恰好相等
+    // （保守权重和 0.35 + 0.15 = 0.50），但换成 `1 - riverBetProb` 就会随 persona 漂
+    // （P6b-2 在 flop 侧犯过这个错，见 `MEDIUM_CHECK_GIVEN_NO_BET` 的注释）。
+    if (flags.canCheckResult && random() < RIVER_MEDIUM_CHECK_GIVEN_NO_BET) {
       return { action: 'check' };
     }
     // 跟注：15% 概率
@@ -1214,7 +1251,9 @@ function decideRiver(
   }
 
   // 诈唬加注：对手画像影响
-  // 面对大额加注/all-in 时完全禁止诈唬，且必须有最低胜率底线
+  // 面对大额加注/all-in 时完全禁止诈唬，且必须有最低胜率底线。
+  // persona：这是**孤立**诈唬（无竞争权重），直接乘 `aggressionMult` 并夹到 1
+  // （与 `decidePostflop` 末尾的孤立诈唬同口径）。
   if (
     !isFacingBigRaise &&
     flags.canRaiseResult &&
@@ -1222,14 +1261,16 @@ function decideRiver(
     ctx.numOpponents <= 2 &&
     equity >= 0.15 &&
     adj.raiseBonus > 0 &&
-    random() < 0.25 * sprAdj.bluffMultiplier
+    random() < Math.min(0.25 * sprAdj.bluffMultiplier * pf.aggression, 1)
   ) {
     return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
   }
 
   // 边缘跟注：胜率 >= 30% 且超过赔率 + 对手画像调整
+  // persona：`valueShift` 平移 0.30 这条边缘门槛（与 `decidePostflop` 的边缘档同口径）；
+  // `callThreshold` 已含 `callShift`。
   if (
-    equity >= 0.30 + adj.callPenalty &&
+    equity >= shiftThreshold(0.30 + adj.callPenalty, pf.valueShift) &&
     flags.canCallResult &&
     equity >= callThreshold
   ) {
@@ -1330,9 +1371,9 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   // 也就不会出现「关闭」的两种口径。
   //
   // 本步（P6a）透传给**翻前**两个入口；P6b-2 起再透传给**翻后 flop/turn** 的
-  // 启发式入口；P6b-3 起 GTO 翻后（`decidePostflopGTO`）也一并透传。河牌
-  // （`decideRiver` / `decideRiverGTO`）的 persona 在 P6c 接线，短筹码 / 深筹码的
-  // 早返回在 P6b-4。`undefined` 时所有入口都是精确恒等路径。
+  // 启发式入口；P6b-3 起 GTO 翻后（`decidePostflopGTO`）也一并透传；P6c-1 起再透传给
+  // **启发式河牌**（`decideRiver`）与其深筹码早返回。GTO 河牌（`decideRiverGTO`）在
+  // P6c-2 接线，短筹码 / 深筹码的早返回在 P6b-4。`undefined` 时所有入口都是精确恒等路径。
   const persona = personaParamsFor(player.botType);
 
   switch (state.phase) {
@@ -1348,7 +1389,7 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     case 'river':
       return isGtoEngine()
         ? decideRiverGTO(player, state, flags, ctx, adj)
-        : decideRiver(player, state, flags, ctx, adj);
+        : decideRiver(player, state, flags, ctx, adj, persona);
     default:
       return {
         action: canCheckResult ? 'check' : canCallResult ? 'call' : 'fold',

@@ -16,8 +16,9 @@
  *   4. **深筹码完全确定性**（本引擎零处 `random()`）：persona 只改**门槛**
  *      （`valueShift` 改分档、`callShift` 改跟注门槛），不改混合频率；无 persona
  *      与 TAG 逐位一致（含 amount）。
- *   5. **河牌深筹码不受影响** —— `decideRiver` 的 veryDeep 早返回**不传** persona
- *      （P6c 才接），所以河牌深筹码路径对任意 botType 都是恒等。
+ *   5. **河牌深筹码已接 persona（P6c-1）** —— `decideRiver` 的 veryDeep 早返回现在把
+ *      persona 透传给深筹码引擎，所以河牌深筹码对不同 botType 会给出不同结果
+ *      （P6b-4 阶段是恒等，P6c-1 起翻转，见对应用例）。
  *
  * ## 为什么短筹码只能靠**范围**生效
  *
@@ -466,31 +467,38 @@ describe('gtoDeepStack persona 接线（P6b-4）', () => {
     }
   });
 
-  it('河牌深筹码不受影响：decideRiver 不传 persona（P6c 才接）', () => {
-    // 走 `getBotAction`（河牌 + veryDeep），任意 botType 都应给出与「无 botType」
-    // 相同的结果 —— 因为 `decideRiver` 的 veryDeep 早返回没有透传 persona。
+  it('河牌深筹码**已**接 persona（P6c-1）：decideRiver 的 veryDeep 早返回透传 persona', () => {
+    // 走 `getBotAction`（河牌 + veryDeep）。P6c-1 起 `decideRiver` 把 persona 透传给
+    // 深筹码早返回，所以不同 botType 会给出**不同**结果 —— 与 P6b-4 阶段「恒等」相反。
+    //
+    // 局面：equity 0.5、toCall 20、底池 120 ⇒ potOdds 0.1429、SPR ≈ 16.7（cautious 档）。
+    // 分档用 `classifyEquity = 0.5 − valueShift`；cautious 档 medium 门槛 =
+    // `potOdds + 0.1 + callShift`，weak/air 在 cautious 档**没有跟注出口** ⇒ fold。
+    //   none/TAG：cls 0.50 = medium，门槛 0.243 ⇒ call
+    //   CS：cls 0.62 = medium，门槛 0.121 ⇒ call
+    //   Nit：cls 0.45 = weak（cautious 无出口）⇒ fold
+    //   Maniac：cls 0.58 = medium，但门槛 0.543 > 0.5 ⇒ fold
     const eqSpy = jest.spyOn(rangeEquity, 'calculateRangeAwareEquity').mockReturnValue(0.5);
     const mathSpy = jest.spyOn(Math, 'random').mockImplementation(mulberry32(11));
-    try {
-      for (const botType of ['Nit', 'Maniac', 'Calling Station'] as BotPersonality[]) {
-        const state = stateFor([card('♠', 'A'), card('♥', 'K')], DEEP_CHIPS, 20, 'river');
+    const runRiverBot = (botType?: BotPersonality): string => {
+      const state = stateFor([card('♠', 'A'), card('♥', 'K')], DEEP_CHIPS, 20, 'river');
+      if (botType) {
         (state.players.find((p) => p.id === 2) as Player & { botType?: BotPersonality }).botType =
           botType;
-        resetRandomSource();
-        const stream = mulberry32(7);
-        setRandomSource(() => stream());
-        const withBot = getBotAction(state.players.find((p) => p.id === 2) as Player, state);
-
-        const state2 = stateFor([card('♠', 'A'), card('♥', 'K')], DEEP_CHIPS, 20, 'river');
-        resetRandomSource();
-        const stream2 = mulberry32(7);
-        setRandomSource(() => stream2());
-        const none = getBotAction(state2.players.find((p) => p.id === 2) as Player, state2);
-
-        expect({ botType, withBot: withBot.action }).toEqual({
-          botType, withBot: none.action,
-        });
       }
+      resetRandomSource();
+      const stream = mulberry32(7);
+      setRandomSource(() => stream());
+      return getBotAction(state.players.find((p) => p.id === 2) as Player, state).action;
+    };
+    try {
+      expect(runRiverBot()).toBe('call');
+      expect(runRiverBot('TAG')).toBe('call');
+      expect(runRiverBot('Calling Station')).toBe('call');
+      expect(runRiverBot('Nit')).toBe('fold');
+      expect(runRiverBot('Maniac')).toBe('fold');
+      // 恒等：无 botType 与 TAG 仍逐位一致
+      expect(runRiverBot('TAG')).toBe(runRiverBot());
     } finally {
       mathSpy.mockRestore();
       eqSpy.mockRestore();

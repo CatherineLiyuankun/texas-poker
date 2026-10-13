@@ -11,7 +11,9 @@
  *      的局面隔离门槛：权益 0.40 时 TAG 跟注、**Maniac 弃牌**（callBias 0.3 抬高门槛）；
  *      权益 0.30 时 TAG 弃牌、CS 跟注（callBias 1.5 压低门槛）。这正是 §7.3 第 5 条
  *      警告的「乘性用法会让 callBias 更大反而更爱弃牌」的**反面**；
- *   4. **河牌不受影响** —— 河牌 persona 属 P6c，现在一个座位都不该被改动。
+ *   4. **本文件只覆盖 flop / turn** —— 河牌（`decideRiver`）的 persona 属 **P6c-1**，
+ *      其接线与测试在 `botAI.personaRiver.test.ts`（河牌与 flop 的阶梯不同：强牌门槛
+ *      0.70、中等 0.50、边缘跟注 0.30，且没有听牌分支，见 §7.2 第 5 行）。
  *
  * ⚠️ 这里的权益用 `jest.spyOn(rangeEquity, 'calculateRangeAwareEquity')` **钉死**：
  * 翻后权益是蒙特卡洛（采样用 `Math.random`），不钉死就没法断言门槛。恒等用例改钉
@@ -389,44 +391,8 @@ describe('botAI 翻后 persona 接线（P6b-2）', () => {
     });
   });
 
-  describe('河牌不受 persona 影响（P6c 未接线）', () => {
-    function riverState(botType?: BotPersonality): GameState {
-      const players = sixMaxPlayers({
-        heroId: 2,
-        heroHand: [card('♠', '9'), card('♥', '9')],
-        chips: { 1: 970, 2: 970, 6: 970 },
-        bets: { 6: 100 },
-        folded: [3, 4, 5],
-        acted: [2, 6],
-      });
-      if (botType) {
-        (players.find((p) => p.id === 2) as { botType?: BotPersonality }).botType = botType;
-      }
-      return makeState({
-        phase: 'river',
-        players,
-        currentPlayer: 2,
-        dealer: 1,
-        lastBet: 100,
-        lastRaiseBet: 100,
-        mainPot: 300,
-        communityCards: [
-          card('♠', 'A'),
-          card('♦', '8'),
-          card('♣', '5'),
-          card('♥', 'K'),
-          card('♠', '2'),
-        ],
-      });
-    }
-
-    it('河牌：Maniac / CS / Nit 与无 persona 逐位一致（含随机消费次数）', () => {
-      const base = decide(riverState(), 2, { withMathRandom: true });
-      for (const botType of ['Maniac', 'Calling Station', 'Nit'] as BotPersonality[]) {
-        expect(decide(riverState(botType), 2, { withMathRandom: true })).toEqual(base);
-      }
-    });
-  });
+  // 河牌（`decideRiver`）的 persona 属 **P6c-1**，其接线与测试在
+  // `botAI.personaRiver.test.ts`；本文件只覆盖 flop / turn 的启发式翻后。
 
   describe('参数表与接线的一致性', () => {
     it('六类 persona 在六种翻后局面 × 三档权益下都给出合法动作', () => {
