@@ -232,11 +232,16 @@ describe('botAI 河牌 persona 接线（P6c-1）', () => {
       // ⚠️ 用 `constV: 0.99` 把中等分支钉到保守侧（面对下注时 `canCheck` 为假 ⇒
       // 第二掷不发生 ⇒ 直接跟注）。这样断言只看「落在哪一档」，不依赖种子 ——
       // 掷骰结果的精确概率由下面 `aggressionMult` 一节的二分用例负责。
-      for (const botType of ['Fish', 'Calling Station'] as BotPersonality[]) {
-        expect(decideAtEquity(0.6, FACING, botType, { constV: 0.99 })).toEqual({
-          action: 'raise', amount: 270, randomCalls: 0,
-        });
-      }
+      // ⚠️ 金额逐类不同：P6c-3 起 `sizingMult` 在 `getBotAction` 末尾统一缩放。
+      // 河牌强牌分支基础金额 270、toCall 100 ⇒ 增量 170（≥ minRaise 100，是全额加注），
+      // 缩放后 `floor(100 + 170 × sizingMult)`：Fish 1.2 → 304、CS 1.1 → 287。
+      // 本用例的重点是「随机消费 0」（强牌分支无条件、不掷骰子）。
+      expect(decideAtEquity(0.6, FACING, 'Fish', { constV: 0.99 })).toEqual({
+        action: 'raise', amount: 304, randomCalls: 0,
+      });
+      expect(decideAtEquity(0.6, FACING, 'Calling Station', { constV: 0.99 })).toEqual({
+        action: 'raise', amount: 287, randomCalls: 0,
+      });
       for (const name of ['(none)', 'Nit', 'TAG', 'LAG', 'Maniac'] as Name[]) {
         const botType = name === '(none)' ? undefined : (name as BotPersonality);
         const r = decideAtEquity(0.6, FACING, botType, { constV: 0.99 });
@@ -342,8 +347,10 @@ describe('botAI 河牌 persona 接线（P6c-1）', () => {
     it('强牌分支无条件下注（权重恒 1）：权益 0.62 时 Maniac r0、TAG r1', () => {
       // 强牌门槛：Maniac 0.70 − 0.08 = 0.62 ≤ 0.62 ⇒ 强牌（不掷骰，与 v 无关）；
       // TAG 0.70 > 0.62 ⇒ 中等分支（掷一次）。constV 0.99 钉到保守侧 ⇒ 跟注。
+      // 金额 372 = floor(100 + 170 × 1.6)：P6c-3 起 `sizingMult` 缩放加注增量
+      // （toCall 100 不动，只缩放增量 170）。
       expect(decideAtEquity(0.62, FACING, 'Maniac', { constV: 0.99 })).toEqual({
-        action: 'raise', amount: 270, randomCalls: 0,
+        action: 'raise', amount: 372, randomCalls: 0,
       });
       expect(decideAtEquity(0.62, FACING, 'TAG', { constV: 0.99 })).toEqual({
         action: 'call', amount: undefined, randomCalls: 1,

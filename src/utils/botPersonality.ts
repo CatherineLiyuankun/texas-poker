@@ -303,6 +303,69 @@ export function renormalizeAggression(
   return Math.min(1, Math.max(0, scaled / total));
 }
 
+/**
+ * 按 `sizingMult` 缩放一个 **bet / raise 的候选金额**（方案 §7.2 第 10 行 / §7.4）。
+ *
+ * §7.2 第 10 行的硬约束：**「先变换下注或加注增量，再最终合法化；不能对已合法
+ * amount 末尾裸乘」**。这条不是措辞讲究 —— §7.4 复现了两个反例，裸乘都会出事：
+ *
+ * | 局面 | 裸乘结果 | 后果 |
+ * |---|---|---|
+ * | bet20 / lastBet100 / toCall80 / minRaise40 / chips200，amount 120 × 0.9 | 108 | 增量 28 < 最小全额加注 40 ⇒ reducer **拒绝** |
+ * | 同上，amount 180 × 1.6 | 288 | 超筹码 ⇒ 退化成全下（尺寸意图丢失） |
+ *
+ * 第一条尤其危险：reducer 的 `legalizeRaise` 返回 `reject` 后，`playerAction` 直接
+ * `return state` —— 机器人的动作**被静默丢弃**，既不记统计事件也不换动作，
+ * 表现为「轮到它却什么都没发生」。所以缩放**必须**在合法化之前完成，且要保住
+ * 「全额加注」这个下限。
+ *
+ * ## 本函数做什么
+ *
+ * 只缩放**加注增量**（`amount − toCall`），并把结果夹在
+ * `[minRaiseIncrement, maxAmount]` 之内：
+ * - `sizing === 1` ⇒ **原样返回 `amount`**（逐位恒等，P1 golden 的前提）；
+ * - `amount >= maxAmount`（已是全下）⇒ 原样返回：全下的尺寸没有可调空间；
+ * - 增量 `<= 0`（只是跟注，没有下注部分）⇒ 原样返回：跟注额由赔率决定，不归性格管；
+ * - 原本就是**全额加注**（增量 ≥ `minRaiseIncrement`）⇒ 缩放后**不低于** `minRaiseIncrement`，
+ *   于是缩小尺寸也不会掉成非法欠注（反例 1 被这条挡住）；
+ * - 原本就是**短全下**（增量 < `minRaiseIncrement`，只有打光筹码才合法）⇒ **不施加下限**，
+ *   否则会把一个短全下变成非法欠注加注；
+ * - 最后夹到 `maxAmount`（反例 2 的超筹码由这里收敛成合法全下）并向下取整到筹码单位。
+ *
+ * ⚠️ 本函数**只负责变换**，不负责合法性判定 —— 调用方仍必须把结果交给
+ * `legalizeRaise`（reducer 侧）做最终校验。两层分工：这里保证「缩放不会主动造出
+ * 非法金额」，那里保证「任何非法金额都进不了状态」。
+ *
+ * @param amount 引擎给出的候选金额（**本次追加筹码**口径，与 reducer 一致）
+ * @param toCall 跟注额 `max(0, lastBet − playerBet)`
+ * @param minRaiseIncrement 最小全额加注增量（= `lastRaiseBet`；无人加注时为大盲）
+ * @param maxAmount 金额上限（= 剩余筹码 `player.chips`）
+ * @param sizing `sizingMult`（来自 `postflopParams().sizing`）
+ */
+export function scaleBetAmount(
+  amount: number,
+  toCall: number,
+  minRaiseIncrement: number,
+  maxAmount: number,
+  sizing: number,
+): number {
+  if (sizing === 1) return amount; // 精确恒等：连一次浮点运算都不做
+  if (!Number.isFinite(amount) || !Number.isFinite(sizing)) return amount;
+  if (amount >= maxAmount) return amount; // 已是全下
+
+  const call = Math.max(0, toCall);
+  const increment = amount - call;
+  if (increment <= 0) return amount; // 没有可缩放的下注部分
+
+  const wasFullRaise = increment >= minRaiseIncrement;
+  let scaled = increment * sizing;
+  // 只给「原本就是全额加注」的候选兜下限：保住合法性，又不把短全下推成非法欠注。
+  if (wasFullRaise && scaled < minRaiseIncrement) scaled = minRaiseIncrement;
+
+  const candidate = Math.floor(call + scaled);
+  return Math.min(Math.max(candidate, call), maxAmount);
+}
+
 /** 普通新局的 Bot 上限（决策 19：这是 **Bot 数**上限，不是总人数上限）。 */
 export const MAX_BOTS_FOR_NEW_GAME = 6;
 

@@ -52,6 +52,7 @@ import {
   postflopParams,
   preflopWidths,
   renormalizeAggression,
+  scaleBetAmount,
   shiftThreshold,
   type PersonalityParams,
 } from './botPersonality';
@@ -1374,28 +1375,59 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   // 启发式入口；P6b-3 起 GTO 翻后（`decidePostflopGTO`）也一并透传；P6c-1 起透传给
   // **启发式河牌**（`decideRiver`）与其深筹码早返回；P6c-2 起 GTO 河牌
   // （`decideRiverGTO`）也透传。至此 §7.2 的六入口全部接线；短筹码 / 深筹码的
-  // 早返回在 P6b-4。**只剩尺寸（`sizingMult`）未接**，属 P6c-3。
-  // `undefined` 时所有入口都是精确恒等路径。
+  // 早返回在 P6b-4。P6c-3 起**尺寸**（`sizingMult`）也在本函数末尾统一变换
+  // （见下面「唯一一处缩放点」）。`undefined` 时所有入口都是精确恒等路径。
   const persona = personaParamsFor(player.botType);
 
-  switch (state.phase) {
-    case 'preflop':
-      return isGtoEngine()
-        ? decidePreflopGTO(player, state, flags, ctx, adj, persona)
-        : decidePreflop(player, state, flags, ctx, adj, persona);
-    case 'flop':
-    case 'turn':
-      return isGtoEngine()
-        ? decidePostflopGTO(player, state, flags, ctx, adj, persona)
-        : decidePostflop(player, state, flags, ctx, adj, persona);
-    case 'river':
-      return isGtoEngine()
-        ? decideRiverGTO(player, state, flags, ctx, adj, persona)
-        : decideRiver(player, state, flags, ctx, adj, persona);
-    default:
-      return {
-        action: canCheckResult ? 'check' : canCallResult ? 'call' : 'fold',
-      };
+  const raw = decideByPhase();
+
+  // ─── 尺寸（`sizingMult`）：全仓**唯一**一处缩放点 ───────────────────────────
+  //
+  // 六个入口的 `raise` 金额最终都从这里返回，所以在这一处缩放即可全覆盖 ——
+  // 不必去改每个引擎各自的 `calculateRaiseAmount` / `createBetAction`（那样会散落
+  // 六份实现、必然漂移）。方案 §7.2 第 10 行要求「先变换下注或加注增量，再最终
+  // 合法化」，这里正是「变换」层；「合法化」仍由 reducer 侧的 `legalizeRaise` 兜底。
+  //
+  // ⚠️ `scaleBetAmount` 会保住「全额加注」下限并夹到筹码上限，所以缩放**不会**主动
+  // 造出非法金额（§7.4 的两个反例见该函数注释）。这点很关键：reducer 拒绝一个 raise
+  // 时是 `return state`，机器人的动作会被**静默丢弃**（不记统计、不换动作）。
+  const sizing = postflopParams(persona).sizing;
+  if (sizing === 1 || raw.action !== 'raise' || raw.amount === undefined) {
+    return raw;
+  }
+  return {
+    ...raw,
+    amount: scaleBetAmount(
+      raw.amount,
+      toCall,
+      // 最小全额加注增量：有人加注过就是 `lastRaiseBet`，否则是一个大盲
+      // （与 `canRaise` / `legalizeRaise` 的 `fullRaise` 判据同源）。
+      state.lastRaiseBet > 0 ? state.lastRaiseBet : state.smallBlind * 2,
+      player.chips,
+      sizing,
+    ),
+  };
+
+  function decideByPhase(): BotDecision {
+    switch (state.phase) {
+      case 'preflop':
+        return isGtoEngine()
+          ? decidePreflopGTO(player, state, flags, ctx, adj, persona)
+          : decidePreflop(player, state, flags, ctx, adj, persona);
+      case 'flop':
+      case 'turn':
+        return isGtoEngine()
+          ? decidePostflopGTO(player, state, flags, ctx, adj, persona)
+          : decidePostflop(player, state, flags, ctx, adj, persona);
+      case 'river':
+        return isGtoEngine()
+          ? decideRiverGTO(player, state, flags, ctx, adj, persona)
+          : decideRiver(player, state, flags, ctx, adj, persona);
+      default:
+        return {
+          action: canCheckResult ? 'check' : canCallResult ? 'call' : 'fold',
+        };
+    }
   }
 }
 

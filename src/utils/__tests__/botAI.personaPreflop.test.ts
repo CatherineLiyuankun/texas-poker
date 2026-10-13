@@ -248,70 +248,17 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
     });
   });
 
-  describe('翻后不受 persona 影响（P6b 未接线）', () => {
-    function flopState(botType?: BotPersonality): GameState {
-      const players = sixMaxPlayers({
-        heroId: 2,
-        heroHand: [card('♠', 'A'), card('♥', 'K')],
-        chips: { 1: 970, 2: 970, 6: 970 },
-        bets: { 6: 30 },
-        folded: [3, 4, 5],
-        acted: [2, 6],
-      });
-      if (botType) {
-        (players.find((p) => p.id === 2) as { botType?: BotPersonality }).botType = botType;
-      }
-      return makeState({
-        phase: 'flop',
-        players,
-        currentPlayer: 2,
-        dealer: 1,
-        lastBet: 30,
-        mainPot: 120,
-        communityCards: [card('♦', 'A'), card('♣', '7'), card('♠', '2')],
-      });
-    }
-
-    it('翻牌：Maniac / CS 与无 persona 逐位一致（含随机消费次数）', () => {
-      const base = decide(flopState(), 2, true);
-      for (const botType of ['Maniac', 'Calling Station', 'Nit'] as BotPersonality[]) {
-        expect(decide(flopState(botType), 2, true)).toEqual(base);
-      }
-    });
-
-    it('河牌同理（persona 不泄漏到河牌路径）', () => {
-      const mk = (botType?: BotPersonality): GameState => {
-        const players = sixMaxPlayers({
-          heroId: 2,
-          heroHand: [card('♠', '9'), card('♥', '9')],
-          chips: { 1: 970, 2: 970, 6: 970 },
-          bets: { 6: 100 },
-          folded: [3, 4, 5],
-          acted: [2, 6],
-        });
-        if (botType) {
-          (players.find((p) => p.id === 2) as { botType?: BotPersonality }).botType = botType;
-        }
-        return makeState({
-          phase: 'river',
-          players,
-          currentPlayer: 2,
-          dealer: 1,
-          lastBet: 100,
-          mainPot: 300,
-          communityCards: [
-            card('♠', 'A'),
-            card('♦', '8'),
-            card('♣', '5'),
-            card('♥', 'K'),
-            card('♠', '2'),
-          ],
-        });
-      };
-      const base = decide(mk(), 2, true);
-      expect(decide(mk('Maniac'), 2, true)).toEqual(base);
-    });
-  });
+  // 这里原本有一节「翻后不受 persona 影响（P6b 未接线）」，用来钉住 P6a 的边界
+  // （persona 不得泄漏到尚未接线的翻后 / 河牌路径）。P6b-2 / P6b-3 / P6c-1 / P6c-2
+  // 已经**有意**把那些路径接上，所以该节的前提不再成立，整节删除。
+  // 对应的覆盖现在在各专属套件里：
+  // - flop / turn 启发式 → `botAI.personaPostflop.test.ts`
+  // - flop / turn GTO + 面板 → `gtoPostflop.persona.test.ts`
+  // - 河牌启发式 → `botAI.personaRiver.test.ts`
+  // - 河牌 GTO + 面板 → `gtoRiver.persona.test.ts`
+  // - 短 / 深筹码早返回 → `gtoShortDeep.persona.test.ts`
+  // - 尺寸（sizingMult）→ `botAI.personaSizing.test.ts`
+  // 「无 persona 逐位不变」仍由本文件的恒等用例与 P1 golden `botAI.decisionBaseline` 守着。
 
   describe('参数表与接线的一致性', () => {
     it('每一类 persona 都能在翻前被取到（六类 × 四个座位都跑通）', () => {

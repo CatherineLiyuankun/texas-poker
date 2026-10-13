@@ -261,14 +261,24 @@ describe('botAI 翻后 persona 接线（P6b-2）', () => {
     it('权益 0.70 且无人下注：TAG / Nit 走「中等牌」概率分支，负 valueShift 四类进「强牌」', () => {
       // TAG / Nit：强牌门槛 0.75 / 0.80 > 0.70 → 中等分支（60% / 42% 概率下注）
       // 其余四类：valueShift 把强牌门槛压到 0.63–0.70 → 强牌分支（**确定性**加注）
+      //
+      // ⚠️ 金额是**逐类不同**的：P6c-3 起 `sizingMult` 在 `getBotAction` 末尾统一缩放。
+      // 强牌分支基础金额 = `max(lastRaiseBet 10, floor(100 × 1.0))` = 100，
+      // toCall = 0 ⇒ 增量 = 100，缩放后 `floor(100 × sizingMult)`：
+      //   LAG / CS 1.1 → 110、Fish 1.2 → 120、Maniac 1.6 → 160。
+      // 这条用例的**重点**是「四类都落进强牌分支 ⇒ 随机消费 0」（分档平移的证据），
+      // 金额只是顺带钉住尺寸也生效；两者的完整覆盖分别在
+      // `botAI.personaSizing.test.ts` 与本 describe 的其它用例。
+      const strongAmount: Record<string, number> = {
+        LAG: 110, Fish: 120, 'Calling Station': 110, Maniac: 160,
+      };
       const strong: BotPersonality[] = ['LAG', 'Fish', 'Calling Station', 'Maniac'];
       for (const botType of strong) {
-        // 强牌分支没有随机消费（r0），金额是多档里最高的 100
         const r = decideAtEquity(0.7, () => flopState(NOBET), botType);
         expect({ botType, ...r }).toEqual({
           botType,
           action: 'raise',
-          amount: 100,
+          amount: strongAmount[botType],
           randomCalls: 0,
         });
       }
