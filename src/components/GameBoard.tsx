@@ -8,7 +8,7 @@ import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
-import { getBotAction } from '../utils/botAI';
+import { getBotAction, computePositionFlags } from '../utils/botAI';
 import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
 // SPR / 有效筹码的唯一来源：面板 SPR 行不再自己内联 `min(hero, 各活跃对手) / pot`。
 import { sprFromState } from '../utils/spr';
@@ -768,30 +768,25 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               state.dealer +
                               state.players.length) %
                             state.players.length;
+                          // 位置标志与机器人 `ctx` 共用 `computePositionFlags`
+                          // （决策 41）：面板不再自己维护第二份公式。
+                          const {
+                            isButton,
+                            isCutoff,
+                            isHijack,
+                            isMiddlePosition,
+                            isEarlyPosition,
+                            isBlind,
+                          } = computePositionFlags(pos, state.players.length);
                           const ctxForGto = {
                             position: pos,
                             totalPlayers: state.players.length,
-                            isButton: pos === 0,
-                            isCutoff:
-                              pos === state.players.length - 1 &&
-                              pos > 2,
-                            isHijack:
-                              pos === state.players.length - 2 &&
-                              pos > 2,
-                            isMiddlePosition:
-                              pos >=
-                                Math.floor(
-                                  state.players.length * 0.3,
-                                ) &&
-                              pos < state.players.length - 2 &&
-                              pos > 2,
-                            isEarlyPosition:
-                              pos > 0 &&
-                              pos <
-                                Math.floor(
-                                  state.players.length * 0.3,
-                                ),
-                            isBlind: pos === 1 || pos === 2,
+                            isButton,
+                            isCutoff,
+                            isHijack,
+                            isMiddlePosition,
+                            isEarlyPosition,
+                            isBlind,
                           };
                           const rfiPos =
                             getRfiPositionForDisplay(ctxForGto);

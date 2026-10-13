@@ -98,6 +98,53 @@ function getPlayerPosition(
   return (playerIdx - dealerIdx + totalPlayers) % totalPlayers;
 }
 
+/**
+ * 座位相对位置标志（`position` 是相对**庄家**的偏移 `(seat - dealer + N) % N`）。
+ *
+ * `getBotAction` 的 `ctx` 与面板展示共用这一处，避免两份公式各写各的漂移。
+ *
+ * 决策 41（P0g）：**早位必须排除盲位**。旧公式 `position > 0 && position <
+ * floor(N*0.3)` 在 7/8 人桌（`floor(N*0.3) === 2`）会把小盲（position 1）同时标成
+ * 早位；10 人桌（`floor(N*0.3) === 3`）还会把大盲（position 2）标成早位 —— 而大盲
+ * 免费看牌时 `isFacingRaise === false`，会真的走进「早位 30% 加注 / 20% 跟注 /
+ * 50% 弃牌」分支，而正确行为是 check/fold。改为 `position > 2` 后：
+ * 6 人桌早位本来就是空集（`floor(1.8) === 1`），净变化为 0；7/8 人桌早位变空集，
+ * 而小盲翻前恒面对大盲（`toCall > 0`）本就到不了早位分支，净变化同样为 0。
+ *
+ * ⚠️ 已知残留（本次前置**不**处理，完整位置统一仍后续，见方案 §10.1）：
+ * - 6 人桌 UTG（position 3）同时落进 `isMiddlePosition` 与 `isLatePosition`
+ *   （GTO 早位与中位合并的策略退化）；
+ * - 小桌（2–4 人）的 `isLatePosition` 仍会命中盲位 —— 与「盲位 vs 早位」是两回事。
+ */
+export interface PositionFlags {
+  isButton: boolean;
+  isCutoff: boolean;
+  isHijack: boolean;
+  isLatePosition: boolean;
+  isMiddlePosition: boolean;
+  isEarlyPosition: boolean;
+  isBlind: boolean;
+}
+
+export function computePositionFlags(
+  position: number,
+  totalPlayers: number,
+): PositionFlags {
+  return {
+    isButton: position === 0,
+    isCutoff: position === totalPlayers - 1 && position > 2,
+    isHijack: position === totalPlayers - 2 && position > 2,
+    isLatePosition: position >= Math.floor(totalPlayers * 0.6),
+    isMiddlePosition:
+      position >= Math.floor(totalPlayers * 0.3) &&
+      position < totalPlayers - 2 &&
+      position > 2,
+    isEarlyPosition:
+      position > 2 && position < Math.floor(totalPlayers * 0.3),
+    isBlind: position === 1 || position === 2,
+  };
+}
+
 function getPositionName(position: number, totalPlayers: number): Position {
   if (totalPlayers === 6) {
     const positions: Position[] = ['BTN', 'SB', 'BB', 'UTG', 'MP', 'CO'];
@@ -1116,13 +1163,8 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
     totalPlayers: state.players.length,
     numOpponents,
     isHeadsUp: numOpponents === 1,
-    isLatePosition: position >= Math.floor(state.players.length * 0.6),
-    isButton: position === 0,
-    isCutoff: position === state.players.length - 1 && position > 2,
-    isHijack: position === state.players.length - 2 && position > 2,
-    isMiddlePosition: position >= Math.floor(state.players.length * 0.3) && position < state.players.length - 2 && position > 2,
-    isEarlyPosition: position > 0 && position < Math.floor(state.players.length * 0.3),
-    isBlind: position === 1 || position === 2,
+    // 位置标志统一由 `computePositionFlags` 产出（面板展示也用同一份，见决策 41）。
+    ...computePositionFlags(position, state.players.length),
     hasLimpers: state.phase === 'preflop'
       ? state.players.some(p =>
           p.id !== player.id &&
