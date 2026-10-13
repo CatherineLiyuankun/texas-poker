@@ -143,3 +143,63 @@ describe('P5 开手快照（GameBoard 写入点）', () => {
     }
   });
 });
+
+/**
+ * P5 补漏（既有 ID 缺陷，独立提交）：**跨盘**手牌 id 碰撞。
+ *
+ * 旧实现的手牌 id 是 `${handCounter}-${dealer}-${hero底牌}`，`handCounter` 是
+ * **组件 ref**：返回菜单再开新盘会重挂载、计数归零，于是「同 dealer + 同底牌」
+ * 的新盘第一手会生成与上一盘第一手**完全相同**的 id。长期库 `saveHand` 按 handId
+ * 覆盖 → 上一盘那一手被悄悄吃掉（长期统计随之失真）。
+ *
+ * 这里用常数随机把两盘的发牌与 dealer 钉成完全相同，复现该碰撞。
+ *
+ * 附带记录一次**被推翻的猜测**：曾怀疑同盘内相邻两手也会撞键。实测不会 ——
+ * `handKeyRef` 只保存**上一手**的键，而 `RESET_ROUND` 每手把 dealer 轮转 1，
+ * 所以相邻两手的 dealer 必然不同（≥2 人桌，1 人桌不可开局）。跨盘才是真缺陷。
+ */
+describe('P5 补漏：跨盘（重挂载、计数归零）不复用上一盘的手牌 id', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetOpponentStats();
+    resetLongTermStats();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('两盘发牌与 dealer 完全相同 → 仍是两条独立记录', () => {
+    const spy = jest.spyOn(Math, 'random').mockReturnValue(0.99);
+    const board = (
+      <GameBoard
+        playerConfig={{ realPlayers: 1, botPlayers: 1, smallBlind: 5 }}
+        botPersonalityEnabled
+        botTypes={{ 2: 'TAG' }}
+        onBackToMenu={() => {}}
+      />
+    );
+    try {
+      // 第一盘：单挑 + dealer 2 → 真人先行动，弃牌即结算
+      const first = render(board);
+      const firstHandId = getCurrentHand()!.handId;
+      expect(clickButton(/Fold/)).toBe(true);
+      first.unmount();
+
+      // 返回菜单再开新盘：旧实现会重挂载、计数归零，发牌与 dealer 都相同
+      const second = render(board);
+      const secondHandId = getCurrentHand()!.handId;
+      expect(clickButton(/Fold/)).toBe(true);
+      second.unmount();
+
+      expect(secondHandId).not.toBe(firstHandId);
+
+      // 旧实现两盘撞成同一个 id → 长期库只剩 1 条（第二条覆盖第一条）
+      const stored = readLongTermHands();
+      expect(stored).toHaveLength(2);
+      expect(new Set(stored.map((h) => h.handId)).size).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
