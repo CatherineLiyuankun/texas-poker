@@ -10,11 +10,12 @@
  * 它与「策略混合频率」的 `random.ts` 随机源**互相独立** —— 注入 `setRandomSeed`
  * 不该改变新盘的座位分配，反之亦然。测试可显式注入 `random`。
  *
- * 3. persona 参数如何折成引擎要用的派生量（`personaParamsFor` / `preflopWidths`）。
+ * 3. persona 参数如何折成引擎要用的派生量（`personaParamsFor` / `preflopWidths` /
+ *    `postflopParams`）。
  *
  * 接线（有效开关、map 落盘、`Player.botType` 派生视图、各入口透传）在 P4/P5/P6，
  * 不在本模块；本模块也**不**改变任何既有策略行为 —— 派生量在无 persona 时是
- * 精确恒等（`× 1.0`），调用侧可以无条件相乘而保持逐位不变。
+ * 精确恒等（`× 1.0` / `+0`），调用侧可以无条件相乘/相加而保持逐位不变。
  */
 import type { PlayerId } from '../types/poker';
 import type { RandomSource } from './random';
@@ -198,6 +199,81 @@ export function preflopWidths(params: PersonalityParams | undefined): PreflopWid
     open: safeMultiplier(params.openWiden),
     defend: safeMultiplier(params.defendVsOpen),
     threeBet: safeMultiplier(params.threeBetFreq),
+  };
+}
+
+// ─── 翻后派生量（方案 §7.2 第 3–4 行 / §7.3 第 5–6 条） ──────────
+
+/**
+ * `callShift` 的映射尺度（方案 §7.3 第 5 条要求「实施前固定」的那个映射函数）。
+ *
+ * ±0.30 与现有跟注门槛（0.08–0.48）同阶：足以让最极端的初值改变打法，
+ * 又不至于把门槛夹死在 0 / 1 上。
+ */
+export const CALL_SHIFT_SCALE = 0.30;
+
+/**
+ * 把 `callBias` 折成**加到跟注门槛上的偏移量**（方案 §7.3 第 5 条）。
+ *
+ * 三条硬性性质（都有聚焦测试钉住）：
+ *   1. **`callShift(1) === 0` 精确** —— 基准性格不改变门槛（`Math.log(1)` 就是 `+0`）；
+ *   2. **对 `callBias` 单调递减** —— `callBias` 越大表示「越爱跟注」，门槛必须**越低**。
+ *      §7.3 第 5 条专门警告「避免误用乘法让 callBias 更大反而更爱弃牌」，乘性写法
+ *      （`base × callBias`，CS 1.5 → 门槛 ×1.5 → 更爱弃牌）正是那个反例；
+ *   3. **有界**（`±CALL_SHIFT_SCALE`）—— 极端初值（Maniac 0.3）不会把门槛推出 [0,1]。
+ *
+ * 形式 `clamp(SCALE × ln(1/b), ±SCALE)`：对数让 `1.5` 与 `1/1.5` 给出等幅反向的
+ * 偏移（关于 1 对称），且 `b → 0⁺` 时平滑趋向正上限（「几乎不跟注」）而不跳变。
+ *
+ * 非法输入（`NaN` / 负数 / `Infinity`）走 `safeMultiplier` 退回 1 → 偏移 0。
+ */
+export function callShift(callBias: number): number {
+  const b = safeMultiplier(callBias);
+  const raw = CALL_SHIFT_SCALE * Math.log(1 / b);
+  return Math.min(CALL_SHIFT_SCALE, Math.max(-CALL_SHIFT_SCALE, raw));
+}
+
+/**
+ * `clamp(base + shift, 0, 1)`（方案 §7.3 第 5 条的 `valueThreshold'` / `callThreshold'`）。
+ *
+ * **`shift === 0` 时原样返回 `base`（连 clamp 都不做）** —— 这是「无 persona / TAG
+ * 逐位不变」的实现保证：接线前的 `base` 可能本来就略大于 1（`0.75 + callPenalty`
+ * 之类），一旦无条件 clamp 就会改变行为，P1 golden 会红。恒等分支必须是**真的恒等**。
+ */
+export function shiftThreshold(base: number, shift: number): number {
+  if (shift === 0) return base;
+  const delta = Number.isFinite(shift) ? shift : 0;
+  return Math.min(1, Math.max(0, base + delta));
+}
+
+/** 翻后派生量：门槛平移 + 权重倍率（`sizing` 由 P6c 的尺寸阶段消费）。 */
+export interface PostflopParams {
+  /** 强牌 / 价值权益门槛平移量（直接加到 base 上，可负）。 */
+  valueShift: number;
+  /** 跟注门槛偏移量（已由 `callShift` 折好；**正 = 门槛抬高 = 更少跟注**）。 */
+  callShift: number;
+  /** 激进度倍率（作用于价值 / 诈唬**权重**，之后必须归一化，见 §7.3 第 6 条）。 */
+  aggression: number;
+  /** 下注 / 加注尺寸倍率（先变换增量再合法化，见 §7.4；P6c 才消费）。 */
+  sizing: number;
+}
+
+/**
+ * 把 persona 折成翻后派生量。
+ *
+ * `undefined` → **写死的恒等** `{valueShift:0, callShift:0, aggression:1, sizing:1}`
+ * （理由同 `preflopWidths`：不能折成 `PERSONALITY_PARAMS.TAG`，那是会随 P9 漂移的
+ * 校准结果）。
+ */
+export function postflopParams(params: PersonalityParams | undefined): PostflopParams {
+  if (params === undefined) {
+    return { valueShift: 0, callShift: 0, aggression: 1, sizing: 1 };
+  }
+  return {
+    valueShift: Number.isFinite(params.valueShift) ? params.valueShift : 0,
+    callShift: callShift(params.callBias),
+    aggression: safeMultiplier(params.aggressionMult),
+    sizing: safeMultiplier(params.sizingMult),
   };
 }
 

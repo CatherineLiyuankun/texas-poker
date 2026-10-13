@@ -15,13 +15,17 @@ import {
   BOT_PERSONALITY_TYPES,
   botIdsForRange,
   botTypeQuota,
+  CALL_SHIFT_SCALE,
+  callShift,
   isValidBotPersonality,
   MAX_BOTS_FOR_EXTRAPOLATION,
   MAX_BOTS_FOR_NEW_GAME,
   normalizeBotPersonalityConfig,
   personaParamsFor,
   PERSONALITY_PARAMS,
+  postflopParams,
   preflopWidths,
+  shiftThreshold,
   toBotTypeMap,
   type BotPersonality,
 } from '../botPersonality';
@@ -491,5 +495,143 @@ describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
       'open',
       'threeBet',
     ]);
+  });
+});
+
+describe('botPersonality：翻后派生量与 callShift 映射（P6b）', () => {
+  it('callShift(1) 精确为 0（不是「约等于 0」——基准性格必须逐位不变）', () => {
+    // 用 Object.is 而不是 toBe：-0 与 +0 在 === 下相等，但 +0 才是「原样返回 base」
+    // 分支真正期望的值；这里顺带把符号也钉住。
+    expect(Object.is(callShift(1), 0)).toBe(true);
+  });
+
+  it('callShift 对 callBias 单调递减（越大越爱跟注 → 门槛越低）', () => {
+    // 六类初值按 callBias 升序：Maniac 0.3 < Nit 0.8 < LAG 0.9 < TAG 1.0
+    //   < Fish 1.3 < CS 1.5
+    const biases = [0.3, 0.8, 0.9, 1.0, 1.3, 1.5];
+    const shifts = biases.map(callShift);
+    for (let i = 1; i < shifts.length; i++) {
+      expect(shifts[i]).toBeLessThan(shifts[i - 1]);
+    }
+  });
+
+  it('callShift 的方向：CS（1.5）为负=更爱跟注，Maniac（0.3）为正=更少跟注', () => {
+    // §7.3 第 5 条的反例是乘性用法：base × 1.5 → 门槛抬高 → CS 反而更爱弃牌。
+    expect(callShift(PERSONALITY_PARAMS['Calling Station'].callBias)).toBeLessThan(0);
+    expect(callShift(PERSONALITY_PARAMS.Fish.callBias)).toBeLessThan(0);
+    expect(callShift(PERSONALITY_PARAMS.Nit.callBias)).toBeGreaterThan(0);
+    expect(callShift(PERSONALITY_PARAMS.Maniac.callBias)).toBeGreaterThan(0);
+  });
+
+  it('callShift 有界且关于 1 对称', () => {
+    for (const b of [0.3, 0.8, 0.9, 1, 1.3, 1.5, 2.2, 100]) {
+      expect(Math.abs(callShift(b))).toBeLessThanOrEqual(CALL_SHIFT_SCALE);
+      expect(callShift(b)).toBeCloseTo(-callShift(1 / b), 12);
+    }
+    // 极端初值夹到上限，不会把门槛推出 [0,1]
+    expect(callShift(0.3)).toBe(CALL_SHIFT_SCALE);
+  });
+
+  it('callShift 的非法输入退回 0（NaN / 负 / Infinity → safeMultiplier → 1）', () => {
+    expect(callShift(Number.NaN)).toBe(0);
+    expect(callShift(-1)).toBe(0);
+    expect(callShift(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it('postflopParams(undefined) 是写死的恒等（不是 TAG）', () => {
+    expect(postflopParams(undefined)).toEqual({
+      valueShift: 0,
+      callShift: 0,
+      aggression: 1,
+      sizing: 1,
+    });
+  });
+
+  it('postflopParams(TAG) 恰好也是恒等（记录巧合，不是实现依据）', () => {
+    expect(postflopParams(PERSONALITY_PARAMS.TAG)).toEqual({
+      valueShift: 0,
+      callShift: 0,
+      aggression: 1,
+      sizing: 1,
+    });
+  });
+
+  it('postflopParams：逐类映射到 §7.1 表（valueShift / aggressionMult / sizingMult）', () => {
+    const nit = postflopParams(PERSONALITY_PARAMS.Nit);
+    expect(nit.valueShift).toBe(0.05);
+    expect(nit.aggression).toBe(0.7);
+    expect(nit.sizing).toBe(0.9);
+    expect(nit.callShift).toBeGreaterThan(0); // 0.8 → 更少跟注
+
+    const maniac = postflopParams(PERSONALITY_PARAMS.Maniac);
+    expect(maniac.valueShift).toBe(-0.08);
+    expect(maniac.aggression).toBe(2.5);
+    expect(maniac.sizing).toBe(1.6);
+    expect(maniac.callShift).toBe(CALL_SHIFT_SCALE); // 0.3 → 夹到上限
+
+    const cs = postflopParams(PERSONALITY_PARAMS['Calling Station']);
+    expect(cs.valueShift).toBe(-0.12);
+    expect(cs.aggression).toBe(0.3);
+    expect(cs.callShift).toBeLessThan(0);
+  });
+
+  it('postflopParams：非法参数退回恒等分量（NaN valueShift → 0）', () => {
+    const broken = {
+      ...PERSONALITY_PARAMS.TAG,
+      valueShift: Number.NaN,
+      aggressionMult: Number.NaN,
+      sizingMult: -2,
+    };
+    const p = postflopParams(broken);
+    expect(p.valueShift).toBe(0);
+    expect(p.aggression).toBe(1);
+    expect(p.sizing).toBe(1);
+  });
+
+  it('postflopParams：返回新对象，改它不会污染 §7.1 参数表', () => {
+    const p = postflopParams(PERSONALITY_PARAMS.Maniac);
+    p.valueShift = 99;
+    p.aggression = 99;
+    expect(PERSONALITY_PARAMS.Maniac.valueShift).toBe(-0.08);
+    expect(PERSONALITY_PARAMS.Maniac.aggressionMult).toBe(2.5);
+  });
+
+  it('postflopParams：只读翻后四键，不泄漏翻前宽度', () => {
+    expect(Object.keys(postflopParams(PERSONALITY_PARAMS.LAG)).sort()).toEqual([
+      'aggression',
+      'callShift',
+      'sizing',
+      'valueShift',
+    ]);
+  });
+
+  it('shiftThreshold：shift 为 0 时**原样返回 base**，连 clamp 都不做', () => {
+    // 这是「无 persona 逐位不变」的关键：接线前的门槛可能本来就 >1（0.75+callPenalty）
+    // 或 <0（被画像调整减掉），一旦无条件 clamp 就会改变行为、让 P1 golden 变红。
+    expect(shiftThreshold(0.8, 0)).toBe(0.8);
+    expect(shiftThreshold(1.35, 0)).toBe(1.35);
+    expect(shiftThreshold(-0.2, 0)).toBe(-0.2);
+    expect(shiftThreshold(0.8, -0)).toBe(0.8); // -0 也是恒等
+  });
+
+  it('shiftThreshold：shift 非 0 时夹到 [0,1]', () => {
+    expect(shiftThreshold(0.8, 0.05)).toBeCloseTo(0.85, 12);
+    expect(shiftThreshold(0.8, -0.05)).toBeCloseTo(0.75, 12);
+    expect(shiftThreshold(0.98, 0.05)).toBe(1);
+    expect(shiftThreshold(0.02, -0.05)).toBe(0);
+    // 非法 shift → 视作 0，但走的是 clamp 分支（base 已在 [0,1] 时结果相同）
+    expect(shiftThreshold(0.8, Number.NaN)).toBeCloseTo(0.8, 12);
+  });
+
+  it('shiftThreshold：把 §7.1 的 valueShift 逐类加到强牌门槛上', () => {
+    const base = 0.75;
+    const at = (p: keyof typeof PERSONALITY_PARAMS) =>
+      shiftThreshold(base, postflopParams(PERSONALITY_PARAMS[p]).valueShift);
+    expect(at('TAG')).toBe(0.75);
+    expect(at('Nit')).toBeCloseTo(0.8, 12);
+    expect(at('LAG')).toBeCloseTo(0.7, 12);
+    expect(at('Fish')).toBeCloseTo(0.65, 12);
+    expect(at('Calling Station')).toBeCloseTo(0.63, 12);
+    expect(at('Maniac')).toBeCloseTo(0.67, 12);
   });
 });
