@@ -5,6 +5,7 @@ export type PlayerType =
   | 'Nit'
   | 'TAG'
   | 'LAG'
+  | 'Fish'
   | 'Calling Station'
   | 'Maniac'
   | 'Others'
@@ -19,24 +20,140 @@ export interface VpipPfrStats {
   playerType: PlayerType;
 }
 
-const MIN_HANDS_FOR_CLASSIFICATION = 10;
+/** UI 启用分类的最小样本（手）。方案 §3.1 决策 7：保持 10。 */
+export const MIN_HANDS_FOR_CLASSIFICATION = 10;
 
+/**
+ * 分类器需要的翻后证据（AF / WTSD）。
+ *
+ * 单位**沿用仓库既有口径**（方案 §3.2）：AF 是比率，WTSD 是 0–100 百分数；
+ * 这里不做任何单位换算 —— 只有 VPIP/PFR 在适配层转换一次。
+ */
+export interface ClassificationExtras {
+  /** AF 比率（现有单位）。`null` / 省略 = 缺失。 */
+  af?: number | null;
+  /** AF 三态；`'no-calls'`（有进攻零跟注）视为高于任意有限阈值（决策 37）。 */
+  afState?: AFState;
+  /** WTSD 百分数（0–100）。`null` / 省略 = 缺失。 */
+  wtsd?: number | null;
+}
+
+export interface ClassificationResult {
+  playerType: PlayerType;
+  /** 诊断：为什么得到这个结果（命中哪条规则 / 样本不足 / 非法输入）。 */
+  reason: string;
+}
+
+/**
+ * 有序分类规则树内核（方案 §3.1，顺序不可调整）。
+ *
+ * **入参 `vpipPercent` / `pfrPercent` 是 0–100 百分数**（方案 §3.2 的单位契约）。
+ * 0–1 口径请走 `classifyPlayerType` 适配层，不要在这里重复换算。
+ *
+ * - `ratio = pfr / vpip`；由上而下命中即停；
+ * - 样本 `< 10` → Unknown（`insufficient-sample`）；
+ * - 非有限数、或违反 `0 <= PFR <= VPIP <= 100` → Unknown（`invalid-input`），
+ *   **不做夹取**，避免把非法输入悄悄伪造成一个合法分类；
+ * - VPIP `< 14` 先短路为 Nit（同时覆盖 VPIP = 0，避免 0/0）；
+ * - AF / WTSD 缺失时相关分支不命中（§3.3）：AF 缺失 → 规则 2/3 不命中，
+ *   规则 4/8 的凶度判断为 false；WTSD 缺失 → 不判 CS；
+ * - `afState === 'no-calls'`（翻后有进攻、零跟注）视为高于任意有限阈值。
+ */
+export function classifyPlayerTypePercent(
+  vpipPercent: number,
+  pfrPercent: number,
+  sampleSize: number,
+  extras: ClassificationExtras = {},
+): ClassificationResult {
+  if (
+    !Number.isFinite(vpipPercent) ||
+    !Number.isFinite(pfrPercent) ||
+    !Number.isFinite(sampleSize)
+  ) {
+    return { playerType: 'Unknown', reason: 'invalid-input' };
+  }
+  if (sampleSize < MIN_HANDS_FOR_CLASSIFICATION) {
+    return { playerType: 'Unknown', reason: 'insufficient-sample' };
+  }
+  if (vpipPercent < 0 || vpipPercent > 100 || pfrPercent < 0 || pfrPercent > vpipPercent) {
+    return { playerType: 'Unknown', reason: 'invalid-input' };
+  }
+
+  // 规则 1：VPIP < 14 → Nit（含 VPIP = 0 的短路）
+  if (vpipPercent < 14) return { playerType: 'Nit', reason: 'rule1-nit' };
+
+  const ratio = pfrPercent / vpipPercent;
+  const af = effectiveAf(extras);
+  // 规则 3/4/6/8 的 CS 分支共用同一 WTSD 判据：严格 `> 35`
+  const csByWtsd = extras.wtsd != null && extras.wtsd > 35;
+
+  // 规则 2：VPIP >= 38 且 AF > 3.5 → Maniac（AF 缺失不命中）
+  if (vpipPercent >= 38 && af !== null && af > 3.5) {
+    return { playerType: 'Maniac', reason: 'rule2-maniac' };
+  }
+  // 规则 3：VPIP >= 38 且 AF < 1.5 → CS / Fish（AF 缺失不命中）
+  if (vpipPercent >= 38 && af !== null && af < 1.5) {
+    return {
+      playerType: csByWtsd ? 'Calling Station' : 'Fish',
+      reason: csByWtsd ? 'rule3-cs' : 'rule3-fish',
+    };
+  }
+  // 规则 4：VPIP >= 28 且 ratio > 0.7 → AF >= 1.5 ? LAG : (CS / Fish)
+  if (vpipPercent >= 28 && ratio > 0.7) {
+    if (af !== null && af >= 1.5) return { playerType: 'LAG', reason: 'rule4-lag' };
+    return {
+      playerType: csByWtsd ? 'Calling Station' : 'Fish',
+      reason: csByWtsd ? 'rule4-cs' : 'rule4-fish',
+    };
+  }
+  // 规则 5：18 <= VPIP <= 28 且 ratio > 0.7 → TAG
+  if (vpipPercent >= 18 && vpipPercent <= 28 && ratio > 0.7) {
+    return { playerType: 'TAG', reason: 'rule5-tag' };
+  }
+  // 规则 6：VPIP > 28 且 ratio < 0.55 → CS / Fish
+  if (vpipPercent > 28 && ratio < 0.55) {
+    return {
+      playerType: csByWtsd ? 'Calling Station' : 'Fish',
+      reason: csByWtsd ? 'rule6-cs' : 'rule6-fish',
+    };
+  }
+  // 规则 7：ratio < 0.55 → Fish（不查 WTSD）
+  if (ratio < 0.55) return { playerType: 'Fish', reason: 'rule7-fish' };
+  // 规则 8：VPIP > 32 → AF >= 2.0 ? LAG : (CS / Fish)
+  if (vpipPercent > 32) {
+    if (af !== null && af >= 2.0) return { playerType: 'LAG', reason: 'rule8-lag' };
+    return {
+      playerType: csByWtsd ? 'Calling Station' : 'Fish',
+      reason: csByWtsd ? 'rule8-cs' : 'rule8-fish',
+    };
+  }
+  // 兜底：TAG
+  return { playerType: 'TAG', reason: 'fallback-tag' };
+}
+
+/**
+ * 0–1 兼容适配层（保留旧签名，供既有调用方使用）。
+ *
+ * `vpip` / `pfr` 是仓库既有的 0–1 口径，这里**只换算一次**再交给内核；
+ * `extras` 的 AF / WTSD 沿用既有单位，不再换算。
+ */
 export function classifyPlayerType(
   vpip: number,
   pfr: number,
   sampleSize: number,
+  extras: ClassificationExtras = {},
 ): PlayerType {
-  if (sampleSize < MIN_HANDS_FOR_CLASSIFICATION) return 'Unknown';
+  return classifyPlayerTypePercent(vpip * 100, pfr * 100, sampleSize, extras).playerType;
+}
 
-  const gap = vpip - pfr;
-
-  if (vpip >= 0.45 && pfr >= 0.35) return 'Maniac';
-  if (vpip > 0.35 && pfr < 0.15 && gap > 0.20) return 'Calling Station';
-  if (vpip <= 0.20 && pfr < 0.12 && gap > 0.08) return 'Nit';
-  if (vpip <= 0.28 && vpip >= 0.20 && pfr >= 0.16 && pfr <= 0.32 && gap <= 0.08) return 'TAG';
-  if (vpip <= 0.38 && pfr >= 0.20 && pfr <= 0.32 && gap <= 0.08) return 'LAG';
-
-  return 'Others';
+/**
+ * AF 的有效比较值：`'no-calls'`（有进攻、零跟注）视为 `+∞`；缺失（`null` /
+ * 非有限数）返回 `null`。`+∞` 只用于比较，**不会被持久化**（决策 37）。
+ */
+function effectiveAf(extras: ClassificationExtras): number | null {
+  if (extras.afState === 'no-calls') return Infinity;
+  const af = extras.af;
+  return typeof af === 'number' && Number.isFinite(af) ? af : null;
 }
 
 // ============================================================================
@@ -779,6 +896,9 @@ export function computePlayerStatsFromEvents(
   const vpip = computeVPIPFromEvents(events, handsDealt);
   const pfr = computePFRFromEvents(events, handsDealt);
   const afDetail = computeAFDetailFromEvents(events);
+  // WTSD / WSD 只看自己的动作 → 用过滤后的手牌（提前算，分类器要用 WTSD）
+  const wtsd = computeWTSDFromEvents(playerId, playerHands);
+  const wsd = computeWSDFromEvents(playerId, playerHands);
 
   return {
     playerId,
@@ -786,16 +906,20 @@ export function computePlayerStatsFromEvents(
     vpip,
     pfr,
     gap: vpip - pfr,
-    playerType: classifyPlayerType(vpip, pfr, handsDealt),
+    // 分类树要用 AF / WTSD 证据（§3.1 规则 2/3/4/6/8）；AF 的 no-calls 状态一并传入
+    playerType: classifyPlayerType(vpip, pfr, handsDealt, {
+      af: afDetail.af,
+      afState: afDetail.state,
+      wtsd,
+    }),
     af: afDetail.af,
     afState: afDetail.state,
     afAggressive: afDetail.aggressive,
     afCalls: afDetail.calls,
     afUnknownAllIns: afDetail.unknownAllIns,
     afq: computeAFqFromEvents(events),
-    // WTSD / WSD 只看自己的动作 → 用过滤后的手牌
-    wtsd: computeWTSDFromEvents(playerId, playerHands),
-    wsd: computeWSDFromEvents(playerId, playerHands),
+    wtsd,
+    wsd,
     // 下面这些必须看到**全桌**的动作（真实最后进攻者、donk、面对的下注、
     // 面对几次加注）→ 一律用完整手牌，由各函数自己按 playerId 过滤
     cbet: computeCBetFromEvents(playerId, dealtHands),

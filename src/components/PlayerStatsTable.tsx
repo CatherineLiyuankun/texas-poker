@@ -20,6 +20,7 @@ function getPlayerTypeColor(playerType: string): string {
     case 'TAG': return 'text-green-400';
     case 'LAG': return 'text-orange-400';
     case 'Nit': return 'text-blue-400';
+    case 'Fish': return 'text-cyan-400';
     case 'Calling Station': return 'text-red-400';
     case 'Maniac': return 'text-purple-400';
     case 'Others': return 'text-white';

@@ -322,7 +322,8 @@ export const translations = {
       Nit: 'Nit 紧弱',
       TAG: 'TAG 紧凶',
       LAG: 'LAG 松凶',
-      'Calling Station': 'CS 松弱',
+      Fish: 'Fish 松被动', // Fish（决策 9）
+      'Calling Station': 'CS 站桩', // Calling Station（决策 9）
       Maniac: 'Maniac 疯子',
       Others: '其他', // Others
       Unknown: '未知', // Unknown
