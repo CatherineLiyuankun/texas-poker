@@ -12,8 +12,9 @@
  *      面对下注）Nit 弃牌 / TAG 跟注；权益 0.20 时只有 CS 跟注；
  *   4. **`aggressionMult` 改中等牌下注权重** —— 用常数随机源二分**精确**测出
  *      `p_bet = g/(1+g)`（`renormalizeAggression(0.5, 0.5, g)` 的闭式），零抽样波动；
- *   5. **GTO 河牌未接线（P6c-2）** —— `engine: 'gto'` 时任意 botType 与无 botType
- *      逐位一致，钉住本步没有越界；
+ *   5. **GTO 河牌也已接线（P6c-2）** —— `engine: 'gto'` 时 persona 生效（Maniac fold /
+ *      无 botType call），本文件只做派发层冒烟断言；门槛 / 分档 / 频率的完整覆盖在
+ *      `gtoRiver.persona.test.ts`；
  *   6. **深筹码河牌早返回已接线** —— 见 `gtoShortDeep.persona.test.ts` 的
  *      「河牌深筹码**已**接 persona」用例（P6c-1 起 `decideRiver` 透传 persona）。
  *
@@ -350,20 +351,20 @@ describe('botAI 河牌 persona 接线（P6c-1）', () => {
     });
   });
 
-  describe('GTO 河牌未接线（P6c-2 才接）', () => {
-    it("engine='gto' 时任意 botType 与无 botType 逐位一致", () => {
+  describe("GTO 河牌也已接线（P6c-2）：engine='gto' 时 persona 生效", () => {
+    it('权益 0.45 面对下注：Maniac fold、无 botType call（GTO 路径）', () => {
+      // P6c-2 起 `decideRiverGTO` 也透传 persona。这里只做一个派发层冒烟断言，
+      // 门槛 / 分档 / 频率的完整覆盖在 `gtoRiver.persona.test.ts`。
       setGtoConfig({ engine: 'gto', scenario: 'cash' });
-      for (const opts of [FACING, NOBET]) {
-        for (const equity of [0.85, 0.6, 0.45, 0.2]) {
-          const none = decideAtEquity(equity, opts, undefined, { withMathRandom: true });
-          for (const botType of ['Nit', 'Maniac', 'Calling Station'] as BotPersonality[]) {
-            const withBot = decideAtEquity(equity, opts, botType, { withMathRandom: true });
-            expect({ opts: opts.toCall, equity, botType, withBot }).toEqual({
-              opts: opts.toCall, equity, botType, withBot: none,
-            });
-          }
-        }
-      }
+      // 两对让 GTO 河牌在权益 0.45 时落 STRONG 档，判据 `equity >= callBase + 0.05`：
+      // Maniac callBase 0.50 ⇒ 门槛 0.55 > 0.45 ⇒ fold；无 botType callBase 0.20 ⇒ call。
+      const maniac = decideAtEquity(0.45, { toCall: 100, lastRaiseBet: 100, mainPot: 400 }, 'Maniac', { withMathRandom: true });
+      const none = decideAtEquity(0.45, { toCall: 100, lastRaiseBet: 100, mainPot: 400 }, undefined, { withMathRandom: true });
+      expect(maniac.action).toBe('fold');
+      expect(none.action).toBe('call');
+      // 恒等仍在：TAG 与无 botType 一致
+      const tag = decideAtEquity(0.45, { toCall: 100, lastRaiseBet: 100, mainPot: 400 }, 'TAG', { withMathRandom: true });
+      expect(tag).toEqual(none);
     });
   });
 

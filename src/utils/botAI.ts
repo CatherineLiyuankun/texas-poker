@@ -1371,9 +1371,11 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   // 也就不会出现「关闭」的两种口径。
   //
   // 本步（P6a）透传给**翻前**两个入口；P6b-2 起再透传给**翻后 flop/turn** 的
-  // 启发式入口；P6b-3 起 GTO 翻后（`decidePostflopGTO`）也一并透传；P6c-1 起再透传给
-  // **启发式河牌**（`decideRiver`）与其深筹码早返回。GTO 河牌（`decideRiverGTO`）在
-  // P6c-2 接线，短筹码 / 深筹码的早返回在 P6b-4。`undefined` 时所有入口都是精确恒等路径。
+  // 启发式入口；P6b-3 起 GTO 翻后（`decidePostflopGTO`）也一并透传；P6c-1 起透传给
+  // **启发式河牌**（`decideRiver`）与其深筹码早返回；P6c-2 起 GTO 河牌
+  // （`decideRiverGTO`）也透传。至此 §7.2 的六入口全部接线；短筹码 / 深筹码的
+  // 早返回在 P6b-4。**只剩尺寸（`sizingMult`）未接**，属 P6c-3。
+  // `undefined` 时所有入口都是精确恒等路径。
   const persona = personaParamsFor(player.botType);
 
   switch (state.phase) {
@@ -1388,7 +1390,7 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
         : decidePostflop(player, state, flags, ctx, adj, persona);
     case 'river':
       return isGtoEngine()
-        ? decideRiverGTO(player, state, flags, ctx, adj)
+        ? decideRiverGTO(player, state, flags, ctx, adj, persona)
         : decideRiver(player, state, flags, ctx, adj, persona);
     default:
       return {
