@@ -29,6 +29,14 @@ export const translations = {
       bb: (bb: number) => `每手抽 ${bb}BB`,
       tournamentNote: '锦标赛不抽水（改按 ICM 风险溢价收紧）',
     },
+    // Bot 性格（persona）：新盘开关，只在**新盘**设置、盘内只读（决策 35）。
+    personality: {
+      label: 'Bot 性格 Bot Personality',
+      on: '开 On',
+      off: '关 Off',
+      hint: '按 A′ 配额随机分配六类性格（TAG/LAG/Fish/Nit/CS/Maniac）',
+      noBots: '当前无 Bot，开关暂不生效',
+    },
   },
   actionButtons: {
     botThinking: '电脑玩家思考中... Bot Thinking...',
@@ -292,6 +300,7 @@ export const translations = {
     savedAt: (time: string) => `保存于 Saved: ${time}`,
     playerChips: (name: string, chips: number) => `${name}: $${chips}`,
     confirmClear: '确认清除存档？ Clear saved game progress?',
+    unsupportedRoster: '存档名单布局不受支持，无法恢复（请清除后重新开局）',
   },
   playerStats: {
     title: '玩家数据 Player Stats',

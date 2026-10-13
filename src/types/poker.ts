@@ -1,3 +1,5 @@
+import type { BotPersonality, BotTypeMap } from '../utils/botPersonality';
+
 export type Suit = '♠' | '♥' | '♦' | '♣';
 export type Rank =
   | '2'
@@ -55,6 +57,13 @@ export interface Player {
   hasActed: boolean; // 记录玩家在当前轮是否已经行动过
   folded: boolean; // 弃牌
   allIn: boolean; // all-in状态
+  /**
+   * Bot 性格（有效分配 map 的**派生视图**，见 `botPersonality.ts`）。
+   *
+   * 真人恒为 `undefined`；关闭性格或旧存档时也为 `undefined`。
+   * 它不是另一个可漂移来源 —— 只有 `START_GAME` / `RESET_ROUND` 从 `botTypes` 派生。
+   */
+  botType?: BotPersonality;
 }
 
 export interface SidePot {
@@ -116,6 +125,13 @@ export interface GameState {
   chipsAtRoundStart: number[];
   chipsBeforeSettlement: number[];
   potDistribution: PotDistribution[];
+  /**
+   * 本盘是否启用 Bot 性格（新盘配置 / 恢复时确定，盘内只读，见决策 35）。
+   * 关闭时 `botTypes` 为空、`Player.botType` 与 persona 均为 `undefined`。
+   */
+  botPersonalityEnabled?: boolean;
+  /** 本盘的有效分配 map（座位 → 性格）。关闭时为空对象。 */
+  botTypes?: BotTypeMap;
 }
 
 export const RANK_ORDER: Record<Rank, number> = {

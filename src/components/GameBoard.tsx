@@ -28,6 +28,7 @@ import {
   getAllPlayerLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
+import type { BotTypeMap } from '../utils/botPersonality';
 import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
 import type { ActionEvent } from '../types/stats';
 import { translations } from '../utils/translations';
@@ -51,6 +52,12 @@ interface GameBoardProps {
   savedGtoEnabled?: boolean;
   savedScenario?: GameScenario;
   savedRake?: RakeConfig;
+  /**
+   * 本盘是否启用 Bot 性格，以及有效分配 map。由 `App` 在**新盘边界分配一次**后
+   * 透传下来（方案 §6.3）；本组件只透传、**不重抽**。缺省视为关闭 + 空 map。
+   */
+  botPersonalityEnabled?: boolean;
+  botTypes?: BotTypeMap;
   onBackToMenu: () => void;
 }
 
@@ -61,6 +68,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   savedGtoEnabled,
   savedScenario,
   savedRake,
+  botPersonalityEnabled = false,
+  botTypes = {},
   onBackToMenu,
 }) => {
   const {
@@ -184,9 +193,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         playerConfig.smallBlind,
         savedChips,
         savedBuyInCounts,
+        botPersonalityEnabled,
+        botTypes,
       );
     }
-  }, [state.phase, state.players, startGame, playerConfig, savedChips, savedBuyInCounts]);
+  }, [
+    state.phase,
+    state.players,
+    startGame,
+    playerConfig,
+    savedChips,
+    savedBuyInCounts,
+    botPersonalityEnabled,
+    botTypes,
+  ]);
 
   const currentPlayer = state.players[state.currentPlayer - 1];
   const roundSettled =
@@ -214,6 +234,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         gtoEnabled,
         scenario,
         rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
+        // 有效开关 / map 随配置落盘（方案 §6.3）：以 state 为准（START_GAME 写入的
+        // 就是本盘真正生效的那份），关闭时写 false + 空 map。
+        botPersonalityEnabled: state.botPersonalityEnabled === true,
+        botTypes: state.botTypes ?? {},
       });
     }
   }, [
@@ -221,6 +245,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     state.players,
     state.smallBlind,
     state.dealer,
+    state.botPersonalityEnabled,
+    state.botTypes,
     gtoEnabled,
     scenario,
     rakeMode,
@@ -242,6 +268,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         gtoEnabled,
         scenario,
         rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
+        botPersonalityEnabled: state.botPersonalityEnabled === true,
+        botTypes: state.botTypes ?? {},
       });
     }
     onBackToMenu();
@@ -619,10 +647,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <button
               onClick={() => {
                 resetOpponentStats();
+                // 与初始化 effect 同一份新盘配置：性格沿用 App 已分配的那份，
+                // 本组件**不重抽**（方案 §5 / §6.3）。
                 startGame(
                   playerConfig.realPlayers,
                   playerConfig.botPlayers,
                   playerConfig.smallBlind,
+                  undefined,
+                  undefined,
+                  botPersonalityEnabled,
+                  botTypes,
                 );
               }}
               className="px-12 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-2xl font-bold rounded-xl transition-all hover:scale-105"

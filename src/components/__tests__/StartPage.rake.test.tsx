@@ -28,7 +28,7 @@ describe('StartPage 抽水配置', () => {
     expect(screen.queryByLabelText(t.capAria)).toBeNull();
 
     fireEvent.click(startBtn());
-    expect(onStartGame).toHaveBeenCalledWith(2, 0, 5, NO_RAKE);
+    expect(onStartGame).toHaveBeenCalledWith(2, 0, 5, NO_RAKE, true);
   });
 
   it('按百分比 5% 封顶 3BB：摘要把封顶换算成筹码，透传值正确', () => {
@@ -45,7 +45,7 @@ describe('StartPage 抽水配置', () => {
       mode: 'percent',
       value: 5,
       capBB: 3,
-    });
+    }, true);
   });
 
   it('固定大盲：不显示封顶输入（抽水本身已是固定值）', () => {
@@ -65,7 +65,7 @@ describe('StartPage 抽水配置', () => {
     fireEvent.change(rakeValueInput(), { target: { value: '2' } });
 
     fireEvent.click(startBtn());
-    expect(onStartGame).toHaveBeenCalledWith(2, 0, 5, { mode: 'bb', value: 2, capBB: 0 });
+    expect(onStartGame).toHaveBeenCalledWith(2, 0, 5, { mode: 'bb', value: 2, capBB: 0 }, true);
   });
 
   it('切回百分比模式时封顶值还在（状态没被清掉）', () => {

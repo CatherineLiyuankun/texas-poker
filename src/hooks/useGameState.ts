@@ -15,6 +15,7 @@ import type {
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
 import { calculatePots, computeContributions } from '../utils/potCalculator';
+import type { BotPersonality, BotTypeMap } from '../utils/botPersonality';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = [
@@ -75,6 +76,7 @@ function createPlayer(
   id: PlayerId,
   isRealPlayer: boolean,
   initialChips: number = INITIAL_CHIPS,
+  botType?: BotPersonality,
 ): Player {
   return {
     id,
@@ -89,6 +91,7 @@ function createPlayer(
     lastAction: undefined,
     buyInCount: 0,
     allIn: false,
+    botType,
   };
 }
 
@@ -131,6 +134,9 @@ function createInitialState(
     chipsAtRoundStart: [],
     chipsBeforeSettlement: [],
     potDistribution: [],
+    // 未开局：关闭性格、空 map（真正的新盘分配由 START_GAME 写入）
+    botPersonalityEnabled: false,
+    botTypes: {},
   };
 }
 
@@ -142,6 +148,10 @@ type GameAction =
       smallBlind: number;
       playerChips?: number[];
       playerBuyInCounts?: number[];
+      /** 本盘是否启用 Bot 性格（新盘配置 / 恢复时确定）。 */
+      botPersonalityEnabled?: boolean;
+      /** 有效分配 map；关闭或缺省时视为空。 */
+      botTypes?: BotTypeMap;
     }
   | { type: 'PLAYER_ACTION'; player: PlayerId; action: Action; amount?: number }
   | { type: 'REVEAL_HAND'; player: PlayerId }
@@ -445,8 +455,13 @@ export function useGameState() {
             // 本局统一在开局前自动补码，避免带 0 筹码入局，
             // 同时兜住 resetRound 中 setTimeout 读到旧 state 的竞态。
             const needsRebuy = carriedChips <= 0;
+            // `Player.botType` 是有效 map 的派生视图：真人绝不赋；关闭性格时为 undefined。
+            const botType =
+              isReal || action.botPersonalityEnabled !== true
+                ? undefined
+                : action.botTypes?.[playerId];
             newPlayers.push({
-              ...createPlayer(playerId, isReal, initialChips),
+              ...createPlayer(playerId, isReal, initialChips, botType),
               hand: [deck[i * 2], deck[i * 2 + 1]],
               chips: needsRebuy ? initialChips : carriedChips,
               buyInCount: needsRebuy
@@ -527,6 +542,10 @@ export function useGameState() {
             chipsAtRoundStart: chipsAtRoundStartSnapshot,
             chipsBeforeSettlement: [],
             potDistribution: [],
+            // 有效开关 / map 显式写入 state（盘内只读，见决策 35）；**关闭时 map 必为空**，
+            // 不保留任何残留类型（方案 §6.1「关闭时有效 map 为空」/ §6.2「不能偷偷传 persona」）。
+            botPersonalityEnabled: action.botPersonalityEnabled === true,
+            botTypes: action.botPersonalityEnabled === true ? (action.botTypes ?? {}) : {},
           } as GameState;
           logStateChange('START_GAME', newState);
           return newState;
@@ -1259,6 +1278,8 @@ export function useGameState() {
             revealed: false,
             lastAction: undefined,
             isRealPlayer: index < state.realPlayerCount,
+            // 下一手**完整继承**本盘分配（决策 35：盘内只读），重新派生视图
+            botType: state.botPersonalityEnabled ? state.botTypes?.[p.id] : undefined,
           }));
           const newState = {
             phase: 'preflop',
@@ -1281,6 +1302,9 @@ export function useGameState() {
             chipsAtRoundStart: [],
             chipsBeforeSettlement: [],
             potDistribution: [],
+            // 下一手继承有效开关 / map（不得先丢 map 再指望 START 从旧 state 取回）
+            botPersonalityEnabled: state.botPersonalityEnabled,
+            botTypes: state.botTypes,
           } as GameState;
           logStateChange('RESET_ROUND', newState);
           return newState;
@@ -1305,6 +1329,8 @@ export function useGameState() {
       smallBlind: number,
       playerChips?: number[],
       playerBuyInCounts?: number[],
+      botPersonalityEnabled?: boolean,
+      botTypes?: BotTypeMap,
     ) => {
       dispatch({
         type: 'START_GAME',
@@ -1313,6 +1339,8 @@ export function useGameState() {
         smallBlind,
         playerChips,
         playerBuyInCounts,
+        botPersonalityEnabled,
+        botTypes,
       });
     },
     [],
@@ -1355,6 +1383,9 @@ export function useGameState() {
         smallBlind: latest.smallBlind || SMALL_BLIND,
         playerChips: latest.players.map(p => p.chips),
         playerBuyInCounts: latest.players.map(p => p.buyInCount),
+        // 下一手继承本盘的有效开关 / map（重新派生 Player.botType，不重抽）
+        botPersonalityEnabled: latest.botPersonalityEnabled,
+        botTypes: latest.botTypes,
       });
     }, 0);
   }, []);

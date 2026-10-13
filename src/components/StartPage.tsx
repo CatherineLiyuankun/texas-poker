@@ -1,6 +1,11 @@
 import React, { useRef, useState } from 'react';
 import { translations } from '../utils/translations';
-import { loadGameProgress, clearGameProgress } from '../utils/gamePersistence';
+import {
+  loadGameProgress,
+  clearGameProgress,
+  MAX_TOTAL_PLAYERS,
+  MIN_TOTAL_PLAYERS,
+} from '../utils/gamePersistence';
 import { resetLongTermStats, exportStats, importStats } from '../utils/longOpponentModel';
 import type { SavedProgress } from '../utils/gamePersistence';
 import { NO_RAKE, type RakeConfig, type RakeMode } from '../utils/rake';
@@ -16,14 +21,23 @@ interface StartPageProps {
     botPlayerCount: number,
     smallBlind: number,
     rake: RakeConfig,
+    /** 本盘是否启用 Bot 性格（决策 17：新局默认开）。 */
+    personalityEnabled: boolean,
   ) => void;
-  onResumeGame: (progress: SavedProgress) => void;
+  /**
+   * 恢复存档。返回 `false` 表示存档名单布局不受支持、未开始恢复（方案 §6.2），
+   * 由本页提示用户；返回 `true` 表示已进入牌桌。
+   */
+  onResumeGame: (progress: SavedProgress) => boolean;
 }
 
 export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame }) => {
   const [realPlayers, setRealPlayers] = useState(2);
   const [botPlayers, setBotPlayers] = useState(0);
   const [smallBlind, setSmallBlind] = useState(5);
+  // Bot 性格（persona）：新盘开关，默认**开**（决策 17）。只在开新盘时生效，
+  // 盘内只读（决策 35）；无 Bot 时开关无实际作用，但意图会被保留。
+  const [personalityEnabled, setPersonalityEnabled] = useState(true);
   // 抽水：模式 + 数值 + 封顶。三者分开存，切换模式时不清空用户已填的数值。
   const [rakeMode, setRakeMode] = useState<RakeMode>(NO_RAKE.mode);
   const [rakeValue, setRakeValue] = useState(NO_RAKE.value);
@@ -65,7 +79,10 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
 
   const totalPlayers = realPlayers + botPlayers;
   const isValid =
-    totalPlayers >= 2 && totalPlayers <= 10 && smallBlind >= 1 && smallBlind <= 100;
+    totalPlayers >= MIN_TOTAL_PLAYERS &&
+    totalPlayers <= MAX_TOTAL_PLAYERS &&
+    smallBlind >= 1 &&
+    smallBlind <= 100;
 
   const bigBlind = smallBlind * 2;
   // 封顶只在「按百分比」下有意义：固定大盲模式的抽水本身就是固定值，
@@ -76,6 +93,7 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
     capBB: rakeMode === 'percent' ? rakeCapBB : 0,
   };
   const rakeText = translations.startPage.rake;
+  const pText = translations.startPage.personality;
   // 摘要行：把 (模式, 数值, 封顶) 翻成一句人话，顺带把「几个大盲」换算成筹码。
   const rakeSummary = (() => {
     if (rakeMode === 'none' || rakeValue <= 0) return rakeText.none;
@@ -189,6 +207,38 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
 
           <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-6">
             <div className="flex-1 w-full">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                <label className="text-white/80 text-sm whitespace-nowrap">
+                  {pText.label}
+                </label>
+                <div className="flex items-center gap-1">
+                  {([true, false] as const).map((on) => (
+                    <button
+                      key={String(on)}
+                      onClick={() => setPersonalityEnabled(on)}
+                      aria-pressed={personalityEnabled === on}
+                      className={`px-2 py-1 rounded text-xs font-bold transition-colors ${
+                        personalityEnabled === on
+                          ? 'bg-yellow-500 text-black'
+                          : 'bg-green-900/50 text-white/60 hover:text-white'
+                      }`}
+                    >
+                      {on ? pText.on : pText.off}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center py-1.5 px-3 bg-green-900/30 rounded-lg max-w-[15rem]">
+              <p className="text-white/60 text-xs">
+                {botPlayers > 0 ? pText.hint : pText.noBots}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-6">
+            <div className="flex-1 w-full">
               {/* 一行放下「标签 + 模式」，下方只在需要时出现数值输入 —— 尽量紧凑。 */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <label className="text-white/80 text-sm whitespace-nowrap">
@@ -282,7 +332,10 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
         </div>
 
         <button
-          onClick={() => isValid && onStartGame(realPlayers, botPlayers, smallBlind, rake)}
+          onClick={() =>
+            isValid &&
+            onStartGame(realPlayers, botPlayers, smallBlind, rake, personalityEnabled)
+          }
           disabled={!isValid}
           className={`w-full py-4 text-2xl font-bold rounded-xl transition-all ${
             isValid
@@ -296,7 +349,13 @@ export const StartPage: React.FC<StartPageProps> = ({ onStartGame, onResumeGame 
         {savedProgress && (
           <div className="mt-6 border-t border-green-600 pt-6">
             <button
-              onClick={() => onResumeGame(savedProgress)}
+              onClick={() => {
+                // 名单非前缀布局时拒绝恢复（方案 §6.2），在本页提示而不是静默错位。
+                if (!onResumeGame(savedProgress)) {
+                  setImportMessage(translations.persistence.unsupportedRoster);
+                  setTimeout(() => setImportMessage(null), 3000);
+                }
+              }}
               className="w-full py-3 text-xl font-bold rounded-xl bg-blue-500 hover:bg-blue-600 text-white transition-all hover:scale-105 mb-2"
             >
               {translations.persistence.continueGame}

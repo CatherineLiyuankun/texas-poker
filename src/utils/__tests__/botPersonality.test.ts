@@ -13,10 +13,12 @@
 import {
   allocateBotTypes,
   BOT_PERSONALITY_TYPES,
+  botIdsForRange,
   botTypeQuota,
   isValidBotPersonality,
   MAX_BOTS_FOR_EXTRAPOLATION,
   MAX_BOTS_FOR_NEW_GAME,
+  normalizeBotPersonalityConfig,
   PERSONALITY_PARAMS,
   toBotTypeMap,
   type BotPersonality,
@@ -279,5 +281,126 @@ describe('botPersonality：toBotTypeMap', () => {
 
   it('长度不一致抛 RangeError（不静默截断）', () => {
     expect(() => toBotTypeMap([2, 3], ['TAG'])).toThrow(RangeError);
+  });
+});
+
+describe('botPersonality：botIdsForRange（前缀布局座位推导）', () => {
+  it('R=2,B=3 → 座位 3,4,5', () => {
+    expect(botIdsForRange(2, 3)).toEqual([3, 4, 5]);
+  });
+
+  it('B=0 → 空数组', () => {
+    expect(botIdsForRange(1, 0)).toEqual([]);
+    expect(botIdsForRange(0, 0)).toEqual([]);
+  });
+
+  it('R=0,B=6 → 座位 1..6（全是 Bot 的桌）', () => {
+    expect(botIdsForRange(0, 6)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+});
+
+describe('botPersonality：恢复规范化 normalizeBotPersonalityConfig（§6.2 / 决策 31、36）', () => {
+  const botIds = botIdsForRange(2, 3); // [3,4,5]
+
+  it('旧存档缺字段（开关 undefined）→ 关闭 + 空 map，不继承新局默认开', () => {
+    expect(normalizeBotPersonalityConfig({}, botIds)).toEqual({ enabled: false, types: {} });
+    expect(
+      normalizeBotPersonalityConfig({ botPersonalityEnabled: undefined }, botIds),
+    ).toEqual({ enabled: false, types: {} });
+  });
+
+  it('开关必须严格为 true：false / 非布尔一律关闭', () => {
+    for (const bad of [false, 'true', 1, 0, null, {}]) {
+      expect(
+        normalizeBotPersonalityConfig(
+          { botPersonalityEnabled: bad, botTypes: { 3: 'TAG', 4: 'LAG', 5: 'Fish' } },
+          botIds,
+        ),
+      ).toEqual({ enabled: false, types: {} });
+    }
+  });
+
+  it('显式 false + 残留 map → 关闭且不注入 persona', () => {
+    expect(
+      normalizeBotPersonalityConfig(
+        { botPersonalityEnabled: false, botTypes: { 3: 'Maniac' } },
+        botIds,
+      ),
+    ).toEqual({ enabled: false, types: {} });
+  });
+
+  it('B=0：无论开关如何，有效 map 为空；true 时保留开关意图', () => {
+    expect(normalizeBotPersonalityConfig({ botPersonalityEnabled: true }, [])).toEqual({
+      enabled: true,
+      types: {},
+    });
+    expect(
+      normalizeBotPersonalityConfig(
+        { botPersonalityEnabled: false, botTypes: { 3: 'TAG' } },
+        [],
+      ),
+    ).toEqual({ enabled: false, types: {} });
+  });
+
+  it('true + map 缺失 / 非对象 / 数组 → 整盘退回关闭（不静默随机补齐）', () => {
+    for (const bad of [undefined, null, 'x', 7, []]) {
+      expect(
+        normalizeBotPersonalityConfig({ botPersonalityEnabled: true, botTypes: bad }, botIds),
+      ).toEqual({ enabled: false, types: {} });
+    }
+  });
+
+  it('true + 每个 Bot 都有合法类型 → 保留原 map（含合法重复类型）', () => {
+    const types = { 3: 'TAG', 4: 'TAG', 5: 'Calling Station' };
+    expect(
+      normalizeBotPersonalityConfig({ botPersonalityEnabled: true, botTypes: types }, botIds),
+    ).toEqual({ enabled: true, types });
+  });
+
+  it('true + Bot 缺项 → 整盘退回关闭', () => {
+    expect(
+      normalizeBotPersonalityConfig(
+        { botPersonalityEnabled: true, botTypes: { 3: 'TAG', 4: 'LAG' } },
+        botIds,
+      ),
+    ).toEqual({ enabled: false, types: {} });
+  });
+
+  it('true + 存在非法类型 → 整盘退回关闭', () => {
+    expect(
+      normalizeBotPersonalityConfig(
+        { botPersonalityEnabled: true, botTypes: { 3: 'TAG', 4: 'Others', 5: 'Fish' } },
+        botIds,
+      ),
+    ).toEqual({ enabled: false, types: {} });
+  });
+
+  it('true + 多余键（真人座位 / 不存在座位）→ 剔除且不影响启用', () => {
+    // 用 Record<string, unknown> 承载，便于塞入非 PlayerId 的键
+    const rawTypes: Record<string, unknown> = {
+      1: 'Maniac', // 真人座位
+      2: 'Nit', // 真人座位
+      3: 'TAG',
+      4: 'LAG',
+      5: 'Fish',
+      99: 'Nit', // 不存在的座位
+    };
+    const result = normalizeBotPersonalityConfig(
+      { botPersonalityEnabled: true, botTypes: rawTypes },
+      botIds,
+    );
+    expect(result).toEqual({ enabled: true, types: { 3: 'TAG', 4: 'LAG', 5: 'Fish' } });
+    expect(Object.keys(result.types).sort()).toEqual(['3', '4', '5']);
+  });
+
+  it('不修改入参，且返回的 types 是新对象', () => {
+    const raw = {
+      botPersonalityEnabled: true,
+      botTypes: { 3: 'TAG', 4: 'LAG', 5: 'Fish', 99: 'Nit' },
+    } as const;
+    const snapshot = JSON.stringify(raw);
+    const result = normalizeBotPersonalityConfig(raw, botIds);
+    expect(JSON.stringify(raw)).toBe(snapshot);
+    expect(result.types).not.toBe(raw.botTypes);
   });
 });

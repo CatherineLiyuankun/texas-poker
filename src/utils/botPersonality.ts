@@ -236,3 +236,64 @@ export function toBotTypeMap(
   });
   return map;
 }
+
+/**
+ * 新盘的 Bot 座位 id：真人为 `1..R`、Bot 为 `R+1..R+B`（方案 §6.2 的前缀布局）。
+ *
+ * 这是当前 reducer 按座位前缀重建角色的既定约定，不是通用名单透传 ——
+ * 非前缀名单应由恢复层拒绝（见 `normalizeBotPersonalityConfig` 的调用方）。
+ */
+export function botIdsForRange(
+  realPlayerCount: number,
+  botPlayerCount: number,
+): PlayerId[] {
+  return Array.from(
+    { length: botPlayerCount },
+    (_, i) => (realPlayerCount + i + 1) as PlayerId,
+  );
+}
+
+/** 有效性格配置：开关 + 有效 map（关闭时 `types` 必为空对象）。 */
+export interface BotPersonalityConfig {
+  enabled: boolean;
+  types: BotTypeMap;
+}
+
+/**
+ * 恢复时规范化存档里的性格配置（方案 §6.2 恢复状态表、决策 31/36）。
+ *
+ * 规则（顺序即优先级）：
+ *   1. 开关**必须严格为 `true`** 才启用；缺失 / `false` / 非布尔 → 关闭 + 空 map
+ *      （旧存档没有这两个字段时走的就是这一支）。
+ *   2. `B = 0`（无 Bot）→ 恒空 map；配置**意图**保留（`enabled` 原样为 `true`）。
+ *   3. 开关为 `true` 但 `botTypes` 缺失 / 不是对象 → **整盘退回关闭**（不静默随机补齐）。
+ *   4. 每个 Bot 座位都必须有**合法**类型；缺项或非法 → 整盘退回关闭。
+ *   5. 不属于 Bot 座位的键（真人座位、不存在的座位）一律**剔除**，不影响启用。
+ *
+ * 本函数不修改入参、不做随机；返回的 `types` 一定是新对象。
+ */
+export function normalizeBotPersonalityConfig(
+  raw: { botPersonalityEnabled?: unknown; botTypes?: unknown },
+  botPlayerIds: readonly PlayerId[],
+): BotPersonalityConfig {
+  if (raw.botPersonalityEnabled !== true) {
+    return { enabled: false, types: {} };
+  }
+  if (botPlayerIds.length === 0) {
+    return { enabled: true, types: {} };
+  }
+  const rawTypes = raw.botTypes;
+  if (rawTypes === null || typeof rawTypes !== 'object' || Array.isArray(rawTypes)) {
+    return { enabled: false, types: {} };
+  }
+  const source = rawTypes as Record<string, unknown>;
+  const types: BotTypeMap = {};
+  for (const id of botPlayerIds) {
+    const value = source[String(id)];
+    if (!isValidBotPersonality(value)) {
+      return { enabled: false, types: {} };
+    }
+    types[id] = value;
+  }
+  return { enabled: true, types };
+}
