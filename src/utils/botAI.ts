@@ -263,8 +263,14 @@ function decidePreflop(
   const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const band = stackBand(effectiveStack);
   if (band === 'push' || band === 'short') {
-    // 使用短筹码策略
-    const shortStackRec = getShortStackRecommendation(player, state, flags, ctx, adj);
+    // 使用短筹码策略。
+    // persona：P6b-4 起透传 —— 短筹码用**翻前**的两个旋钮（openWiden / defendVsOpen）
+    // 派生推注 / 防守范围，不用翻后参数（§7.2 第 7 行「不以普通翻后参数假装已经覆盖」）。
+    //
+    // 本分支在 `widths` 被常规路径消费之前就早返回，短筹码引擎**自己**按 persona 派生
+    // 宽度（`getShortStackRecommendation` 内部再调一次 `preflopWidths`），两条路径互不
+    // 影响。多出的那一次 `preflopWidths` 是纯函数调用（无状态、无随机消费），代价可忽略。
+    const shortStackRec = getShortStackRecommendation(player, state, flags, ctx, adj, persona);
     return {
       action: shortStackRec.action,
       amount: shortStackRec.sizing,
@@ -895,8 +901,7 @@ function decidePreflop(
  * - `callBias`（经 `callShift`）→ 跟注门槛；
  * - `aggressionMult` → 价值下注与诈唬**权重**（各自归一化，见 §7.3 第 3、6 条）。
  *
- * ⚠️ 河牌（`decideRiver`）的 persona 属 **P6c**，本步**不接**；深筹码早返回里的
- * `getDeepStackRecommendation` 属 **P6b-4**，本步也还没透传 persona。
+ * ⚠️ 河牌（`decideRiver`）的 persona 属 **P6c**，本步**不接**。
  */
 function decidePostflop(
   player: Player,
@@ -908,9 +913,12 @@ function decidePostflop(
 ): BotDecision {
   const pf = postflopParams(persona);
   // 深筹码（veryDeep 档：>150bb）走深筹码策略；阈值同样来自 stackDepth，不再自己写。
+  // persona：P6b-4 起透传给深筹码引擎（门槛层：valueShift 改分档、callShift 改跟注门槛；
+  // 尺寸属 P6c）。注意 `decideRiver` 的 veryDeep 早返回**不传** persona（河牌属 P6c），
+  // 所以同一局深筹码河牌仍是恒等路径。
   if (stackBand(effectiveStackBB(player.chips, state.smallBlind)) === 'veryDeep') {
     // 使用深筹码策略
-    const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj);
+    const deepStackRec = getDeepStackRecommendation(player, state, flags, ctx, adj, persona);
     return {
       action: deepStackRec.action,
       amount: deepStackRec.amount,

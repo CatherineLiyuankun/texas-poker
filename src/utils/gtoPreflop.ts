@@ -49,7 +49,8 @@ export interface OpponentAdjustments {
   foldPenalty: number;
 }
 
-type GtoAction = 'R' | 'C' | 'F';
+/** 范围表里一格的动作：R = 加注 / 推注，C = 跟注，F = 弃牌。 */
+export type GtoAction = 'R' | 'C' | 'F';
 export type Position = 'UTG' | 'HJ' | 'MP' | 'CO' | 'BTN' | 'SB' | 'BB';
 export type DefenderType = 'BB' | 'SB' | 'IP';
 
@@ -106,7 +107,13 @@ function handToIndex(hand: Card[]): [number, number] | null {
   return [i, j];
 }
 
-function lookup(m: GtoAction[][], hand: Card[]): GtoAction {
+/**
+ * 按手牌查表。`(i,j)` 约定：对子在 `m[i][i]`，同花在 `m[lo][hi]`，非同花在 `m[hi][lo]`。
+ *
+ * ⚠️ 已导出：`gtoShortStack` 把「范围字符串」摊成同约定的 13×13 表后，用它读派生结果
+ * —— 建表与查表必须走同一套下标口径，否则格子会错位。
+ */
+export function lookup(m: GtoAction[][], hand: Card[]): GtoAction {
   const result = handToIndex(hand);
   if (!result) return 'F';
   const [i, j] = result;
@@ -689,8 +696,14 @@ const COLD_3BET_TABLES: Record<string, GtoAction[][]> = {
 // 49.6% 砍到 23.7%、BB 对 BTN 防守从 96.4% 砍到 22.5% —— 过度收紧。按比例裁
 // 则宽范围按比例收窄，范围的形状保持。
 
-/** `RN` 下标 → `preflopHandStrength` 认的 rank 字符串（那边用 '10'，本文件用 'T'）。 */
-const RANK_FOR_INDEX: string[] = [
+/**
+ * `RN` 下标 → `preflopHandStrength` 认的 rank 字符串（那边用 '10'，本文件用 'T'）。
+ *
+ * ⚠️ 已导出：`gtoShortStack` 需要按**同一个 (i,j) 约定**把「范围字符串」摊成 13×13 表，
+ * 才能复用 `derivePreflopRangeTable`（收紧/放宽的实现与快照测试都在那边）。
+ * 顺序若改，两个模块的格子会错位 —— 改这里必须同时复核那边的用例。
+ */
+export const RANK_FOR_INDEX: string[] = [
   'A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2',
 ];
 

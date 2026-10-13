@@ -20,6 +20,16 @@ import { isTournamentScenario } from './gtoConfig';
 import { BUBBLE_PREMIUM_THRESHOLD, riskPremiumFor } from './gtoICM';
 // 翻前分档的唯一来源（泡沫期收紧范围时按档位卡）。
 import { getPreflopTier } from './preflopHandStrength';
+// persona 宽度派生：`preflopWidths` 把七参数折成三档倍率（无 persona 时精确恒等）。
+import { preflopWidths, type PersonalityParams, type PreflopWidths } from './botPersonality';
+// 范围收紧/放宽的**唯一实现**（含组合权重、强度序、快照测试）与本文件摊表所用的
+// `(i,j)` 下标口径。复用而不是另写一套，见下面 `matchesRangeForPersona` 的长注释。
+import {
+  RANK_FOR_INDEX,
+  derivePreflopRangeTable,
+  lookup,
+  type GtoAction,
+} from './gtoPreflop';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -259,18 +269,121 @@ function shouldPush(
   hand: Card[],
   effectiveStack: number,
   position: Position,
+  persona?: PersonalityParams,
 ): boolean {
   const pushRange = getPushRange(effectiveStack, position);
-  return handMatchesRange(hand, pushRange);
+  return matchesRangeForPersona(hand, pushRange, 'R', preflopWidths(persona).open);
 }
 
 function shouldDefend(
   hand: Card[],
   effectiveStack: number,
   heroPosition: Position,
+  persona?: PersonalityParams,
 ): boolean {
   const defendRange = getDefendRange(effectiveStack, heroPosition);
-  return handMatchesRange(hand, defendRange);
+  return matchesRangeForPersona(hand, defendRange, 'C', preflopWidths(persona).defend);
+}
+
+// ─── persona：把「范围字符串」派生成性格范围（方案 §7.2 第 7 行）────────────
+//
+// ## 为什么短筹码只能靠**范围**生效，不能靠频率
+//
+// 本模块的两个随机槽都**已经饱和**：`random() < (1.0 + stealBoost)` 恒真
+// （`stealBoost` ∈ {0, 0.10}），`random() >= defendTighten` 只在 `defendTighten`
+// 非零时（0.05）才有 5% 的收紧。也就是说「进不进池」实际上完全由
+// `shouldPush` / `shouldDefend` 的**范围成员判定**决定 —— 这正是 §7.3 那句
+// 「原 F 格是 0 概率，`0 × multiplier` 仍为 0；仅放大已有频率无法扩大入池范围」
+// 在短筹码上的具体表现。所以 persona 必须落在范围上，落在频率上是空转。
+//
+// ## 复用 P6a 已测过的派生实现，不写第二套
+//
+// 范围字符串与 P6a 的 13×13 表是两种表示。这里把字符串**摊成表**再交给
+// `gtoPreflop.derivePreflopRangeTable`（收紧走 `tightenCells`、放宽按 donor 优先级
+// 从强到弱补格，两条实现都已有快照测试钉住），于是：
+// - 组合权重（对子 6 / 同花 4 / 非同花 12）与强度序与翻前**同一套**；
+// - 「放宽先吃 F、收紧退 F」的语义与 P6a 一致；
+// - `push` 用 `openWiden`（RFI 推注 = 开池宽度）、`defend` 用 `defendVsOpen`
+//   （面对开池的防守宽度），与 §7.1 的参数含义一一对应。
+//
+// ⚠️ **建表时直接调用本模块既有的 `handMatchesRange`**（而不是重写一个范围解析器）：
+// 成员判定因此**按构造**与旧路径完全一致 —— 不会出现「派生表和原字符串对同一手牌
+// 给出不同答案」的漂移。`inAction` 是这一张表里「在范围内」用哪个字母表示：
+// push 表用 `'R'`（加注/推注）、defend 表用 `'C'`（跟注），对应
+// `derivePreflopRangeTable` 的 `rfi` / `facing` 两种 role。
+
+/**
+ * `(i,j)` → 代表该格的一手牌（约定与 `gtoPreflop.lookup` 一致）：
+ * 对子在 `m[i][i]`、同花在 `m[lo][hi]`、非同花在 `m[hi][lo]`。
+ */
+function cellHand(i: number, j: number): Card[] {
+  const rank = (k: number) => RANK_FOR_INDEX[k] as Card['rank'];
+  if (i === j) {
+    return [{ rank: rank(i), suit: '♠' }, { rank: rank(i), suit: '♥' }];
+  }
+  if (i < j) {
+    // 同花格：`m[i][j]`（i < j ⇒ lo = i, hi = j）
+    return [{ rank: rank(i), suit: '♠' }, { rank: rank(j), suit: '♠' }];
+  }
+  // 非同花格：`m[i][j]`（i > j ⇒ hi = i, lo = j），两张牌不同花色
+  return [{ rank: rank(j), suit: '♠' }, { rank: rank(i), suit: '♥' }];
+}
+
+/** 把范围字符串摊成 13×13 表：`inAction` = 在范围内，`'F'` = 不在。 */
+function rangeStringToTable(rangeStr: string, inAction: GtoAction): GtoAction[][] {
+  const table: GtoAction[][] = [];
+  for (let i = 0; i < 13; i += 1) {
+    const row: GtoAction[] = [];
+    for (let j = 0; j < 13; j += 1) {
+      row.push(handMatchesRange(cellHand(i, j), rangeStr) ? inAction : 'F');
+    }
+    table.push(row);
+  }
+  return table;
+}
+
+/**
+ * 派生后表的**纯 memo**：入参（范围字符串 + 字母 + 倍率）唯一决定结果，
+ * 调用方一律只读。与 P6a 的 `derivedRangeTableCache` 同一做法 ——
+ * 这不是 `gtoConfig` 那种「可被外部改写的模块级 `let`」。
+ */
+const derivedRangeCache = new Map<string, GtoAction[][]>();
+
+/**
+ * 按 persona 宽度判定手牌是否在范围内。
+ *
+ * **恒等（factor === 1）时直接走原来的 `handMatchesRange`**：不建表、不派生、
+ * 零额外开销，逐位不变 —— 这是「短筹码无 persona golden 不变」的实现保证
+ * （§7.2 第 7 行的验证口径）。
+ */
+function matchesRangeForPersona(
+  hand: Card[],
+  rangeStr: string,
+  inAction: GtoAction,
+  factor: number,
+): boolean {
+  if (factor === 1) return handMatchesRange(hand, rangeStr);
+
+  const key = `${inAction}|${factor}|${rangeStr}`;
+  let table = derivedRangeCache.get(key);
+  if (table === undefined) {
+    const base = rangeStringToTable(rangeStr, inAction);
+    // 只让对应的那一个旋钮非 1：
+    // - `'R'`（push 表）走 `rfi` role ⇒ 按 `open` 缩放 R；
+    // - `'C'`（defend 表）走 `facing` role ⇒ 按 `defend` 缩放 C，
+    //   而 `threeBet` 保持 1，且表里没有 R 格 ⇒ 那一步是空操作。
+    const widths: PreflopWidths =
+      inAction === 'R'
+        ? { open: factor, defend: 1, threeBet: 1 }
+        : { open: 1, defend: factor, threeBet: 1 };
+    table = derivePreflopRangeTable(
+      base,
+      inAction === 'R' ? 'rfi' : 'facing',
+      widths,
+    );
+    derivedRangeCache.set(key, table);
+  }
+  return lookup(table, hand) === inAction;
 }
 
 
@@ -301,6 +414,17 @@ export function getShortStackRecommendation(
   flags: ActionFlags,
   ctx: ContextInfo,
   adj: OpponentAdjustments,
+  /**
+   * 性格参数（可选尾参）。`undefined` 时 `preflopWidths` 返回精确恒等（三档全 1），
+   * `matchesRangeForPersona` 直接走原来的 `handMatchesRange` —— **不建表、不派生**，
+   * 所以短筹码路径无 persona 逐位不变（§7.2 第 7 行的验证口径：
+   * 「短筹码无 persona golden 不变」）。
+   *
+   * ⚠️ 本函数是**翻前**入口（唯一调用点 `botAI.decidePreflop`），所以用的是翻前的
+   * 两个旋钮 `openWiden` / `defendVsOpen`，**不是**翻后的 `valueShift` / `callBias` ——
+   * §7.2 第 7 行明确要求「不以普通翻后参数假装已经覆盖」。
+   */
+  persona?: PersonalityParams,
 ): ShortStackRecommendation {
   const effectiveStack = effectiveStackBB(player.chips, state.smallBlind);
   const position = getPositionName(ctx.position, state.players.length);
@@ -360,7 +484,7 @@ export function getShortStackRecommendation(
 
   if (band === 'push' || band === 'short') {
     if (config.action === 'rfi') {
-      if (shouldPush(player.hand, effectiveStack, position) && bubbleAllows) {
+      if (shouldPush(player.hand, effectiveStack, position, persona) && bubbleAllows) {
         const sizing = getShortStackSizing(effectiveStack);
         // 对手弃牌率高时，加注偷盲概率提升
         if (flags.canAllInResult && random() < (1.0 + stealBoost)) {
@@ -392,7 +516,7 @@ export function getShortStackRecommendation(
 
     if (config.action === 'facing_open') {
       // 对手激进时收紧防守范围，对手被动时放宽
-      const shouldDefendAdjusted = shouldDefend(player.hand, effectiveStack, position) &&
+      const shouldDefendAdjusted = shouldDefend(player.hand, effectiveStack, position, persona) &&
         bubbleAllows &&
         random() >= defendTighten;
 

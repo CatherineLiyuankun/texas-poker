@@ -30,6 +30,9 @@ import {
 import { equityIterations } from './equityIterations';
 // ICM 风险溢价（锦标赛）与「门槛 = 赔率 + 溢价」的唯一来源。现金局恒为 0。
 import { riskAdjustedThreshold, riskPremiumFor } from './gtoICM';
+// persona 派生量：`valueShift` 平移分档、`callShift`（来自 `callBias`）平移跟注门槛。
+// `undefined` 时两者都是精确恒等（见 `getDeepStackRecommendation` 的注释）。
+import { postflopParams, shiftThreshold, type PersonalityParams } from './botPersonality';
 
 /**
  * 本模块的手牌分档规则。分档实现统一在 `handStrength.classifyPostflopHand`，
@@ -60,6 +63,15 @@ interface DeepStackConfig {
   totalPot: number;
   lastRaiseBet: number;
   potOdds: number;
+  /**
+   * **分档专用**的权益 = `equity − valueShift`（见 `getDeepStackRecommendation`）。
+   *
+   * ⚠️ 与传进两个 handler 的 `equity` 参数**不是同一个数**：`equity` 必须保持原始值，
+   * 因为所有跟注门槛判据都是「**真实**权益 vs 门槛」（门槛那侧已经吃了 `callShift`）。
+   * 若把 `valueShift` 也从 `equity` 里扣掉，等于同一个偏移被算了两次 ——
+   * 这正是 P6b-2 里「门槛与权益分开处理」的原因，此处沿用同一口径。
+   */
+  classifyEquity: number;
 }
 
 type HandAdjustment = 'upgrade' | 'downgrade' | 'neutral';
@@ -200,8 +212,10 @@ function handleDeepStackFacingBet(
   const community = getCommunityByPhase(state);
   const draws = detectDraws(hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(hand, community);
+  // persona：分档用**平移后**的权益（`valueShift`），门槛判据仍用原始 `equity`。
+  // 推导与口径见 `DeepStackConfig.classifyEquity` 的注释。
   const strength = classifyPostflopHand(
-    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+    config.classifyEquity, evaluated.rank, draws, HAND_STRENGTH_RULES,
   );
 
   if (sprDecision === 'commit') {
@@ -409,7 +423,6 @@ function handleDeepStackNoBet(
   ctx: ContextInfo,
   config: DeepStackConfig,
   hand: Card[],
-  equity: number,
   handAdjustment: HandAdjustment,
   sprDecision: SprDecision,
 ): DeepStackRecommendation {
@@ -419,8 +432,12 @@ function handleDeepStackNoBet(
   const community = getCommunityByPhase(state);
   const draws = detectDraws(hand, community, getCardsToCome(state.phase));
   const evaluated = evaluateHand(hand, community);
+  // persona：本函数**只做分档**，没有任何「真实权益 vs 门槛」的判据，所以直接用
+  // `config.classifyEquity`；`equity` 形参因此已无用而被移除（保留会触发
+  // `no-unused-vars`）。与 `handleDeepStackFacingBet` 的区别见那边的注释 ——
+  // 那一支两者都要，必须分开。
   const strength = classifyPostflopHand(
-    equity, evaluated.rank, draws, HAND_STRENGTH_RULES,
+    config.classifyEquity, evaluated.rank, draws, HAND_STRENGTH_RULES,
   );
 
   if (sprDecision === 'commit') {
@@ -564,7 +581,23 @@ export function getDeepStackRecommendation(
   flags: ActionFlags,
   ctx: ContextInfo,
   adj: OpponentAdjustments,
+  /**
+   * 性格参数（可选尾参）。`undefined` 时 `valueShift`/`callShift` 均为 0，
+   * `classifyEquity === equity`、`config.potOdds` 逐位不变 —— 深筹码路径**无 persona
+   * 逐位不变**（方案 §7.2 第 8 行「深筹码路径独立核实」）。
+   *
+   * ⚠️ 深筹码引擎**完全确定性**（本文件零处 `random()`），所以 `aggressionMult`
+   * 在这里**没有作用点**：混合频率不存在，可改的只有「门槛」。这正是 §7.2 第 8 行
+   * 把深筹码的参数列为「门槛、权重、尺寸」而非频率的原因 —— 本步只接门槛
+   * （`valueShift` 改分档、`callShift` 改跟注门槛），**尺寸（`sizingMult`）留到 P6c**
+   * 与「共用安全尺寸合法化」一起做（§12.3 的 P6c 行），避免在两处各自裸乘。
+   *
+   * 河牌也走本函数（`decideRiver` 的 veryDeep 早返回），但 `decideRiver` **不传**
+   * persona（P6c 才接），所以河牌路径当前仍是恒等。
+   */
+  persona?: PersonalityParams,
 ): DeepStackRecommendation {
+  const pf = postflopParams(persona);
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
   const equity = calculateRangeAwareEquity(player, state, community, ctx.numOpponents,
@@ -595,7 +628,17 @@ export function getDeepStackRecommendation(
     // ICM 风险溢价（现金局恒为 0）叠加到跟注门槛上 —— 本引擎下面所有跟注判据
     // （strong/medium/draw 三档 × commit/control/cautious 三档）都读 `config.potOdds`，
     // 所以在这一处注入即可全覆盖，不必逐个分支改。
-    potOdds: riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player)),
+    // persona：`callShift`（来自 `callBias`）也叠在这同一处 —— 一处平移，六条跟注
+    // 门槛全部同步（§7.3 第 5 条）。`callShift === 0` 时 `shiftThreshold` 原样返回，
+    // 逐位不变。⚠️ 顺序是「先叠 ICM 溢价、再叠 callShift」，两者都是门槛偏移、可交换，
+    // 但写成固定顺序便于复核。
+    potOdds: shiftThreshold(
+      riskAdjustedThreshold(ctx.potOdds, riskPremiumFor(state, player)),
+      pf.callShift,
+    ),
+    // persona：分档专用权益 = `equity − valueShift`（与门槛判据用的原始 `equity` 分开，
+    // 见 `DeepStackConfig.classifyEquity`）。`valueShift === 0` 时逐位等于 `equity`。
+    classifyEquity: equity - pf.valueShift,
   };
 
   if (ctx.toCall > 0) {
@@ -604,7 +647,11 @@ export function getDeepStackRecommendation(
       player.hand, equity, handAdjustment, sprDecision,
     );
 
-    // 对手跟注率高时，减少诈唬下注
+    // 对手跟注率高时，减少诈唬下注。
+    // ⚠️ 这里用**原始** `equity`（不是 `classifyEquity`）：`0.5` / `0.4` 这两条是
+    // 「对手画像」的门，不是价值门槛。§7.2 第 4 行明确要求 persona「保留对手调整」，
+    // 所以 valueShift 不该渗进这两条 —— 否则同一个 valueShift 会在分档与对手门里
+    // 各生效一次，两个语义完全不同的判据被同一个旋钮耦合。
     if (callTighten > 0 && result.action === 'raise' && equity < 0.5) {
       return {
         ...result,
@@ -618,7 +665,7 @@ export function getDeepStackRecommendation(
 
   const result = handleDeepStackNoBet(
     player, state, flags, ctx, config,
-    player.hand, equity, handAdjustment, sprDecision,
+    player.hand, handAdjustment, sprDecision,
   );
 
   // 对手弃牌率高时，增加偷盲/持续下注频率
