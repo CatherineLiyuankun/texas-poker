@@ -10,6 +10,7 @@ import type {
   Player,
   PotDistribution,
   HandRank,
+  PreflopEntry,
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
@@ -121,6 +122,7 @@ function createInitialState(
     lastBet: 0,
     lastRaiseBet: bigBlind - smallBlind,
     raiseRightsOpened: true,
+    preflopChain: [],
     winner: null,
     handRank: null,
     winningCards: [],
@@ -369,6 +371,8 @@ export function useGameState() {
             lastBet: bigBlind,
             lastRaiseBet,
             raiseRightsOpened,
+            // 盲注不入链：链里只有「已被接受的自愿加注/跟注」。
+            preflopChain: [],
             winner: null,
             handRank: null,
             winningCards: [],
@@ -406,6 +410,14 @@ export function useGameState() {
           let newRaiseRightsOpened = state.raiseRightsOpened;
           const newSidePots = [...state.sidePots];
 
+          // 翻前自愿投入链：只记**已被接受**的自愿加注/跟注（盲注不入链、
+          // 跟注式全下按跟注记）。场景判定只读这条链，见 `PreflopEntry`。
+          let newPreflopChain = state.preflopChain;
+          const pushPreflopEntry = (entry: PreflopEntry) => {
+            if (state.phase !== 'preflop') return;
+            newPreflopChain = [...(newPreflopChain ?? []), entry];
+          };
+
           const actingPlayer = { ...newPlayers[playerIdx] };
 
           switch (action.action) {
@@ -425,6 +437,10 @@ export function useGameState() {
               if (actingPlayer.chips === 0) {
                 actingPlayer.allIn = true;
               }
+              // 自愿跟注/跛入（toCall === 0 是过牌，不算入池）
+              if (toCall > 0) {
+                pushPreflopEntry({ playerId: action.player, kind: 'call' });
+              }
               break;
             }
             case 'raise': {
@@ -435,6 +451,13 @@ export function useGameState() {
               if (additional <= toCall || newBet <= state.lastBet) {
                 return state;
               }
+
+              // 增量是否达到完整加注（≥ 上一加注增量）决定是否重开加注权
+              pushPreflopEntry({
+                playerId: action.player,
+                kind: 'raise',
+                fullRaise: additional - toCall >= state.lastRaiseBet,
+              });
 
               actingPlayer.bet += additional;
               actingPlayer.totalBet += additional;
@@ -459,6 +482,18 @@ export function useGameState() {
               const allInAmount = actingPlayer.chips;
               const toCall = state.lastBet - player.bet;
               const extraAmount = allInAmount - toCall;
+
+              // 加注式全下（增量 > 0）是 raise（短全下 `fullRaise=false`，不重开）；
+              // 跟注式全下按 call 记 —— 与 `isPreflopRaise` / AF 的 all-in 口径一致。
+              pushPreflopEntry(
+                extraAmount > 0
+                  ? {
+                      playerId: action.player,
+                      kind: 'raise',
+                      fullRaise: extraAmount >= state.lastRaiseBet,
+                    }
+                  : { playerId: action.player, kind: 'call' },
+              );
 
               actingPlayer.bet += allInAmount;
               actingPlayer.totalBet += allInAmount;
@@ -583,6 +618,7 @@ export function useGameState() {
                 lastBet: newLastBet,
                 lastRaiseBet: newLastRaiseBet,
                 raiseRightsOpened: newRaiseRightsOpened,
+                preflopChain: newPreflopChain,
                 currentPlayer: activePlayers[0].id,
               };
               logStateChange('PLAYER_ACTION', newState);
@@ -599,6 +635,7 @@ export function useGameState() {
             lastBet: newLastBet,
             lastRaiseBet: newLastRaiseBet,
             raiseRightsOpened: newRaiseRightsOpened,
+            preflopChain: newPreflopChain,
             currentPlayer: nextPlayer,
           };
           logStateChange('PLAYER_ACTION', newState);
@@ -1064,6 +1101,7 @@ export function useGameState() {
             lastBet: 0,
             lastRaiseBet: 0,
             raiseRightsOpened: true,
+            preflopChain: [],
             winner: null,
             handRank: null,
             winningCards: [],

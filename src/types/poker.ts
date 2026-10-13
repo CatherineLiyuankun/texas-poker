@@ -66,6 +66,22 @@ export interface SidePot {
   threshold?: number;
 }
 
+/**
+ * 翻前一次**已被状态机接受**的自愿投入（按发生顺序）。
+ *
+ * 强制盲注不入链（盲注不是「开池」）；跟注式全下按 `call` 记（不是 raise）。
+ * 场景判定（`detectPreflopScenario`）只读这条链，不再用 `lastBet > player.bet`
+ * 或「不同 bet 值个数」猜历史 —— 那些金额口径在多人先后行动、同额加注、
+ * 短全下重开等局面上都会判错。
+ */
+export interface PreflopEntry {
+  playerId: PlayerId;
+  /** `raise` = 主动加注（含加注式全下）；`call` = 自愿跟注/跛入。 */
+  kind: 'raise' | 'call';
+  /** 仅 `kind === 'raise'` 有意义：增量是否达到完整加注（重开加注权）。 */
+  fullRaise?: boolean;
+}
+
 export interface PotDistribution {
   potType: string;
   amount: number;
@@ -84,6 +100,13 @@ export interface GameState {
   lastBet: number;
   lastRaiseBet: number;
   raiseRightsOpened: boolean;
+  /**
+   * 翻前已被状态机接受的自愿投入链（按发生顺序，见 `PreflopEntry`）。
+   *
+   * 生产路径从 `START_GAME` 起总会填充；缺失（旧存档、手工构造的状态）时
+   * 场景判定回退到旧的金额口径 —— 那是**不可信**的兼容分支。
+   */
+  preflopChain?: PreflopEntry[];
   winner: PlayerId | null;
   handRank: HandRank | null;
   winningCards: Card[];

@@ -8,7 +8,7 @@ import {
   detectPreflopScenario,
   type Position,
 } from '../gtoPreflop';
-import type { Card, Player, GameState, PlayerId } from '../../types/poker';
+import type { Card, Player, GameState, PlayerId, PreflopEntry } from '../../types/poker';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
 import { allHandClasses, combosInClass } from '../rangeEquity';
 import { getPreflopStrength, getPreflopTier } from '../preflopHandStrength';
@@ -1135,14 +1135,14 @@ describe('GTO Preflop Engine', () => {
 });
 
 /**
- * `detectPreflopScenario` 是机器人与面板**唯一**的翻前场景判定。
+ * `detectPreflopScenario` 的**兼容回退**分支。
  *
- * 面板（GameBoard 的 gtoRecommendation IIFE）原先把 `facing_3bet` 简化成
- * `player.bet > sb*2 && lastBet > player.bet`，漏掉 `player.bet === lastRaiseBet`，
- * 于是「我加注过、对手又加注到我之上、但最后加注者不是我」的局面上会误报
- * 4bet 场景、查错范围表。这里把四条分支与那条回归用例一起钉住。
+ * P0d（plan §12.2）之后，生产路径只读 `state.preflopChain`（状态机已被接受的
+ * 自愿投入链）。下面这些状态**没有链**（旧存档 / 手工构造），走明确标注的
+ * 金额口径回退 —— 它是**不可信**的兼容分支，这里只钉住「回退时行为与旧口径
+ * 逐条一致」，避免删链后静默改变旧状态的行为。真实判定见下一个 describe。
  */
-describe('detectPreflopScenario 场景判定（机器人与面板共用）', () => {
+describe('detectPreflopScenario 无链兼容回退（不可信口径，仅旧状态）', () => {
   const SB = 5;
 
   function mkScenario(
@@ -1246,6 +1246,183 @@ describe('detectPreflopScenario 场景判定（机器人与面板共用）', () 
       { callPenalty: 0, raiseBonus: 0, foldPenalty: 0 },
     );
     expect(decision.action).toBe('raise');
+  });
+});
+
+/**
+ * `detectPreflopScenario` 的**真实判定**（P0d，plan §12.2）。
+ *
+ * 只读 `state.preflopChain`：盲注不入链、跟注式全下按跟注记，于是「谁开池」
+ * 「几次加注」「我是否已入池」都是状态机接受过的事实，不再用 `player.bet` /
+ * 金额倍数反推。覆盖点按 plan：多人先后行动、早已弃牌者、全下后无再行动者、
+ * 同额加注、短全下未重开。
+ */
+describe('detectPreflopScenario 读真实投入链', () => {
+  const SB = 5;
+
+  function mkChainState(
+    chain: PreflopEntry[],
+    heroBet = 0,
+    lastBet = 10,
+  ) {
+    const hero = mkBotPlayer(1, 1000, heroBet);
+    const state: GameState = {
+      ...mkBotState(
+        [hero, mkBotPlayer(2, 1000, 0), mkBotPlayer(3, 1000, 0)],
+        1 as PlayerId,
+        lastBet,
+        SB,
+      ),
+      preflopChain: chain,
+    };
+    return { state, hero };
+  }
+
+  it('空链 → rfi（未开池）', () => {
+    const { state, hero } = mkChainState([]);
+    expect(detectPreflopScenario(state, hero)).toBe('rfi');
+  });
+
+  it('别人一次加注 → facing_open', () => {
+    const { state, hero } = mkChainState([
+      { playerId: 2, kind: 'raise', fullRaise: true },
+    ]);
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('跛入底池（只有跟注、没有加注）→ rfi', () => {
+    const { state, hero } = mkChainState([{ playerId: 2, kind: 'call' }]);
+    expect(detectPreflopScenario(state, hero)).toBe('rfi');
+  });
+
+  it('链上只有我自己加注 → rfi（我是进攻者，轮不到我面对）', () => {
+    const { state, hero } = mkChainState(
+      [{ playerId: 1, kind: 'raise', fullRaise: true }],
+      30,
+    );
+    expect(detectPreflopScenario(state, hero)).toBe('rfi');
+  });
+
+  it('我开池后被 3bet → facing_3bet', () => {
+    const { state, hero } = mkChainState(
+      [
+        { playerId: 1, kind: 'raise', fullRaise: true },
+        { playerId: 2, kind: 'raise', fullRaise: true },
+      ],
+      30,
+      90,
+    );
+    expect(detectPreflopScenario(state, hero)).toBe('facing_3bet');
+  });
+
+  it('我跛入后面对 open+3bet → facing_3bet（冷防守，不落普通 open 档）', () => {
+    const { state, hero } = mkChainState(
+      [
+        { playerId: 1, kind: 'call' },
+        { playerId: 2, kind: 'raise', fullRaise: true },
+        { playerId: 3, kind: 'raise', fullRaise: true },
+      ],
+      10,
+      90,
+    );
+    expect(detectPreflopScenario(state, hero)).toBe('facing_3bet');
+  });
+
+  it('我未入池、面对 open+3bet → cold_3bet', () => {
+    const { state, hero } = mkChainState(
+      [
+        { playerId: 2, kind: 'raise', fullRaise: true },
+        { playerId: 3, kind: 'raise', fullRaise: true },
+      ],
+      0,
+      90,
+    );
+    expect(detectPreflopScenario(state, hero)).toBe('cold_3bet');
+  });
+
+  it('同额两次加注仍识别为 cold_3bet（金额口径会漏判）', () => {
+    // 旧口径要求「其他玩家不同 bet 值个数 >= 2」，两次加注到同一额会被漏判
+    const { state, hero } = mkChainState(
+      [
+        { playerId: 2, kind: 'raise', fullRaise: true },
+        { playerId: 3, kind: 'raise', fullRaise: true },
+      ],
+      0,
+      30,
+    );
+    expect(detectPreflopScenario(state, hero)).toBe('cold_3bet');
+  });
+
+  it('短全下（fullRaise=false）仍是一次加注 → 面对它算 facing_open', () => {
+    const { state, hero } = mkChainState(
+      [{ playerId: 2, kind: 'raise', fullRaise: false }],
+      0,
+      30,
+    );
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('多人先后行动 + 早已弃牌者：只看链，不看谁已弃牌', () => {
+    const { state, hero } = mkChainState(
+      [
+        { playerId: 3, kind: 'call' }, // 跛入
+        { playerId: 2, kind: 'raise', fullRaise: true },
+      ],
+      0,
+      30,
+    );
+    state.players[2].folded = true; // playerId 3 已弃牌
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('全下后无再行动者：链止于短全下，面对它仍是 facing_open 而非 4bet 档', () => {
+    const { state, hero } = mkChainState(
+      [{ playerId: 2, kind: 'raise', fullRaise: false }],
+      0,
+      30,
+    );
+    state.players[1].allIn = true;
+    state.players[1].chips = 0;
+    expect(detectPreflopScenario(state, hero)).toBe('facing_open');
+  });
+
+  it('decidePreflopGTO 走同一判定：真实链的 facing_3bet 走 4bet 档（30bb → allin）', () => {
+    const hero = mkBotPlayer(1, 300, 30);
+    hero.hand = [card('♠', 'A'), card('♥', 'A')];
+    const state: GameState = {
+      ...mkBotState(
+        [hero, mkBotPlayer(2, 700, 90), mkBotPlayer(3, 700, 0)],
+        1 as PlayerId,
+        90,
+        SB,
+      ),
+      lastRaiseBet: 60,
+      preflopChain: [
+        { playerId: 1, kind: 'raise', fullRaise: true },
+        { playerId: 2, kind: 'raise', fullRaise: true },
+      ],
+    };
+    expect(detectPreflopScenario(state, hero)).toBe('facing_3bet');
+
+    const decision = decidePreflopGTO(
+      hero,
+      state,
+      {
+        canCheckResult: false,
+        canCallResult: true,
+        canRaiseResult: true,
+        canFoldResult: true,
+        canAllInResult: true,
+      },
+      {
+        toCall: 60, totalPot: 130, potOdds: 0.3, position: 0, totalPlayers: 3,
+        numOpponents: 2, isHeadsUp: false, isLatePosition: true, isButton: true,
+        isCutoff: false, isHijack: false, isMiddlePosition: false,
+        isEarlyPosition: false, isBlind: false, hasLimpers: false,
+      },
+      { callPenalty: 0, raiseBonus: 0, foldPenalty: 0 },
+    );
+    expect(decision.action).toBe('allin');
   });
 });
 

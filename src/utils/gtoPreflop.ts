@@ -141,14 +141,31 @@ function posToLabel(pos: number, total: number): Position {
   return 'UTG';
 }
 
+/**
+ * 开池者（`facing_open` 查表用）的位置。
+ *
+ * 有 `preflopChain` 时取链上**第一个自愿加注**（真正的开池者）——旧实现取
+ * 「下注额最大的未弃牌对手」，在「开池者被 3bet 后弃牌 / 多方先后加注」时会
+ * 取到加注更重的人，把开池者位置判错。缺链时回退旧口径（不可信兼容分支）。
+ */
 export function getOpenerPosition(state: GameState, player: Player): Position | null {
-  const openers = state.players.filter(
-    (p) => p.id !== player.id && !p.folded && p.bet > state.smallBlind * 2,
-  );
-  if (openers.length === 0) return null;
-  openers.sort((a, b) => b.bet - a.bet);
-  const opener = openers[0];
-  const pos = (opener.id - state.dealer + state.players.length) % state.players.length;
+  const chain = state.preflopChain;
+  let openerId: Player['id'] | null = null;
+
+  if (chain) {
+    const firstRaise = chain.find((e) => e.kind === 'raise');
+    openerId = firstRaise ? firstRaise.playerId : null;
+  } else {
+    const openers = state.players.filter(
+      (p) => p.id !== player.id && !p.folded && p.bet > state.smallBlind * 2,
+    );
+    if (openers.length === 0) return null;
+    openers.sort((a, b) => b.bet - a.bet);
+    openerId = openers[0].id;
+  }
+
+  if (openerId === null) return null;
+  const pos = (openerId - state.dealer + state.players.length) % state.players.length;
   return posToLabel(pos, state.players.length);
 }
 
@@ -965,13 +982,21 @@ function getFacingOpenTable(
 
 
 
-function isFacing3bet(state: GameState, player: Player): boolean {
+/**
+ * 旧的金额口径判定（**仅**用于缺少 `preflopChain` 的状态）。
+ *
+ * 它用 `player.bet` 与「其他玩家不同 bet 值个数」反推历史加注次数 —— 在
+ * 多人先后行动、同额加注、短全下重开等局面上都会判错（plan §12.2 明令
+ * 「禁止沿用金额倍数推断」）。生产路径从 `START_GAME` 起总有链，这里只是
+ * 给旧存档 / 手工构造状态留的**不可信兼容分支**。
+ */
+function isFacing3betLegacy(state: GameState, player: Player): boolean {
   if (player.bet <= state.smallBlind * 2) return false;
   if (state.lastBet <= player.bet) return false;
   return player.bet === state.lastRaiseBet;
 }
 
-function isCold3bet(state: GameState, player: Player): boolean {
+function isCold3betLegacy(state: GameState, player: Player): boolean {
   if (player.bet > 0) return false;
   const raisers = state.players.filter(
     (p) => p.id !== player.id && !p.folded && p.bet > state.smallBlind * 2,
@@ -981,29 +1006,62 @@ function isCold3bet(state: GameState, player: Player): boolean {
   return distinctBets.size >= 2;
 }
 
+function detectPreflopScenarioLegacy(
+  state: GameState,
+  player: Player,
+): PreflopScenario {
+  if (isFacing3betLegacy(state, player)) return 'facing_3bet';
+  const facingOpen = state.lastBet > player.bet;
+  if (facingOpen && isCold3betLegacy(state, player)) return 'cold_3bet';
+  return facingOpen ? 'facing_open' : 'rfi';
+}
+
 /** 翻前场景：无人加注 / 面对开池 / 面对 3bet / 冷 3bet。 */
 export type PreflopScenario = 'rfi' | 'facing_open' | 'facing_3bet' | 'cold_3bet';
 
 /**
  * 判定当前处于哪种翻前场景 —— **机器人与面板的唯一判定口径**。
  *
- * 面板（`GameBoard` 的 `gtoRecommendation` IIFE）原先把 `facing_3bet` 简化成
- * `player.bet > sb*2 && state.lastBet > player.bet`，漏掉了 `player.bet ===
- * state.lastRaiseBet` 这一条，于是在「我加注过、对手又加注到我之上、但最后
- * 加注者不是我」的局面上会把 `facing_open` 误报成 `facing_3bet`，从而查错范围表
- * （4bet 表 vs 3bet 表）。现在两边都走这里。
+ * 只读 `state.preflopChain`（状态机**已被接受**的自愿投入链）：盲注不入链、
+ * 跟注式全下按跟注记，所以「谁开池」「有几次加注」「我是否已入池」都是事实，
+ * 不再靠金额反推。判定规则：
  *
- * `facingOpen` 用 `state.lastBet > player.bet`，与机器人原来的
- * `ctx.toCall > 0`（`toCall = max(0, lastBet - player.bet)`）等价。
+ * | 链上自愿加注数 | 我在链上 | 结果 |
+ * | --- | --- | --- |
+ * | 0 | — | `rfi`（未开池 / 跛入底池，后者由 `hasLimpers` 另行标记） |
+ * | 1 | 否 | `facing_open` |
+ * | 1 | 是（我开池） | `rfi`（我是进攻者，防御性） |
+ * | ≥2 | 是 | `facing_3bet`（我加注过，被再加注 → 4bet 档） |
+ * | ≥2 | 否（我未入池） | `cold_3bet`（冷 4bet 档） |
+ * | ≥2 | 否（我跛入/冷跟过） | `facing_3bet`（面对再加注的冷防守，不落普通 open 档） |
+ *
+ * `cold_3bet` 在本仓库的含义是「未入池、面对 open+3bet，拥有再加注权」，
+ * 对应 `tables.cold3bet`（冷 4bet 范围），不是「面对单个 open 的 3bet 机会」——
+ * 后者走 `facing_open` 的 `R` 分支。名字保留（改名的收益只在文案层，却会
+ * 波及范围表/面板/测试，属独立改动）。
  */
 export function detectPreflopScenario(
   state: GameState,
   player: Player,
 ): PreflopScenario {
-  if (isFacing3bet(state, player)) return 'facing_3bet';
-  const facingOpen = state.lastBet > player.bet;
-  if (facingOpen && isCold3bet(state, player)) return 'cold_3bet';
-  return facingOpen ? 'facing_open' : 'rfi';
+  const chain = state.preflopChain;
+  if (!chain) return detectPreflopScenarioLegacy(state, player);
+
+  const raises = chain.filter((e) => e.kind === 'raise');
+  if (raises.length === 0) return 'rfi';
+
+  if (raises.length === 1) {
+    // 自己是唯一加注者（轮不到自己面对）→ 仍按未开池处理
+    return raises[0].playerId === player.id ? 'rfi' : 'facing_open';
+  }
+
+  // 最后一个加注者是我自己 → 不存在「我面对加注」，防御性返回 rfi
+  if (raises[raises.length - 1].playerId === player.id) return 'rfi';
+
+  // 我入池过（自己加注 / 跛入 / 冷跟）→ 面对再加注，走 4bet 档；
+  // 未入池 → 冷 4bet 档。
+  const entered = chain.some((e) => e.playerId === player.id);
+  return entered ? 'facing_3bet' : 'cold_3bet';
 }
 
 // ─── 筹码深度分档 ────────────────────────────────────────────

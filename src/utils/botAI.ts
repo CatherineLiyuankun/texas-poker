@@ -14,7 +14,7 @@ import {
   type OpponentAdjustments,
 } from './opponentModel';
 import { translations } from './translations';
-import { decidePreflopGTO } from './gtoPreflop';
+import { decidePreflopGTO, detectPreflopScenario } from './gtoPreflop';
 import { decidePostflopGTO } from './gtoPostflop';
 import { decideRiverGTO } from './gtoRiver';
 import { getDeepStackRecommendation } from './gtoDeepStack';
@@ -169,7 +169,11 @@ function decidePreflop(
   if (riskPremium > BUBBLE_PREMIUM_THRESHOLD) {
     const icmConfig = getICMConfig(state, player);
     const position = getPositionName(ctx.position, state.players.length);
-    const action = ctx.toCall > 0 ? (ctx.toCall > state.lastRaiseBet * 2 ? 'facing_3bet' : 'facing_open') : 'rfi';
+    // spot 与 GTO 路径共用同一判定（读状态机已接受的真实投入链），不再用
+    // `toCall > lastRaiseBet * 2` 这种金额倍数反推历史。ICM 表没有独立的冷
+    // 4bet 档，`cold_3bet` 归入 `facing_3bet`。
+    const scenario = detectPreflopScenario(state, player);
+    const action = scenario === 'cold_3bet' ? 'facing_3bet' : scenario;
     const icmRec = getICMRecommendation(icmConfig, player.hand, position, action, ctx.potOdds);
 
     if (icmRec.action === 'fold' && flags.canFoldResult) {
