@@ -38,16 +38,19 @@ interface FlopOpts {
   mainPot: number;
   /** 让两个对手都 all-in ⇒ `canRaise` 为假，隔离跟注门槛。 */
   allInOpponents?: boolean;
+  /** 活跃玩家的筹码（默认 970 ⇒ SPR ≈ 9.7）。调小可把 SPR 压到 commit 档（< 3）。 */
+  chips?: number;
   phase?: 'flop' | 'turn';
   heroHand?: [string, string];
 }
 
 function flopState(opts: FlopOpts): GameState {
   const hand = opts.heroHand ?? ['A', 'K'];
+  const chips = opts.chips ?? 970;
   const players = sixMaxPlayers({
     heroId: 2,
     heroHand: [card('♠', hand[0] as never), card('♥', hand[1] as never)],
-    chips: { 1: 970, 2: 970, 6: 970 },
+    chips: { 1: chips, 2: chips, 6: chips },
     bets: { 6: opts.toCallBet },
     folded: [3, 4, 5],
     acted: [2, 6],
@@ -82,6 +85,14 @@ function withBotType(state: GameState, seat: PlayerId, botType?: BotPersonality)
 interface RunOpts {
   /** 固定策略随机流的种子。 */
   seed?: number;
+  /**
+   * 把策略随机源设成**常数** `v`（而不是种子流）。
+   *
+   * 用于精确测「顺序掷骰」的分支边界：三动作分支是 `random() < p_bet` → raise、
+   * `random() < X` → check、否则 call，常数源下两次掷骰都等于 `v`，于是动作按 `v`
+   * 分成三段区间，二分即可把边界 `X` 定到 1e-9（零抽样波动）。
+   */
+  constV?: number;
   /** 钉死 `Math.random`（恒等用例需要；门槛用例改钉权益，不需要）。 */
   withMathRandom?: boolean;
 }
@@ -92,12 +103,20 @@ function decide(
   opts: RunOpts = {},
 ): { action: string; amount: number | undefined; randomCalls: number } {
   resetRandomSource();
-  const stream = mulberry32(opts.seed ?? STRATEGY_SEED);
   let randomCalls = 0;
-  setRandomSource(() => {
-    randomCalls += 1;
-    return stream();
-  });
+  if (opts.constV !== undefined) {
+    const v = opts.constV;
+    setRandomSource(() => {
+      randomCalls += 1;
+      return v;
+    });
+  } else {
+    const stream = mulberry32(opts.seed ?? STRATEGY_SEED);
+    setRandomSource(() => {
+      randomCalls += 1;
+      return stream();
+    });
+  }
   const mathSpy = opts.withMathRandom
     ? jest.spyOn(Math, 'random').mockImplementation(mulberry32(MATH_SEED))
     : null;
@@ -119,13 +138,51 @@ function decideAtEquity(
   botType?: BotPersonality,
   seat: PlayerId = 2,
   seed?: number,
+  constV?: number,
 ): { action: string; amount: number | undefined; randomCalls: number } {
   const spy = jest.spyOn(rangeEquity, 'calculateRangeAwareEquity').mockReturnValue(equity);
   try {
-    return decide(withBotType(make(), seat, botType), seat, { seed });
+    return decide(withBotType(make(), seat, botType), seat, { seed, constV });
   } finally {
     spy.mockRestore();
   }
+}
+
+/**
+ * 二分测「中等牌分支」check→fall-through 的边界 `X`（常数随机源 + 随机消费计数）。
+ *
+ * 中等牌分支在 `canCheck`（NOBET，toCall=0）下掷两次骰子，动作/消费随常数 `v` 分段：
+ * - `v < p_bet` ⇒ raise，**消费 1 次**；
+ * - `p_bet ≤ v < X` ⇒ check（在本分支返回），**消费 2 次**；
+ * - `v ≥ X` ⇒ 本分支不返回、落到下面的边缘牌分支，**再消费 2 次**（诈唬 + 过牌骰子），
+ *   合计 ≥ 4 次（动作仍是 check，因为 NOBET 下 `canCall` 为假、边缘分支最终也过牌）。
+ *
+ * ⚠️ 为什么用**随机消费次数**而不是动作当判据：NOBET 下 `canCheck` 为真、`canCall` 为假，
+ * 中等牌分支过牌失败后落到边缘分支，边缘分支最终还是过牌 —— 动作恒为 check，**区分不出
+ * `v` 在 `X` 的哪一侧**；但随机消费次数会从 2 跳到 ≥4，是干净的确定性判据。
+ *
+ * 谓词「`randomCalls ≤ 2`」对 `v` 单调（true→false），翻转点恰是 `X`。这条能抓住
+ * P6b-2 那个「条件概率分母误用 `1 − p_bet`」的回归：正确的 `X = 0.30/(0.30+0.10) = 0.75`
+ * 是与 `aggressionMult` **无关的常数**，旧公式会让 `X` 随 persona 漂移（Nit 0.615、
+ * Fish 0.525、CS 0.435、LAG 0.930，Maniac 甚至 1.425 > 1）。
+ */
+function findMediumCheckBoundary(
+  equity: number,
+  make: () => GameState,
+  botType?: BotPersonality,
+): number {
+  const stayedInMedium = (v: number) =>
+    decideAtEquity(equity, make, botType, 2, undefined, v).randomCalls <= 2;
+  if (stayedInMedium(0.999999)) return 1; // v≈1 仍在中等分支 ⇒ X ≥ 1（旧公式的 Maniac 情形）
+  // stayedInMedium(0) 必为真（v < p_bet ⇒ raise ⇒ 消费 1 ≤ 2），无需下界守卫。
+  let lo = 0; // stayedInMedium(lo) === true
+  let hi = 0.999999; // stayedInMedium(hi) === false
+  for (let i = 0; i < 50; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (stayedInMedium(mid)) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
 }
 
 const NOBET: FlopOpts = { toCallBet: 0, lastRaiseBet: 10, mainPot: 100 };
@@ -298,6 +355,37 @@ describe('botAI 翻后 persona 接线（P6b-2）', () => {
           decideAtEquity(0.7, () => flopState(NOBET), 'TAG', 2, seed),
         );
       }
+    });
+
+    it('条件概率分母：check→call 的边界恒为 0.75，与 aggressionMult 无关', () => {
+      // 中等牌分支掷两次骰子：`v < p_bet` ⇒ raise，`v < X` ⇒ check，否则 call。
+      // 要复现边际分布 `P(a) = w(a)/T`，第二掷必须是
+      //   `X = w_check/(w_check + w_call) = 0.30/0.40 = 0.75`
+      // —— **与 persona 无关的常数**（`aggressionMult` 只缩放进取侧）。
+      //
+      // 这条钉住 P6b-2 的一个真实回归：当时把分母误写成 `0.30/(1 − p_bet)`，
+      // 于是 Nit 0.615、Fish 0.525、CS 0.435、LAG 0.930 各不相同（`Maniac` 更会
+      // 算出 1.425 > 1，过牌分支恒触发）。用常数随机源二分把边界测出来，
+      // 零抽样波动。
+      //
+      // ⚠️ 权益要**逐类**取该 persona 自己的中等档中点（`0.60 + valueShift`）：
+      // 门槛被 `valueShift` 平移过，固定权益会让某些类落到 strong 或边缘档。
+      // Maniac 的 `p_bet = 0.789 > 0.75`，check 段被 raise 段完全遮蔽，无法测边界，
+      // 所以不在清单里（它的进取侧已由上一条与 GTO 侧的精确概率覆盖）。
+      const spots: [BotPersonality, number][] = [
+        ['TAG', 0.60],
+        ['Nit', 0.65],
+        ['LAG', 0.55],
+        ['Fish', 0.50],
+        ['Calling Station', 0.48],
+      ];
+      for (const [botType, equity] of spots) {
+        const x = findMediumCheckBoundary(equity, () => flopState(NOBET), botType);
+        expect({ botType, x: +x.toFixed(4) }).toEqual({ botType, x: 0.75 });
+      }
+      // 无 persona 同样是 0.75（恒等），且防空断言：确实测了 5 类
+      expect(+findMediumCheckBoundary(0.6, () => flopState(NOBET)).toFixed(4)).toBe(0.75);
+      expect(spots.length).toBe(5);
     });
   });
 

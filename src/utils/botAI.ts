@@ -885,6 +885,33 @@ function decidePreflop(
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
 
+/**
+ * 启发式翻后「中等牌」分支的**条件**过牌概率。
+ *
+ * 三动作权重 bet 0.60 / check 0.30 / call 0.10，掷骰顺序 bet → check → call。
+ * 要复现边际分布 `P(a) = w(a)·g^进取 / T`，第二掷必须是
+ * `w_check / (w_check + w_call) = 0.30 / 0.40 = 0.75` —— 一个**与 `aggressionMult`
+ * 无关的常数**（persona 只缩放进取侧，保守侧内部比例不动）。
+ *
+ * ⚠️ 不要写成 `0.30 / (1 − p_bet)`：那会在 `aggressionMult` 大时让分母 < 0.30、
+ * 条件概率 > 1（过牌分支恒触发），破坏边际分布。
+ */
+const MEDIUM_CHECK_GIVEN_NO_BET = 0.30 / 0.40;
+
+/**
+ * 启发式翻后「边缘牌」分支的**条件**过牌概率。
+ *
+ * 三动作权重 bet `0.30·bluffMultiplier` / check 0.50 / call 0.20，掷骰顺序
+ * bet → check → call。第二掷 = `w_check / (w_check + w_call) = 0.50 / 0.70` ——
+ * **与 `bluffMultiplier` 和 `aggressionMult` 都无关**。
+ *
+ * ⚠️ 旧代码写的 `0.50 / (1 − 0.30)` 数值上恰好等于 `0.50 / 0.70`（保守权重和也是 0.70），
+ * 所以旧代码是对的。P6b-2 曾误改成 `0.50 / (1 − bluffProb)`：`bluffProb` 会随 persona 变化，
+ * `g = 2.5` 时算出 `1.036 > 1`，过牌分支恒触发、把本该 call 的牌变成 check（面对下注时可观察）。
+ * 这里改成命名常量并写明推导，免得再被"顺手优化"掉。
+ */
+const MARGINAL_CHECK_GIVEN_NO_BLUFF = 0.50 / 0.70;
+
 // 翻后决策：胜率 + 赔率 + 对手画像综合判断
 // Monte Carlo 胜率已包含听牌概率，不再单独叠加听牌
 /**
@@ -1004,14 +1031,24 @@ function decidePostflop(
       if (flags.canFoldResult) return { action: 'fold' };
     }
     // 主动下注：60% 概率（专业标准）。persona：`aggressionMult` 缩放进取权重后
-    // 归一化（保守的过牌/跟注按原比例分配，所以下面的条件概率分母仍是 `1 - p`）。
+    // 归一化（§7.3 第 3、6 条）。
+    //
+    // ⚠️ **顺序掷骰的条件概率分母只能是「保守权重内部的比例」，不能是 `1 − p_bet`。**
+    // 三个动作的权重是 bet 0.60 / check 0.30 / call 0.10，掷骰顺序是先 bet、再 check、
+    // 否则 call。要复现边际分布 `P(a) = w(a)/T`（`T = 0.40 + 0.60·g`），第二掷必须是
+    //   `P(check | 没 bet) = w_check/(w_check + w_call) = 0.30/0.40 = 0.75`
+    // —— 一个**与 `g` 无关的常数**。
+    //
+    // 曾错写成 `0.30 / (1 − p_bet)`：那等于假设「保守侧的相对比例会随进取概率变化」，
+    // 结果是 `g = 2.5` 时分母 0.21、条件概率 **1.43 > 1**（过牌分支恒触发，
+    // `P(check)` 变成 0.21 而不是正确的 0.158）。
     const mediumBetProb = renormalizeAggression(0.60, 0.40, pf.aggression);
     if (flags.canRaiseResult && random() < mediumBetProb) {
       const mult = equity >= 0.65 ? 0.85 : 0.75;
       return { action: 'raise', amount: calculateRaiseAmount(player, state, mult) };
     }
-    // 过牌：30% 概率（条件概率）
-    if (flags.canCheckResult && random() < 0.30 / (1 - mediumBetProb)) {
+    // 过牌：30% 概率（条件概率 = 0.30 / (0.30 + 0.10)，与 persona 无关）
+    if (flags.canCheckResult && random() < MEDIUM_CHECK_GIVEN_NO_BET) {
       return { action: 'check' };
     }
     // 跟注：10% 概率
@@ -1040,8 +1077,20 @@ function decidePostflop(
     if (flags.canRaiseResult && random() < bluffProb) {
       return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.7) };
     }
-    // 过牌：50% 概率（条件概率）
-    if (flags.canCheckResult && random() < 0.50 / (1 - bluffProb)) {
+    // 过牌：50% 概率（条件概率 = 0.50 / (0.50 + 0.20)，与 persona 及 `bluffMultiplier` 都无关）。
+    //
+    // ⚠️ 原本写的是 `0.50 / (1 - 0.30)`，数值上恰好等于 `0.50 / 0.70`（保守权重和也是
+    // 0.70），所以旧代码是对的。P6b-2 曾误改成 `0.50 / (1 - bluffProb)`，那是**回归**：
+    // `bluffProb` 会随 persona 变化，`g = 2.5` 时 `0.50/(1 − 0.5172) = 1.036 > 1`，过牌分支
+    // 恒触发、把本该 call 的牌变成 check。
+    //
+    // 复核时补两条**实测结论**，免得后面按错误推理再改：① 这个回归在
+    // 「commit 档 + 无人下注」下**观察不到** —— commit 档把 `callMargin` 归零、
+    // `callThreshold` 变 0，边缘分支最后的 `equity >= callThreshold` 恒真直接返回 `call`，
+    // 掷 check 骰子前就被门槛截住；② 真正能稳定观察到的是**中等牌分支**（分母
+    // `0.30/(0.30+0.10)=0.75`，同样与 persona 无关），见 `botAI.personaPostflop.test.ts`
+    // 的「条件概率分母」用例。这里改成命名常量 + 写明推导，免得再被"顺手优化"掉。
+    if (flags.canCheckResult && random() < MARGINAL_CHECK_GIVEN_NO_BLUFF) {
       return { action: 'check' };
     }
     // 跟注：20% 概率
