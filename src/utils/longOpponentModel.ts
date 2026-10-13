@@ -50,6 +50,14 @@ function saveToStorage(): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(persistentData));
 }
 
+/**
+ * 按事件**增量**建手牌记录（找不到就新建）。
+ *
+ * 注意：这条路径**不写开手快照**（`playerTypes` / `playerRoles`，方案 §8.2）——
+ * 事件本身不带快照，无法在这里补出来。生产链路的开手记录走
+ * `opponentModel.startNewHand`，结算时由 `GameBoard` 用 `saveHand` 整份覆盖；
+ * 本函数只服务测试与「只有事件流」的场景，不要拿它当生产入口。
+ */
 export function recordAction(event: ActionEvent): void {
   loadFromStorage();
 

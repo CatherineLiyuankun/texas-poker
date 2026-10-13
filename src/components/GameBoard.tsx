@@ -22,15 +22,15 @@ import {
 } from '../utils/gtoPreflop';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers, setCurrentHandFlopSeenPlayers, setCurrentHandShowdownWinners } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers, setCurrentHandFlopSeenPlayers, setCurrentHandShowdownWinners, beginSession, getSessionId, makeHandId } from '../utils/opponentModel';
 import {
   saveHand,
   getAllPlayerLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
 import type { BotTypeMap } from '../utils/botPersonality';
-import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
-import type { ActionEvent } from '../types/stats';
+import { HAND_RANK_NAMES, type Action, type GamePhase, type PlayerId } from '../types/poker';
+import type { ActionEvent, PlayerRole } from '../types/stats';
 import { translations } from '../utils/translations';
 
 interface PlayerConfig {
@@ -88,6 +88,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const wasBettingCompleteRef = useRef(false);
   const handCounterRef = useRef(0);
   const handKeyRef = useRef<string>('');
+  /**
+   * 当前这一手的**稳定身份**（`sessionId + 盘内手序`，方案 §8.2）。
+   *
+   * `createActionEvent` 与开手记录共用它，不再各拼一遍字符串 —— 旧实现两处
+   * 各自拼 `${handCounter}-${dealer}-${底牌}`，任一处改动就会让「事件的 handId」
+   * 与「容器的 handId」分叉。
+   */
+  const handIdRef = useRef<string>('');
   const [gtoEnabled, setGtoEnabled] = useState(savedGtoEnabled ?? false);
   const [scenario, setScenario] = useState<GameScenario>(savedScenario ?? 'cash');
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
@@ -155,7 +163,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     const timestamp = Date.now();
     
     return {
-      handId: `${handCounterRef.current}-${state.dealer}-${state.players[0]?.hand[0]?.rank}-${state.players[0]?.hand[1]?.rank}`,
+      // 与容器记录同源：本手的身份在开手时算好放进 `handIdRef`（见下面的手牌检测 effect，
+      // 它声明在机器人 effect 之前，所以任何动作事件派发时它已经就位）。
+      handId: handIdRef.current,
       playerId: playerId as ActionEvent['playerId'],
       phase,
       action,
@@ -187,6 +197,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     ) {
       gameInitialized.current = true;
       resetOpponentStats();
+      // 新盘边界：换一个 sessionId 并清掉上一盘残留的手牌身份（方案 §8.2）。
+      beginSession();
+      handIdRef.current = '';
       startGame(
         playerConfig.realPlayers,
         playerConfig.botPlayers,
@@ -282,19 +295,41 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   }, [state.players, state.winner, state.mainPot, collectPot]);
 
-  // 检测新牌局开始，记录长期统计
+  // 检测新牌局开始，记录长期统计（含开手快照，方案 §8.2）
   useEffect(() => {
     if (state.phase === 'preflop' && state.players.length > 0 && state.players[0].hand.length > 0) {
-      const currentHandKey = `${state.dealer}-${state.players[0].hand[0]?.rank}-${state.players[0].hand[1]?.rank}`;
+      const hero = state.players[0];
+      // 手牌键必须带 `sessionId`：盘内以 (dealer, 底牌) 区分每一手，跨盘则天然不同。
+      // 旧实现没带，返回菜单再开新盘时 handCounter 归零，于是「同 dealer + 同底牌」
+      // 会被当成同一手（漏记）或撞上旧 id（长期库覆盖）。
+      const currentHandKey = `${getSessionId()}-${state.dealer}-${hero.hand[0]?.rank}-${hero.hand[1]?.rank}`;
       if (handKeyRef.current !== currentHandKey) {
         handKeyRef.current = currentHandKey;
         handCounterRef.current++;
-        const handId = `${handCounterRef.current}-${state.dealer}-${state.players[0]?.hand[0]?.rank}-${state.players[0]?.hand[1]?.rank}`;
+        const handId = makeHandId(handCounterRef.current);
+        handIdRef.current = handId;
         const allPlayerIds = state.players.map((p) => p.id);
-        startNewHand(handId, allPlayerIds);
+        // 开手快照（方案 §8.2）：在**开手这一刻**复制有效分配 map，不引用随后可变对象；
+        // 关闭性格时写**空 map**（而不是省略字段），聚合侧据此区分「新记录且关闭」与
+        // 「旧记录无字段」（方案 §8.3）。
+        const playerTypes: BotTypeMap =
+          state.botPersonalityEnabled === true ? { ...(state.botTypes ?? {}) } : {};
+        // 开手身份快照：每座位 human/bot，不能从「当前 roles」反推 ——
+        // 中途换人 / 换盘会把历史身份改错（方案 §8.2）。
+        const playerRoles: Partial<Record<PlayerId, PlayerRole>> = {};
+        for (const p of state.players) {
+          playerRoles[p.id] = p.isRealPlayer ? 'human' : 'bot';
+        }
+        startNewHand(handId, allPlayerIds, playerTypes, playerRoles);
       }
     }
-  }, [state.phase, state.players, state.dealer]);
+  }, [
+    state.phase,
+    state.players,
+    state.dealer,
+    state.botPersonalityEnabled,
+    state.botTypes,
+  ]);
 
   useEffect(() => {
     if (roundSettled) {
@@ -647,6 +682,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <button
               onClick={() => {
                 resetOpponentStats();
+                // 新盘边界：换 sessionId 并清掉残留手牌身份（方案 §8.2），
+                // 否则上一盘的手序会接着算下去。
+                beginSession();
+                handIdRef.current = '';
                 // 与初始化 effect 同一份新盘配置：性格沿用 App 已分配的那份，
                 // 本组件**不重抽**（方案 §5 / §6.3）。
                 startGame(

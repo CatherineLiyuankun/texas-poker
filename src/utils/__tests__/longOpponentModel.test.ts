@@ -12,6 +12,7 @@ import {
   getPlayerLongStats,
   resetLongTermStats,
   saveHand,
+  importStats,
 } from '../longOpponentModel';
 import type { ActionEvent, HandRecord } from '../../types/stats';
 import type { PlayerId, Action, GamePhase } from '../../types/poker';
@@ -152,5 +153,65 @@ describe('getAllPlayerLongStats', () => {
 
     expect(unknown.playerId).toBe(9);
     expect(unknown.handsDealt).toBe(0);
+  });
+});
+
+/**
+ * P5（方案 §8.2 / §8.3）：长期库对开手快照的存取。
+ *
+ * 长期库没有公开的读取口，只能白盒读 `localStorage`（与
+ * `GameBoard.showdown.settlement` 用例同口径）。这里锁两件事：
+ *   - 结算时的**二次写入**（`saveHand` 按 handId 覆盖）不会把快照字段丢掉；
+ *   - 导出再导入的往返里快照原样保留，且同一 pair 重复导入不重复计数。
+ */
+describe('P5 长期库保留开手快照', () => {
+  const LONG_TERM_KEY = 'texas-poker-long-stats';
+
+  function readStoredHands(): HandRecord[] {
+    const raw = localStorage.getItem(LONG_TERM_KEY);
+    return raw ? (JSON.parse(raw) as { hands: HandRecord[] }).hands : [];
+  }
+
+  const withSnapshot = (over: Partial<HandRecord> = {}): HandRecord => ({
+    ...handL1,
+    handId: 'P5-h1',
+    playerTypes: { 2: 'LAG' },
+    playerRoles: { 1: 'human', 2: 'bot' },
+    ...over,
+  });
+
+  beforeEach(() => resetLongTermStats());
+
+  it('同一 handId 覆盖保存（结算二次写入）不丢快照字段', () => {
+    saveHand(withSnapshot());
+    saveHand(withSnapshot({ result: { winner: P2, potAmount: 42 } }));
+
+    const hands = readStoredHands();
+    expect(hands).toHaveLength(1);
+    expect(hands[0].playerTypes).toEqual({ 2: 'LAG' });
+    expect(hands[0].playerRoles).toEqual({ 1: 'human', 2: 'bot' });
+    // 覆盖确实生效（否则上面两条会因为「压根没写第二次」而假绿）
+    expect(hands[0].result).toEqual({ winner: P2, potAmount: 42 });
+  });
+
+  it('导入往返：快照随 hand 原样进库；同一 pair 重复导入不重复计数', async () => {
+    const payload = {
+      version: 3,
+      exportedAt: '2026-10-13T00:00:00.000Z',
+      hands: [withSnapshot()],
+    };
+    // jsdom 的 File.text() 各版本行为不一，用最小桩只实现读取端用到的 text()
+    const file = { text: async () => JSON.stringify(payload) } as unknown as File;
+
+    await expect(importStats(file)).resolves.toEqual({ success: true, hasProgress: false });
+
+    expect(readStoredHands()).toHaveLength(1);
+    expect(readStoredHands()[0].playerTypes).toEqual({ 2: 'LAG' });
+    expect(readStoredHands()[0].playerRoles).toEqual({ 1: 'human', 2: 'bot' });
+
+    // 同一个 handId 再导入一次：按 handId 去重，player-hand 不能 +2
+    await importStats(file);
+    expect(readStoredHands()).toHaveLength(1);
+    expect(getPlayerLongStats(P1).handsDealt).toBe(1);
   });
 });

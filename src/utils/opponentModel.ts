@@ -1,5 +1,7 @@
 import type { PlayerId, Player } from '../types/poker';
-import type { ActionEvent, HandRecord } from '../types/stats';
+import type { ActionEvent, HandRecord, PlayerRole } from '../types/stats';
+import type { BotTypeMap } from './botPersonality';
+import type { RandomSource } from './random';
 import {
   type VpipPfrStats,
   type PlayerStats,
@@ -39,7 +41,79 @@ function saveToStorage(): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(sessionData));
 }
 
-export function startNewHand(handId: string, players: PlayerId[]): void {
+// ── 稳定手牌身份：`sessionId + handOrdinal`（方案 §8.2） ───────────────────────
+//
+// 旧实现的手牌 id 是 `${handCounter}-${dealer}-${hero底牌}`，`handCounter` 是
+// **组件 ref**：返回菜单再开新盘会重挂载、计数归零，于是「同 dealer + 同底牌」
+// 的新盘手牌会生成与上一盘**完全相同**的 id。长期库 `saveHand` 按 handId 覆盖，
+// 旧手牌被悄悄吃掉，长期统计随之失真。
+//
+// 修法不是「把计数搬到模块级」——那只是把碰撞概率推远，而且会让「旧记录」被
+// 批量改写。改成一个**每盘必新的 `sessionId`**：跨盘手牌键天然不同，盘内再用
+// 单调递增的 `handOrdinal` 区分每一手。**旧记录保留原 id，不批量重写。**
+
+let sessionSeq = 0;
+let sessionId = '';
+
+/**
+ * 拼一个新的盘 id。
+ *
+ * 唯一性靠「毫秒时间戳 + 进程内自增序号」，**默认不消耗任何随机源** —— 见
+ * `beginSession` 的说明。传了 `random` 才额外掺一份噪声（测试注入用）。
+ */
+function nextSessionId(random?: RandomSource): string {
+  sessionSeq += 1;
+  const base = `${Date.now().toString(36)}-${sessionSeq.toString(36)}`;
+  return random
+    ? `${base}-${Math.floor(random() * 0x100000000).toString(36)}`
+    : base;
+}
+
+// 模块加载即分配一份：`makeHandId` 在任何调用点都拿得到非空 id。
+sessionId = nextSessionId();
+
+/**
+ * 新盘边界：换一个新的 `sessionId`（方案 §8.2）。
+ *
+ * 默认**不消耗随机源**，这是刻意的：`GameBoard` 在 `startGame`（洗牌）之前调用本
+ * 函数，多消耗一个 `Math.random()` 就会把播种的洗牌序列整体错位 ——
+ * `GameBoard.showdown.settlement` 这类用例靠 `jest.spyOn(Math, 'random')` 钉住
+ * 发牌结果，会被无声地翻掉。需要确定性的测试可显式注入 `random`。
+ */
+export function beginSession(random?: RandomSource): string {
+  sessionId = nextSessionId(random);
+  return sessionId;
+}
+
+/** 当前盘的 `sessionId`。手牌键的组成部分，不是用户可见数据。 */
+export function getSessionId(): string {
+  return sessionId;
+}
+
+/**
+ * 用「当前盘 sessionId + 盘内手序」拼出稳定手牌身份（方案 §8.2）。
+ *
+ * 公式只此一处：调用方（`GameBoard`）只负责推进手序，容器记录与 `ActionEvent`
+ * 共用同一个返回值 —— 旧实现两处各拼一遍字符串，改一处就会让「事件的 handId」
+ * 与「容器的 handId」分叉。
+ */
+export function makeHandId(handOrdinal: number): string {
+  return `${sessionId}-${handOrdinal}`;
+}
+
+/**
+ * 开新一手。
+ *
+ * `playerTypes` / `playerRoles` 是**开手快照**（方案 §8.2）：在开手那一刻复制，
+ * 之后不得再改 —— 它们与 `PlayerStats.playerType`（实测分类）是两种不可混淆的
+ * 身份（方案 §8.1）：分配 TAG 但实测 Fish 的样本仍留在 TAG 组。
+ */
+export function startNewHand(
+  handId: string,
+  players: PlayerId[],
+  playerTypes: BotTypeMap = {},
+  playerRoles: Partial<Record<PlayerId, PlayerRole>> = {},
+): void {
   loadFromStorage();
 
   // 同一手重复开局（组件重挂载 / StrictMode 双调用 / 新盘与恢复交错）时**必须**
@@ -55,7 +129,13 @@ export function startNewHand(handId: string, players: PlayerId[]): void {
     handId,
     timestamp: Date.now(),
     events: [],
-    players,
+    players: [...players],
+    // 开手快照（方案 §8.2）：必须在这里**复制**，不能直接引用 `state.botTypes`
+    // 之类的可变对象 —— 那样后续开新盘改写分配 map 会**追溯篡改**历史记录的归属。
+    // 关闭性格时传空 map（而不是省略字段），聚合侧据此区分「新记录且关闭」与
+    // 「旧记录无字段」（方案 §8.3）。
+    playerTypes: { ...playerTypes },
+    playerRoles: { ...playerRoles },
   };
 
   saveToStorage();
