@@ -26,3 +26,6 @@ coverage
 
 # AI assistant workspace (local notes / memory, never committed)
 .workbuddy-ai/
+
+# 本地方案预览产物（HTML 渲染 + 脚本）
+outputs/
