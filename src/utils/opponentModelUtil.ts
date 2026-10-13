@@ -254,33 +254,83 @@ export function detectLimpersFromEvents(
 }
 
 /**
- * 持续下注率。入参是**该玩家自己**的手牌记录（每手只含他自己的事件）——
- * 定义是「我翻前加注后，翻牌我是否继续下注」，所以要先按玩家过滤。
+ * 翻后动作是否**主动下注/加注**（c-bet、donk、check-raise 的判定共用）。
+ *
+ * - `raise` 恒为主动；
+ * - `allin`：加注式（`amount > toCall`，或面对无人下注的 `toCall = 0`）算主动，
+ *   跟注式（`amount <= toCall`）不算 —— 与 AF 的 all-in 口径一致；
+ * - 证据缺失的旧 all-in（无 `amount` 且 `toCall > 0`，`classifyAllInAggression`
+ *   返回 `null`）**保守视为主动**：这样在 donk 判定里不会把对手的下注漏掉，
+ *   从而不会错误地给出机会。
  */
-export function computeCBetFromEvents(hands: HandRecordLike[]): number | null {
+function isAggressivePostflop(e: ActionEvent): boolean {
+  if (e.action === 'raise') return true;
+  if (e.action === 'allin') return classifyAllInAggression(e) !== false;
+  return false;
+}
+
+/**
+ * 该手牌**真实的最后翻前进攻者**（最后一个自愿加注的人，含加注式全下）。
+ *
+ * 用事件**数组顺序**（记录顺序 = 真实行动顺序）取最后一个加注，**不按
+ * `timestamp` 排序** —— `Date.now()` 在同一毫秒内会给多个动作相同的时间戳，
+ * 而 `sort(降序)[0]` 在时间戳相等时（稳定排序保留相对顺序）取到的是**第一个**
+ * 加注者，于是「最后进攻者」被判错，c-bet / fold-to-c-bet 的归属就全乱了。
+ */
+function lastPreflopRaiser(hand: HandRecordLike): ActionEvent | undefined {
+  let last: ActionEvent | undefined;
+  for (const e of hand.events) {
+    if (e.phase === 'preflop' && isPreflopRaise(e)) last = e;
+  }
+  return last;
+}
+
+/**
+ * 该手牌某条街、某玩家**首次决策前是否已被对手抢先主动下注**（donk）。
+ *
+ * 机会口径的关键：进攻者若在轮到自己之前就被对手下注抢先，就没有「持续下注」
+ * 的机会，不该进分母（plan §9.2：被抢先下注非机会）。
+ */
+function wasDonkedBefore(
+  streetEvents: ActionEvent[],
+  playerId: PlayerId,
+): boolean {
+  const firstIdx = streetEvents.findIndex(e => e.playerId === playerId);
+  if (firstIdx < 0) return false;
+  return streetEvents
+    .slice(0, firstIdx)
+    .some(e => e.playerId !== playerId && isAggressivePostflop(e));
+}
+
+/**
+ * 持续下注率（C-bet）。入参必须是**完整**手牌记录 —— 必须看到全桌的动作才能
+ * 找到真实的最后翻前进攻者。
+ *
+ * - 机会 = 我（真实的最后翻前进攻者）到翻牌、可行动，且首次决策前未被对手 donk；
+ * - 分子 = 我翻牌首次合法主动下注。
+ *
+ * 旧实现先按玩家过滤再找「最后加注者」，会把「自己开池后被别人 3-bet、翻牌由
+ * 对手下注」误算成我的 c-bet 机会；被 donk 抢先下注也仍计入分母。
+ */
+export function computeCBetFromEvents(
+  playerId: PlayerId,
+  hands: HandRecordLike[],
+): number | null {
   let opportunities = 0;
   let cbets = 0;
 
   for (const hand of hands) {
-    const preflopEvents = hand.events.filter(e => e.phase === 'preflop');
-    const lastRaiser = preflopEvents
-      .filter(e => e.action === 'raise')
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
-
-    if (!lastRaiser) continue;
+    const aggressor = lastPreflopRaiser(hand);
+    if (!aggressor || aggressor.playerId !== playerId) continue;
 
     const flopEvents = hand.events.filter(e => e.phase === 'flop');
-    if (flopEvents.length === 0) continue;
+    const firstIdx = flopEvents.findIndex(e => e.playerId === playerId);
+    // 没走到翻牌 / 全下 runout 无行动能力 → 非机会
+    if (firstIdx < 0) continue;
+    if (wasDonkedBefore(flopEvents, playerId)) continue;
 
     opportunities++;
-
-    const raiserFlopEvents = flopEvents.filter(e => e.playerId === lastRaiser.playerId);
-    if (raiserFlopEvents.length === 0) continue;
-
-    const firstFlopAction = raiserFlopEvents.sort((a, b) => a.timestamp - b.timestamp)[0];
-    if (firstFlopAction.action === 'raise' || firstFlopAction.action === 'allin') {
-      cbets++;
-    }
+    if (isAggressivePostflop(flopEvents[firstIdx])) cbets++;
   }
 
   return opportunities > 0 ? (cbets / opportunities) * 100 : null;
@@ -360,38 +410,53 @@ export function computeWSDFromEvents(
   return showdowns > 0 ? (wins / showdowns) * 100 : null;
 }
 
-export function computeCheckRaiseFromEvents(events: ActionEvent[]): number | null {
-  const eventsByHand = groupEventsByHand(events);
+/**
+ * Check-raise 率。入参必须是**完整**手牌记录，且玩家身份**显式传入**。
+ *
+ * - 机会 = 我在某街首个动作是 check，且之后**确实面对了对手的主动下注**
+ *   （才有再加注权）；分子 = 我随后主动加注。
+ * - 所有人互相 check 过牌不是机会（没有下注可加注）；
+ * - 每街最多 1 次。
+ *
+ * 旧实现用 `events[0].playerId` 猜目标 —— 一旦喂进完整记录，`events[0]` 是
+ * 「全局第一个动作的人」，于是 check-raise 被算到了别人头上；而且只按玩家过滤
+ * 后的事件列表判断，根本看不到对手的下注，「面对下注」这一半条件形同虚设。
+ */
+export function computeCheckRaiseFromEvents(
+  playerId: PlayerId,
+  hands: HandRecordLike[],
+): number | null {
   let opportunities = 0;
   let checkRaises = 0;
 
-  for (const handEvents of eventsByHand.values()) {
-    const postflopEvents = handEvents.filter(e => e.phase !== 'preflop');
-    
-    const streets = ['flop', 'turn', 'river'] as const;
+  const streets = ['flop', 'turn', 'river'] as const;
+
+  for (const hand of hands) {
     for (const street of streets) {
-      const streetEvents = postflopEvents
-        .filter(e => e.phase === street)
-        .sort((a, b) => a.timestamp - b.timestamp);  // 按时间排序
-      
+      const streetEvents = hand.events.filter(e => e.phase === street);
       if (streetEvents.length === 0) continue;
 
-      // 找到玩家的第一个动作
-      const playerEvents = streetEvents.filter(e => e.playerId === events[0].playerId);
-      if (playerEvents.length === 0) continue;
+      const firstIdx = streetEvents.findIndex(e => e.playerId === playerId);
+      if (firstIdx < 0) continue;
+      // 只有首个动作是 check 才有 check-raise 机会
+      if (streetEvents[firstIdx].action !== 'check') continue;
 
-      const firstAction = playerEvents[0];
-      
-      // 只有当第一个动作是 check 时，才有 check-raise 机会
-      if (firstAction.action === 'check') {
-        opportunities++;
-        
-        // 检查是否有后续的 raise
-        const hasRaiseAfterCheck = playerEvents.slice(1).some(e => e.action === 'raise');
-        if (hasRaiseAfterCheck) {
-          checkRaises++;
+      // 从我 check 之后扫描：对手下注（进攻）→ 有再加注权；轮到我 → 停止
+      let facedBet = false;
+      let response: ActionEvent | null = null;
+      for (let i = firstIdx + 1; i < streetEvents.length; i++) {
+        const e = streetEvents[i];
+        if (e.playerId === playerId) {
+          response = e;
+          break;
         }
+        if (isAggressivePostflop(e)) facedBet = true;
       }
+
+      if (!facedBet) continue; // 没人下注 → 不是机会
+
+      opportunities++;
+      if (response && isAggressivePostflop(response)) checkRaises++;
     }
   }
 
@@ -412,6 +477,14 @@ function groupEventsByHand(events: ActionEvent[]): Map<string, ActionEvent[]> {
 /**
  * 3-bet 率。入参必须是**完整**手牌记录 —— 机会的定义是「有人在我之前翻前加注」，
  * 所以必须看得到对手的动作。喂进按玩家过滤过的记录时机会恒为 0，结果恒为 `null`。
+ *
+ * 机会 = 轮到我行动时，前面**恰好有一次**由别人做出的自愿加注（一个 open），
+ * 且我可以合法再加注；分子 = 我这次做再加注。每手最多 1 次。
+ *
+ * - 自己先 open、别人 3-bet 之后我再加注 → 我面对的是两个加注（4-bet），
+ *   不是 3-bet 机会（旧实现只看「别人是否曾加注」，会误判）；
+ * - 先 limp（跟注）后面对 open 再 3-bet → 在「面对 open」那一刻判定，是机会；
+ * - 低于 `toCall` 的全下是跟注，不是 3-bet（`isPreflopRaise` 已区分）。
  */
 export function compute3BetFromEvents(
   playerId: PlayerId,
@@ -421,26 +494,26 @@ export function compute3BetFromEvents(
   let threeBets = 0;
 
   for (const hand of hands) {
-    const preflopEvents = hand.events
-      .filter(e => e.phase === 'preflop')
-      .sort((a, b) => a.timestamp - b.timestamp);
+    const preflop = hand.events.filter(e => e.phase === 'preflop');
 
-    if (preflopEvents.length === 0) continue;
+    let raisesBefore = 0;
+    let opportunity = false;
+    let threeBet = false;
 
-    const otherRaises = preflopEvents.filter(
-      e => e.playerId !== playerId && (e.action === 'raise' || e.action === 'allin')
-    );
-    if (otherRaises.length === 0) continue;
+    for (const e of preflop) {
+      // 轮到我行动：之前恰好一次加注 → 我面对一个 open，可再加注
+      if (e.playerId === playerId) {
+        if (!opportunity && raisesBefore === 1) {
+          opportunity = true;
+          if (isPreflopRaise(e)) threeBet = true;
+        }
+      }
+      if (isPreflopRaise(e)) raisesBefore++;
+    }
 
-    const playerPreflopEvents = preflopEvents.filter(e => e.playerId === playerId);
-    // 自己翻前没行动过（例如不在这手牌里）→ 谈不上「面对加注」，不算机会
-    if (playerPreflopEvents.length === 0) continue;
-
-    opportunities++;
-
-    const firstAction = playerPreflopEvents[0];
-    if (firstAction.action === 'raise' || firstAction.action === 'allin') {
-      threeBets++;
+    if (opportunity) {
+      opportunities++;
+      if (threeBet) threeBets++;
     }
   }
 
@@ -450,6 +523,12 @@ export function compute3BetFromEvents(
 /**
  * 面对 c-bet 的弃牌率。入参必须是**完整**手牌记录 —— 定义是「对手翻前加注并持续下注后，
  * 我是否弃牌」，必须看得到对手的加注与下注；喂过滤后的记录会恒为 `null`。
+ *
+ * - 机会 = 对手（真实的最后翻前进攻者）在翻牌持续下注，且我**在没有中间加注**的
+ *   情况下直接轮到面对这个 c-bet；分子 = 我直接弃牌。每手最多 1 次。
+ * - 我先 check、对手再 c-bet、我再弃牌 → 也算（我是对 c-bet 弃牌）；
+ * - c-bet 之后、轮到我之前若有人加注 → 我不再是「直接面对 c-bet」→ 非机会；
+ * - 翻前就弃牌 / 没走到翻牌 → 非机会（否则会把分母拉大、比率被稀释）。
  */
 export function computeFoldToCbetFromEvents(
   playerId: PlayerId,
@@ -459,38 +538,31 @@ export function computeFoldToCbetFromEvents(
   let folds = 0;
 
   for (const hand of hands) {
-    const preflopEvents = hand.events
-      .filter(e => e.phase === 'preflop')
-      .sort((a, b) => a.timestamp - b.timestamp);
+    const aggressor = lastPreflopRaiser(hand);
+    if (!aggressor || aggressor.playerId === playerId) continue;
 
-    const lastRaiser = preflopEvents
-      .filter(e => e.action === 'raise')
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    const flopEvents = hand.events.filter(e => e.phase === 'flop');
 
-    if (!lastRaiser || lastRaiser.playerId === playerId) continue;
+    // 进攻者必须真的 c-bet：他到翻牌、首次决策前未被 donk、且首次动作是主动下注
+    const aggressorIdx = flopEvents.findIndex(e => e.playerId === aggressor.playerId);
+    if (aggressorIdx < 0) continue;
+    if (wasDonkedBefore(flopEvents, aggressor.playerId)) continue;
+    if (!isAggressivePostflop(flopEvents[aggressorIdx])) continue;
 
-    const flopEvents = hand.events
-      .filter(e => e.phase === 'flop')
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    if (flopEvents.length === 0) continue;
-
-    const raiserFlopEvents = flopEvents.filter(e => e.playerId === lastRaiser.playerId);
-    if (raiserFlopEvents.length === 0) continue;
-
-    const firstFlopAction = raiserFlopEvents[0];
-    if (firstFlopAction.action !== 'raise' && firstFlopAction.action !== 'allin') continue;
-
-    // 机会的定义是「我在翻牌面对了对手的 c-bet」，所以自己必须先走到翻牌：
-    // 翻前就弃牌、或压根不在这手牌里的，不该被算成一次机会（那会拉低这个比率）。
-    const playerFlopEvents = flopEvents.filter(e => e.playerId === playerId);
-    if (playerFlopEvents.length === 0) continue;
+    // 从 c-bet 之后向前扫：轮到我之前若有人再加注 → 非机会
+    let responseIdx = -1;
+    for (let i = aggressorIdx + 1; i < flopEvents.length; i++) {
+      const e = flopEvents[i];
+      if (e.playerId === playerId) {
+        responseIdx = i;
+        break;
+      }
+      if (isAggressivePostflop(e)) break; // 被插入加注
+    }
+    if (responseIdx < 0) continue;
 
     opportunities++;
-
-    if (playerFlopEvents[0].action === 'fold') {
-      folds++;
-    }
+    if (flopEvents[responseIdx].action === 'fold') folds++;
   }
 
   return opportunities > 0 ? (folds / opportunities) * 100 : null;
@@ -524,8 +596,14 @@ export function computeAFqFromEvents(events: ActionEvent[]): number | null {
 }
 
 /**
- * 转牌持续下注率（在翻牌 c-bet 之后）。入参是**该玩家自己**的手牌记录 ——
- * 需要判定 `lastRaiser` 就是该玩家，所以必须先按玩家过滤。
+ * 转牌持续下注率（在翻牌 c-bet 之后）。入参必须是**完整**手牌记录 ——
+ * 需要判定真实最后进攻者就是该玩家。
+ *
+ * - 分母 = 我 flop 真实 c-bet，且**打到转牌**、可行动、未被对手 donk 抢先的手数；
+ * - 分子 = 我在转牌首次合法主动下注。
+ *
+ * 仅 flop c-bet 但没见转牌（例如翻牌就结束、或全下 runout 后直接摊牌）**不计入
+ * 分母** —— 旧实现在确认 c-bet 后就先给分母 +1，会把这类手数算进分母。
  */
 export function computeTurnCbetFromEvents(
   playerId: PlayerId,
@@ -535,43 +613,23 @@ export function computeTurnCbetFromEvents(
   let turnCbets = 0;
 
   for (const hand of hands) {
-    const preflopEvents = hand.events
-      .filter(e => e.phase === 'preflop')
-      .sort((a, b) => a.timestamp - b.timestamp);
+    const aggressor = lastPreflopRaiser(hand);
+    if (!aggressor || aggressor.playerId !== playerId) continue;
 
-    const lastRaiser = preflopEvents
-      .filter(e => e.action === 'raise')
-      .sort((a, b) => b.timestamp - a.timestamp)[0];
+    const flopEvents = hand.events.filter(e => e.phase === 'flop');
+    const flopIdx = flopEvents.findIndex(e => e.playerId === playerId);
+    if (flopIdx < 0) continue;
+    if (wasDonkedBefore(flopEvents, playerId)) continue;
+    if (!isAggressivePostflop(flopEvents[flopIdx])) continue; // 翻牌没 c-bet
 
-    if (!lastRaiser || lastRaiser.playerId !== playerId) continue;
-
-    const flopEvents = hand.events
-      .filter(e => e.phase === 'flop')
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    if (flopEvents.length === 0) continue;
-
-    const raiserFlopEvents = flopEvents.filter(e => e.playerId === lastRaiser.playerId);
-    if (raiserFlopEvents.length === 0) continue;
-
-    const firstFlopAction = raiserFlopEvents[0];
-    if (firstFlopAction.action !== 'raise' && firstFlopAction.action !== 'allin') continue;
+    // 必须打到转牌才算分母
+    const turnEvents = hand.events.filter(e => e.phase === 'turn');
+    const turnIdx = turnEvents.findIndex(e => e.playerId === playerId);
+    if (turnIdx < 0) continue;
+    if (wasDonkedBefore(turnEvents, playerId)) continue;
 
     flopCbets++;
-
-    const turnEvents = hand.events
-      .filter(e => e.phase === 'turn')
-      .sort((a, b) => a.timestamp - b.timestamp);
-
-    if (turnEvents.length === 0) continue;
-
-    const raiserTurnEvents = turnEvents.filter(e => e.playerId === lastRaiser.playerId);
-    if (raiserTurnEvents.length === 0) continue;
-
-    const firstTurnAction = raiserTurnEvents[0];
-    if (firstTurnAction.action === 'raise' || firstTurnAction.action === 'allin') {
-      turnCbets++;
-    }
+    if (isAggressivePostflop(turnEvents[turnIdx])) turnCbets++;
   }
 
   return flopCbets > 0 ? (turnCbets / flopCbets) * 100 : null;
@@ -734,14 +792,15 @@ export function computePlayerStatsFromEvents(
     afAggressive: afDetail.aggressive,
     afCalls: afDetail.calls,
     afUnknownAllIns: afDetail.unknownAllIns,
-    checkRaise: computeCheckRaiseFromEvents(events),
     afq: computeAFqFromEvents(events),
-    // 只看自己的动作 → 用过滤后的手牌
-    cbet: computeCBetFromEvents(playerHands),
+    // WTSD / WSD 只看自己的动作 → 用过滤后的手牌
     wtsd: computeWTSDFromEvents(playerId, playerHands),
     wsd: computeWSDFromEvents(playerId, playerHands),
-    turnCbet: computeTurnCbetFromEvents(playerId, playerHands),
-    // 必须看到对手的动作 → 用完整手牌（限定在该玩家参与过的手牌里）
+    // 下面这些必须看到**全桌**的动作（真实最后进攻者、donk、面对的下注、
+    // 面对几次加注）→ 一律用完整手牌，由各函数自己按 playerId 过滤
+    cbet: computeCBetFromEvents(playerId, dealtHands),
+    turnCbet: computeTurnCbetFromEvents(playerId, dealtHands),
+    checkRaise: computeCheckRaiseFromEvents(playerId, dealtHands),
     threeBet: compute3BetFromEvents(playerId, dealtHands),
     foldToCbet: computeFoldToCbetFromEvents(playerId, dealtHands),
   };
