@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 coverage
+# vite 依赖预构建缓存（见 vite.config.ts 的 cacheDir）
+.vite-cache
 
 # Editor directories and files
 .vscode/*
