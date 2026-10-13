@@ -1,12 +1,12 @@
 # Bot 性格（Player Personality）改动计划
 
-> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计修复已开始实施**：P0a、P0b 已提交并验证（见第 16 节）。fixture 未生成、persona 未接线。  
+> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节）。persona 未接线。  
 > 本文件是本次讨论的唯一权威方案；继续讨论时更新此文件，不另建版本副本。
 >
 > **最后更新**：2026-10-13  
 > **源码基线**：`workbuddy/main-30908a87` @ `e54d4e3`（2026-10-12 自 `origin/main` fast-forward；含 PR #16 的 SPR/ICM 与后续 passive-all-in 改动）。行号均绑定此 SHA，不表示今后 main 不会变化。  
 > **备份分支**：`backup/pre-personality-sync-20261012`（同步前 `6ed9980`）、`backup/pre-personality-sync2-e350939`（`e350939`）。  
-> **后续 golden 基线**：完成**全部**前置修复（P0a–P0g）后、注入任何性格行为前的 SHA，实施时填入；**不是 e54d4e3，也不是 e350939**。
+> **后续 golden 基线**：`5418246`（P0a–P0g 全部完成、persona 未接线时的 HEAD；即 `botDecisionBaseline.json` 的 `meta.baselineSha`）。**不是 e54d4e3，也不是 e350939**。
 
 ## 0. 变更记录与阅读约定
 
@@ -704,6 +704,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P0e | `39ea1b5` | 加注金额走**最终合法化层** `legalizeRaise`（finite / 取整数筹码单位 / 非负 / 超筹码按合法全下截断 / 最小全额加注 / 加注权 / 无人可应）；新增 `isActionAccepted` 作为 reducer 与 GameBoard 共用的**唯一**接受口径，被拒绝的动作不派发也不记统计事件；`check` 面对下注拒绝、`call` 跟注不够拒绝、已弃牌/已全下玩家不再行动 | 12 聚焦套件 158 通过（含新增 `useGameState.actionLegality.test.ts`，覆盖 §7.4 反例）；`tsc -b` 通过；eslint 0 error |
 | P0f | `1743459` | 会话画像改**按盘累积**（决策 40）：`resetRound` 不再每手清空统计；`startNewHand` 对同一 handId 幂等（当前手不重复）；「新盘清」仍由 GameBoard 初始挂载与牌桌内开新局按钮负责；`useGameState` 因此不再依赖 `opponentModel` | 8 聚焦套件 190 通过（含新增 `useGameState.sessionLifecycle.test.ts`）；`tsc -b` 通过；eslint 0 error |
 | P0g | `8baa8ca` | 位置标志抽成共用 `computePositionFlags`（botAI `ctx` 与面板展示共用一份公式，删除面板的第二份拷贝）；**早位排除盲位**（决策 41，详见 §16.1） | 9 聚焦套件 283 通过（含新增 `position.test.ts`）；`tsc -b` 通过；eslint 0 error |
+| P1 | `8ad5a80` | **无 persona 基线 fixture**（方案 §10.2/§10.3）：新增 `__fixtures__/botDecisionBaseline.json`（13 case：6 入口 preflop/flop/turn/river × heuristic/gto、短筹码 push、深筹码 veryDeep、锦标赛 ICM、抽水、对手会话画像、确定性/混合分支）、case 定义与读写辅助 `helpers/botDecisionBaseline.ts`、生成/校验测试 `botAI.decisionBaseline.test.ts`。冻结 `action`/`amount` + `equityCalls`/`equityIterations`/`equityNumOpponents` + `strategyRandomCalls`；两个随机源分别固定（策略 seed / `Math.random`）；每 case 唯一牌面避免 `boardTexture` 按牌面 memo 跨 case 命中；生成走显式 env 门控（`UPDATE_BOT_DECISION_BASELINE=1`），默认只校验不写盘 | `npx jest botAI`：3 套件 60 通过（含新增 14 用例）；生成 + 校验两次独立运行回放一致；`tsc -b` 通过；eslint 0 error |
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -722,13 +723,16 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   ② 6 人桌 UTG（position 3）同时落进 `isMiddlePosition` 与 `isLatePosition`；
   ③ 小桌（2–4 人）的 `isLatePosition` 仍会命中盲位。
 
-- 已完成：**P0a–P0g（前置修复全部完成）**。
+- 已完成：**P0a–P0g（前置修复全部完成）** + **P1（无 persona 基线 fixture，基线 SHA `5418246`）**。
 - 期间新增聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、
   `opponentModelUtil.wtsdWsd.test.ts`（P0b）、`opponentModelUtil.opportunityCounts.test.ts`（P0c）、
   `useGameState.preflopChain.test.ts`（P0d）、`useGameState.actionLegality.test.ts`（P0e）、
-  `useGameState.sessionLifecycle.test.ts`（P0f）、`position.test.ts`（P0g）。
-- 下一步：P1 基线 fixture（须在**全部前置修复之后、接线 persona 之前**生成 SHA，不得用
-  `e350939` 锁死修复前行为），随后 P2 分类器、P3–P9。
+  `useGameState.sessionLifecycle.test.ts`（P0f）、`position.test.ts`（P0g）、
+  `botAI.decisionBaseline.test.ts` + `helpers/botDecisionBaseline.ts` + `__fixtures__/botDecisionBaseline.json`（P1）。
+- 下一步：P2 分类器重写 + Fish 展示（`opponentModelUtil` / `translations` / `PlayerStatsTable`），
+  随后 P3 persona 参数与配额 → P4 生命周期/开关/持久化 → P5 开手快照与稳定 handId →
+  P6a/b/c 分入口 persona 行为 → P7 按分配类型聚合 → P8a/8b 座位标签与两行影子 →
+  P9 闭环 runner 与参数校准 → P10 文档与发布门。
 - 实现细节以本文件为准；提交历史见上述 SHA。
 
 ## 17. 明确不做与下一步
@@ -736,6 +740,6 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 - 不写六套独立AI、不把TAG/LAG标签当实力保证、不修改已决分类树以追校准数字。
 - 不增加滑动窗口、不删除/重置用户1166手统计、不依据当前座位补写历史分配身份。
 - 不把7/8完整位置统一、任意中途续手、真实身份ID、gtoShortStack既有其他债自动捆入本次实现；已发现风险按第13节（决策 34/41/42）范围处理。
-- 本轮已完成 P0 前置修复 **P0a–P0g**（逐项独立提交，含 P0g 复核结论见 16.1）；仍**未**生成
-  fixture、**未**接线 persona。下一轮从 P1 基线 fixture 开始（须在前置修复之后生成 SHA），
-  按 P1→P10 顺序继续。
+- 已完成 P0 前置修复 **P0a–P0g**（逐项独立提交，含 P0g 复核结论见 16.1）与 **P1 无 persona
+  基线 fixture**（`8ad5a80`，基线 SHA `5418246`）；仍**未**接线 persona。下一轮从 P2
+  分类器 + Fish 展示开始，按 P2→P10 顺序继续。
