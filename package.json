@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "jest",
-    "e2eTests": "jest src/e2eTests"
+    "e2eTests": "jest src/e2eTests",
+    "calibrate": "node scripts/calibrate.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

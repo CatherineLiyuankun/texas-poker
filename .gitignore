@@ -31,3 +31,7 @@ coverage
 
 # 本地方案预览产物（HTML 渲染 + 脚本）
 outputs/
+
+# 闭环校准 runner 的中间产物与报告（见 scripts/calibrate.mjs）
+scripts/.out/
+scripts/reports/
