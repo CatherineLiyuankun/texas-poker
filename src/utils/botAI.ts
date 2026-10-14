@@ -7,7 +7,7 @@ import {
   canFold,
 } from '../hooks/useGameState';
 import { getPreflopTier } from './preflopHandStrength';
-import { calculateRangeAwareEquity } from './rangeEquity';
+import { calculateRangeAwareEquity, withSharedEquity } from './rangeEquity';
 import {
   calculateOpponentProfile,
   getOpponentAdjustments,
@@ -54,6 +54,7 @@ import {
   renormalizeAggression,
   scaleBetAmount,
   shiftThreshold,
+  type BotPersonality,
   type PersonalityParams,
 } from './botPersonality';
 
@@ -1283,7 +1284,19 @@ function decideRiver(
   return { action: flags.canCallResult ? 'call' : 'fold' };
 }
 
-export function getBotAction(player: Player, state: GameState): BotDecision {
+/**
+ * 机器人决策的共用入口。
+ *
+ * @param assumedType **显式假设**的性格，覆盖 `player.botType`（方案 §11.2 / §7.2 第 12 行）。
+ *   只给面板的「影子决策」用 —— 真人座位恒无 `botType`，要问「这一手如果交给紧凶 /
+ *   松凶机器人会怎么打」就必须从外面注入。**不传时行为与加参数前逐位相同**
+ *   （`personaParamsFor(undefined)` 走精确恒等路径）。
+ */
+export function getBotAction(
+  player: Player,
+  state: GameState,
+  assumedType?: BotPersonality,
+): BotDecision {
   // 行动记录已移至 GameBoard.tsx 统一管理（每个行动只记录一次）
   const potOddsInfo = computePotOddsFor(state, player);
   const toCall = potOddsInfo.toCall;
@@ -1377,7 +1390,9 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
   // （`decideRiverGTO`）也透传。至此 §7.2 的六入口全部接线；短筹码 / 深筹码的
   // 早返回在 P6b-4。P6c-3 起**尺寸**（`sizingMult`）也在本函数末尾统一变换
   // （见下面「唯一一处缩放点」）。`undefined` 时所有入口都是精确恒等路径。
-  const persona = personaParamsFor(player.botType);
+  // `assumedType` 优先：影子决策（面板两行）要问「这个真人座位**如果**是 TAG/LAG
+  // 会怎么打」，而真人座位恒无 `botType`，只能从外面注入（§11.2 / §7.2 第 12 行）。
+  const persona = personaParamsFor(assumedType ?? player.botType);
 
   const raw = decideByPhase();
 
@@ -1440,7 +1455,11 @@ export function getBotAction(player: Player, state: GameState): BotDecision {
  *
  * 刻意不把「随机」交给全局源 —— 见 `getShadowBotAction`。
  */
-function shadowSeed(state: GameState, playerId: PlayerId): number {
+function shadowSeed(
+  state: GameState,
+  playerId: PlayerId,
+  assumedType: BotPersonality | undefined,
+): number {
   const signature = [
     state.phase,
     playerId,
@@ -1449,6 +1468,14 @@ function shadowSeed(state: GameState, playerId: PlayerId): number {
     state.lastBet,
     state.lastRaiseBet,
     state.mainPot,
+    // §11.2「策略 seed/cache 签名覆盖 … persona」：两行必须走**不同子流**，
+    // 否则同一局面下两行会落在同一次混合频率抽样上，两行的差异被掩盖。
+    //
+    // ⚠️ **只在显式假设时**才追加：不传 `assumedType` 时签名与加参数前逐字相同，
+    // 于是「无 persona 路径」的抽样、以及既有面板/测试的行为**逐位不变**
+    // （无条件追加一个常量 `'auto'` 会改掉默认种子，实测已把
+    // `botAI.test.ts` 的「局面变化会换抽样」用例翻红）。
+    ...(assumedType === undefined ? [] : [assumedType]),
     ...state.players.map(
       (p) => `${p.id}:${p.folded ? 1 : 0}:${p.bet}:${p.totalBet}:${p.chips}`,
     ),
@@ -1479,14 +1506,81 @@ function shadowSeed(state: GameState, playerId: PlayerId): number {
  * ⚠️ 这是**假设性**结果：机器人真实动作还受它自己那一刻的随机抽样影响，
  * 两者可以合法地不同（混合频率的意义就在这里）。
  */
-export function getShadowBotAction(player: Player, state: GameState): BotDecision {
+export function getShadowBotAction(
+  player: Player,
+  state: GameState,
+  assumedType?: BotPersonality,
+): BotDecision {
   const previous = getRandomSource();
-  setRandomSource(mulberry32(shadowSeed(state, player.id)));
+  setRandomSource(mulberry32(shadowSeed(state, player.id, assumedType)));
   try {
-    return getBotAction(player, state);
+    return getBotAction(player, state, assumedType);
   } finally {
     setRandomSource(previous);
   }
+}
+
+/**
+ * 面板两行影子决策的**固定**假设性格（方案 §11.2）：`Bot 紧凶Action` / `Bot 松凶Action`。
+ *
+ * 固定为 TAG / LAG 与当前盘的**实际分配无关** —— 面板回答的是「这个座位如果由紧凶 /
+ * 松凶机器人来打会怎么做」，所以当盘没有这两类 Bot、甚至整盘关闭性格，两行都要在。
+ */
+export const SHADOW_ASSUMED_TYPES = ['TAG', 'LAG'] as const;
+export type ShadowAssumedType = (typeof SHADOW_ASSUMED_TYPES)[number];
+
+/** 面板的一行影子决策。 */
+export interface ShadowActionRow {
+  assumedType: ShadowAssumedType;
+  /**
+   * 决策结果。`null` = 当前**没有可行动作**（面板显示 `— / 无可行动作`），
+   * 注意这**不是**「没有这一行」—— §11.2 要求两行恒在。
+   */
+  decision: BotDecision | null;
+}
+
+/**
+ * 当前局面下这个座位是否「没什么可问的」（§11.2：不强算动作）。
+ *
+ * 覆盖：已结算（`showdown` / `ended`）、已弃牌、已全下、没有筹码、底牌不完整。
+ * 这些情况下不跑决策（省掉一次蒙特卡洛），两行都显示占位符。
+ */
+function hasNoActionableDecision(player: Player, state: GameState): boolean {
+  if (state.phase === 'showdown' || state.phase === 'ended') return true;
+  if (player.folded || player.allIn) return true;
+  if (player.chips <= 0) return true;
+  if (player.hand.length < 2) return true;
+  return false;
+}
+
+/**
+ * 面板的两行影子决策（方案 §11.2，P8b）。
+ *
+ * 与逐个调 `getShadowBotAction` 的区别：
+ * 1. **两行共享一次权益**。`withSharedEquity` 把两次评估包在同一个作用域里，
+ *    第二次直接命中第一次算出的权益 —— 否则两行的差异里会掺进蒙特卡洛抽样噪声，
+ *    「同局面下两种性格会怎么打」的对比就不干净了（`calculateRangeAwareEquity`
+ *    用 `Math.random()`，两次调用必然不同）。
+ * 2. **策略随机各自独立**。两次 `getShadowBotAction` 各按
+ *    `(局面, 座位, 假设性格)` 派生自己的 PRNG，且都**不消耗全局策略流**。
+ * 3. **没有可行动作时不算**，两行都返回 `decision: null`（面板显示占位符，两行不消失）。
+ */
+export function getShadowBotActions(
+  player: Player,
+  state: GameState,
+): ShadowActionRow[] {
+  if (hasNoActionableDecision(player, state)) {
+    return SHADOW_ASSUMED_TYPES.map((assumedType) => ({
+      assumedType,
+      decision: null,
+    }));
+  }
+  return withSharedEquity(() =>
+    SHADOW_ASSUMED_TYPES.map((assumedType) => ({
+      assumedType,
+      decision: getShadowBotAction(player, state, assumedType),
+    })),
+  );
 }
 
 export function getBotName(botIndex: number): string {
