@@ -479,6 +479,59 @@ export function estimateOpponentCombos(
   };
 }
 
+// ─── 「共享权益」作用域缓存（方案 §11.2，P8b）─────────────────────────────────
+//
+// 面板的 TAG/LAG 两行影子决策必须看**同一个**权益值：`calculateRangeAwareEquity`
+// 是蒙特卡洛（`Math.random()`），两次调用必然不同，两行差异里就会掺进抽样噪声，
+// 「同局面下两种性格会怎么打」这个对比也就不干净了（§11.2「两行共享一次相同权益」）。
+//
+// 做法是**显式作用域**而不是长期 memo：权益依赖对手画像，而画像会随牌局变化，
+// 长期缓存会拿到过期值。`withSharedEquity` 只在作用域内装一个按
+// 「hero 座位 + 底牌 + 牌面 + 对手数 + 迭代数 + 范围签名」为键的 Map，
+// `finally` 里还原（含抛错路径），作用域外**零影响** —— 不进入作用域时
+// `sharedEquityCache` 恒为 `null`，行为与加缓存前逐位相同。
+//
+// 与 `setRandomSource`（`utils/random.ts`）同型：同步作用域内临时换全局、`finally`
+// 还原。⚠️ 只对**同步**调用链成立；若将来引入异步评估，必须改成显式注入，
+// 否则两个并发作用域会互相污染（§11.2 原文）。
+let sharedEquityCache: Map<string, number> | null = null;
+
+/**
+ * 在 `fn` 的**同步**执行期间共享 `calculateRangeAwareEquity` 的结果。
+ *
+ * 同一作用域内、同一 (hero, 牌面, 对手数, 迭代数, 对手范围) 的第二次及以后的调用
+ * 直接返回第一次的权益值。支持嵌套（内层作用域独立，退出后恢复外层）。
+ */
+export function withSharedEquity<T>(fn: () => T): T {
+  const previous = sharedEquityCache;
+  sharedEquityCache = new Map();
+  try {
+    return fn();
+  } finally {
+    sharedEquityCache = previous;
+  }
+}
+
+/** 共享缓存的键。必须覆盖**所有**影响权益的输入，否则会返回错误的值。 */
+function sharedEquityKey(
+  hero: Player,
+  community: Card[],
+  numOpponents: number,
+  iterations: number,
+  range: EstimatedRange | null,
+): string {
+  return [
+    hero.id,
+    hero.hand.map(cardKey).join(''),
+    community.map(cardKey).join(''),
+    numOpponents,
+    iterations,
+    // 范围签名已覆盖「谁是对手 / 位置 / 画像 / 行动线」；`combos.length` 是额外的
+    // 安全项 —— 万一将来签名漏了某个影响组合数的输入，键也会不同。
+    range ? `${range.signature}|${range.combos.length}` : 'no-range',
+  ].join('|');
+}
+
 // Equity vs the opponent's estimated continuing range, falling back to
 // random-hand equity when no range can be inferred.
 export function calculateRangeAwareEquity(
@@ -489,10 +542,22 @@ export function calculateRangeAwareEquity(
   iterations: number,
 ): number {
   const range = estimateOpponentCombos(hero, state, community);
-  if (!range) {
-    return calculateEquity(hero.hand, community, numOpponents, iterations);
+  // 作用域外（`sharedEquityCache === null`）这条路一次都不走 ⇒ 逐位不变。
+  const key =
+    sharedEquityCache === null
+      ? null
+      : sharedEquityKey(hero, community, numOpponents, iterations, range);
+  if (key !== null) {
+    const cached = sharedEquityCache!.get(key);
+    if (cached !== undefined) return cached;
   }
-  return calculateEquity(hero.hand, community, numOpponents, iterations, {
-    weightedCombos: range.combos,
-  });
+
+  const equity = range
+    ? calculateEquity(hero.hand, community, numOpponents, iterations, {
+        weightedCombos: range.combos,
+      })
+    : calculateEquity(hero.hand, community, numOpponents, iterations);
+
+  if (key !== null) sharedEquityCache!.set(key, equity);
+  return equity;
 }
