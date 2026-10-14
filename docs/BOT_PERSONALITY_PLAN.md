@@ -1,9 +1,9 @@
 # Bot 性格（Player Personality）改动计划
 
-> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节），**翻后 flop/turn 与短/深筹码 persona 已接线**（P6b 四个独立提交，`callShift` 映射已固定，见第 16 节）。河牌四入口与所有 bet/raise 尺寸的 `sizingMult` **尚未接线**（P6c），聚合侧尚未消费开手快照（P7）；**无 persona 路径逐位不变**（P1 golden 仍绿）。  
+> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节），**翻后 flop/turn 与短/深筹码 persona 已接线**（P6b 四个独立提交，`callShift` 映射已固定，见第 16 节），**河牌四入口与 `sizingMult` 已接线**（P6c 四个独立提交，含修正 P6b-2 引入的条件概率缺陷，见第 16 节）。**至此 §7.2 参数作用点表的决策入口全部接线完毕**（唯一未接的是第 12 行 `getShadowBotAction` 两行影子，属 P8b）；聚合侧尚未消费开手快照（P7）；**无 persona 路径逐位不变**（P1 golden 每步回归都全绿）。  
 > 本文件是本次讨论的唯一权威方案；继续讨论时更新此文件，不另建版本副本。
 >
-> **最后更新**：2026-10-13  
+> **最后更新**：2026-10-14（P6c 完成，§7.2 决策入口全部接线）  
 > **源码基线**：`workbuddy/main-30908a87` @ `e54d4e3`（2026-10-12 自 `origin/main` fast-forward；含 PR #16 的 SPR/ICM 与后续 passive-all-in 改动）。行号均绑定此 SHA，不表示今后 main 不会变化。  
 > **备份分支**：`backup/pre-personality-sync-20261012`（同步前 `6ed9980`）、`backup/pre-personality-sync2-e350939`（`e350939`）。  
 > **后续 golden 基线**：`5418246`（P0a–P0g 全部完成、persona 未接线时的 HEAD；即 `botDecisionBaseline.json` 的 `meta.baselineSha`）。**不是 e54d4e3，也不是 e350939**。
@@ -394,7 +394,63 @@ TAG=1不证明原策略就是TAG；Maniac callBias=0.3只是初值，不能声�
   `Math.floor(totalPot × sizing)` 后直接交给 `calculateRaiseAmount` 夹到筹码上限，
   没有一个统一的「合法化层」可挂 —— 硬乘会重犯 §7.4 已复现的两个反例
   （加注增量不足最小全额加注 / 超筹码）。因此 P6b 三个提交都**没有**碰尺寸，
-  `postflopParams().sizing` 已解析但尚未被任何引擎消费。
+  `postflopParams().sizing` 已解析但尚未被任何引擎消费。（**已于 P6c-3 落地**，见下方
+  「实施决策（P6c 落地）」。）
+
+**实施决策（P6c 落地，2026-10-14）**：
+
+- **顺序掷骰的条件概率分母只能是「保守权重内部的比例」**（P6b-2 的真实缺陷，`210180d` 修）：
+  三动作分支（bet/check/call 顺序掷骰）要复现边际分布 `P(a) = w(a)·g^进取 / T`，
+  第二掷必须是 `w_check/(w_check + w_call)` —— 一个**与 `aggressionMult` 无关的常数**。
+  误写成 `w_check/(1 − p_bet)` 会让分母随 persona 变小、条件概率 **> 1**
+  （`g = 2.5` 时 flop 中等牌算出 1.425，过牌分支恒触发）。现已落成三个命名常量
+  （`MEDIUM_CHECK_GIVEN_NO_BET = 0.30/0.40`、`MARGINAL_CHECK_GIVEN_NO_BLUFF = 0.50/0.70`、
+  `RIVER_MEDIUM_CHECK_GIVEN_NO_BET = 0.35/0.50`）并把推导写进注释。
+  **P1 golden 抓不到这个缺陷**：它的翻后 case 都走「面对下注 + 强牌/大额加注」分支，
+  没有一条落在「无下注 + 中等牌 + 掷两次骰子」的路径上 —— 是覆盖面问题，不是 golden 失效。
+  ⚠️ 附带纠正两条一度写错的推理（都留档在源码注释里）：① 该缺陷在「commit 档 + 无人下注」
+  下**观察不到**（`callThreshold` 归零 ⇒ 边缘分支直接 call，掷骰子前就被门槛截住）；
+  ② 想「二分找 check→call 边界」在 NOBET 局面**测不出来**（`canCall` 要求 `toCall > 0`，
+  动作恒为 check），改用**随机消费次数**当判据（1 次 raise / 2 次中等牌过牌 / 4 次落到边缘分支）。
+- **河牌的阶梯与 flop 不同，不能照搬断言**：启发式河牌是强 0.70 / 中 0.50 / 边缘 0.30
+  （比 flop 的 0.75/0.55/0.35 整体低一档，因为摊牌已无后续街），GTO 河牌是
+  NUTS 0.85 / STRONG 0.75 / MEDIUM 0.50 / WEAK 0.30 **五档** + 「两对及以上抬地板到 STRONG」。
+  河牌本来就没有听牌分支，所以 §7.2 第 5 行「不能生搬 flop 诈唬/跟注公式」在实现上
+  表现为：只接**既有**门槛与频率，不移植任何听牌逻辑。
+- **GTO 河牌三个入口共用 `getRiverStrategy`**，所以 persona 只在那**一个**纯函数里接线，
+  机器人（`decideRiverGTO`）与面板（`getGtoRiverRecommendation`）一起生效、不会漂移。
+  该函数把 `equity` 当**输入**，所以门槛/分档/频率的用例无需 mock 权益，完全确定性。
+  §7.2 第 6 行「HU exact 权益分支保留」：persona **不碰**权益估计（一律来自
+  `calculateRangeAwareEquity`），也不改迭代次数 ⇒ exact 分支逐位保留
+  （golden 的 `river-gto-hu-exact` 钉住）。
+- **`valueShift` 与门槛判据必须分开用两个权益值**（P6b-4 起的一致口径，河牌同样遵守）：
+  分档用 `equity − valueShift`，**价格比较用原始 `equity`**。若两侧都扣，同一偏移被算两遍。
+  对手画像门（深筹码的 `equity < 0.5` / `< 0.4`）也用原始值 —— §7.2 第 4 行要求
+  「保留对手调整」，不能让 valueShift 把两个语义不同的判据耦合到同一旋钮。
+- **`sizingMult` 的落点：一处纯函数 + 一处唯一汇流点**（P6c-3）。
+  `scaleBetAmount(amount, toCall, minRaiseIncrement, maxAmount, sizing)` 只缩放**加注增量**，
+  夹在 `[minRaiseIncrement, maxAmount]`；`sizing === 1` 时**原样返回**（逐位恒等）；
+  已是全下 / 增量 ≤ 0（纯跟注）⇒ 不动；**只给「原本就是全额加注」的候选兜下限**
+  （短全下型不兜 —— 否则缩放会把一个本来会被 reject 的金额洗成合法全额加注）。
+  接线点是 `getBotAction` 末尾（六个入口的 `raise` 金额都从这里返回），
+  而不是六个引擎各自的 `calculateRaiseAmount` / `createBetAction` —— 那样会散落六份实现、必然漂移。
+  两层分工：`scaleBetAmount` 保证「缩放不主动造出非法金额」，reducer 侧 `legalizeRaise`
+  保证「任何非法金额都进不了状态」。
+- **尺寸的安全性是穷举证明的，不是抽查**：对**真实** `legalizeRaise` 穷举所有
+  「变换前合法」的候选金额 × 六类 sizing，变换后仍合法、零违例。这条断言的意义在于
+  reducer 拒绝 raise 时是 `return state` —— 动作被**静默丢弃**（不记统计、不换动作），
+  所以「缩放不会让机器人空过一手」必须可证明，不能靠抽样。
+- **面板一律不传 persona（P8b 才传）**：`getGtoPostflopRecommendation` /
+  `getGtoRiverRecommendation` 都加了可选 `persona` 字段，但渲染层
+  （`HandAnalysis`）**不传** —— 面板只服务真人，给的是「真人基础建议」，
+  这正是 §7.2 第 8 行「不改变真人基础建议接口语义」的落地方式。
+  但**面板与机器人共用同一套派生量**，所以一旦 P8b 传入，展示的门槛/频率就自动与
+  机器人掷骰子所依据的数一致（含听牌「need X%」文案与判据同源）。
+- **展示频率的取整口径逐站点核对过**：面板无下注的 strong 站点历史上是
+  `round(f×100)` 与 `round((1−f)×100)` **各自独立取整**（和可为 101），
+  与其余站点的「三数和恒 100」不同。穷举验证后确认该怪值在 strong 站点**实际不可达**
+  （strong 档乘数恒 1.0 ⇒ `f` 只能是原始 CBET 值），但仍保留其独立取整写法，
+  其余五站点才用 `mixFreq`。教训：归一化展示频率时不能一刀切，必须逐站点核对旧值可达性。
 
 ### 7.4 amount与合法动作契约
 
@@ -774,9 +830,13 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P5 | `6a1700d`（+ `f9389c0` 回归用例） | **开手快照与稳定手牌身份**（方案 §8.1/§8.2/§8.3）：`HandRecord` 增 `playerTypes?`（开手复制的有效分配 map）与 `playerRoles?`（开手每座位 `human`/`bot`）+ 导出 `PlayerRole`；两者都是可选字段（缺失 = 旧记录，聚合侧按 §8.3 归 Bot Unknown），**关闭性格时写空 map 而非省略字段**，以区分「新记录且关闭」与「旧记录无字段」；`startNewHand` 增第 3/4 参写入快照并对 `players`/`playerTypes`/`playerRoles` 全部**复制**（不引用随后可变对象）；新增稳定手牌身份 `beginSession()` / `getSessionId()` / `makeHandId(ordinal)`，身份 = `sessionId + 盘内手序`，**旧记录保留原 id 不批量重写**；`GameBoard` 在两个新盘边界（初始化 effect + 牌桌内开新局按钮）调 `beginSession()`，手牌键与 handId 改用 sessionId 公式，`createActionEvent` 与容器记录**共用 `handIdRef`**（不再两处各拼一遍字符串）；`longOpponentModel` 补文档说明其 `recordAction` 增量路径不写快照（事件不带快照），生产链路走 `startNewHand` + 结算 `saveHand` 整份覆盖。**顺带修既有 id 缺陷**：旧 handId 用组件 ref 计数，返回菜单重挂载后归零，「同 dealer + 同底牌」的新盘第一手会与上一盘撞同一个 id → 长期库 `saveHand` 覆盖吃掉旧手牌。`beginSession` **刻意不消耗随机源**（它在洗牌前调用，多消耗一个 `Math.random()` 会把播种的洗牌序列整体错位） | 聚焦 7 套件 **77 通过 / 0 失败**（含新增 `GameBoard.handSnapshot` 4 例：开手快照写入与同手多 Bot、关闭时空 map、结算保存不丢快照 + 事件与容器 handId 同源；`opponentModel` 快照/副本隔离/幂等/会话身份 +11 例；`longOpponentModel` 覆盖保存保留快照 + 导入往返且重复 pair 不重复计数 +2 例）；`f9389c0` 追加跨盘 id 不碰撞回归用例（`GameBoard.handSnapshot` 5/5，已实测在等价旧公式下如实失败）；既有 `GameBoard.showdown.settlement`（播种发牌未受扰动）与 `botAI.decisionBaseline`（P1 基线）全绿；`tsc -b` 通过；eslint 0 error |
 | P6a | `2a1c21f` | **翻前 persona 与范围派生**（方案 §7.1/§7.2 第 1–2 行/§7.3）：`botPersonality` 新增 `personaParamsFor(botType)`（判据**只有** `Player.botType`，不再查开关 —— 避免「关闭」的两种口径）、`PreflopWidths` + `preflopWidths(persona)`（`undefined` → **写死的恒等 `{1,1,1}`**，不是 `PERSONALITY_PARAMS.TAG`；`safeMultiplier` 让 `NaN`/负/`Infinity` 退回 1，避免 `random() < NaN` 恒假而静默禁用动作）；`gtoPreflop` 新增范围派生段（`cellCombos` 组合数计宽 / `cellStrengthKey` 稳定强度序 / 复用锦标赛 `tightenCells` 收紧 / `rescaleActionCells` 放宽时按 donor 优先级从强到弱补格 / `derivePreflopRangeTable` **恒等时返回基表对象本身** / `deriveRangeTableSet` / `rangeTablesForPersona` 按 `赛制\|三档` 纯 memo），`decidePreflopGTO` 与 `getGtoPreflopRecommendation` 接可选尾参 `persona`，`getFacingOpenTable` 改为接收 `tables`；`botAI.decidePreflop` 接可选尾参 `persona`，**按 `detectPreflopScenario(state, player) === 'rfi'` 选旋钮**（开池用 `openWiden`，面对加注用 `defendVsOpen` 跟注 / `threeBetFreq` 反加），`aceRaiseFactor` 折进 `raiseWidth`、6 处面对加注跟注点用 `defendCallFactor`、10 处跟注价格门槛用 `entryOdds(base)=min(base×callWidth,1)`、5 处硬编码反加字面量乘 `raiseWidth`；`getBotAction` **只解析一次** persona 并仅透传给翻前两入口（翻后/河牌/短深筹码留 P6b/P6c） | 3 聚焦套件 **85 通过 / 0 失败**（新增 `gtoPreflop.persona.test.ts`：无 persona 逐位不变含锦标赛、UTG/BTN RFI 放宽与收紧的组合数比、F 扩展具体清单、面对开池 `threeBetFreq` 转移（`R∪C` 守恒）、`defendVsOpen` 外扩、vs3bet/cold3bet 单调性与概率归一化、赛制叠加顺序、引擎入口与面板同口径；新增 `botAI.personaPreflop.test.ts` 11 例：6 座位×5 手牌 TAG≡无 botType（动作+随机消费全等）、开池 vs 面对开池**换旋钮**的直接对照、健壮性、翻后/河牌不泄漏；`botPersonality.test.ts` +8 例）；**回归 5 套件 204 通过 / 0 失败**（`botAI.decisionBaseline` P1 golden 全绿 → 无 persona 逐位不变、`equityCalls`/`strategyRandomCalls` 无新增；`gtoPreflop`、`botAI`、`botAI.spr`、`rangeEquity`）；`tsc -b` 通过；eslint 0 error（2 个既有 `GameBoard.tsx` hook 依赖 warning，与本次无关） |
 | P6b-1 | `449669e` | **翻后派生量与固定 `callShift` 映射**（方案 §7.3 第 5 条「映射函数尚需实施前固定」）：`botPersonality` 新增 `CALL_SHIFT_SCALE = 0.30`、`callShift(callBias) = clamp(0.30 × ln(1/b), ±0.30)`（**单调递减**：callBias 越大越爱跟注 ⇒ 门槛越低；`callShift(1) === 0` 精确，`Object.is` 验为 `+0`；关于 1 对称、有界；非法输入退回 0）、`shiftThreshold(base, shift)`（**`shift === 0` 时原样返回 base，连 clamp 都不做** ⇒ 逐位恒等；否则夹到 `[0,1]`）、`postflopParams(params)`（`undefined` → 恒等 `{valueShift:0, callShift:0, aggression:1, sizing:1}`；只读翻后四键、返回新对象不污染入参） | 1 套件 **72 通过 / 0 失败**（`botPersonality.test.ts` +14 例：`callShift` 精确恒等/单调/方向/有界对称/非法退回、`postflopParams` 恒等与逐类映射、`shiftThreshold` 恒等原样返回含 `1.35`/`−0.2`/`−0`、逐类 valueShift 加门槛）；`tsc -b` 通过；eslint 0 error |
-| P6b-2 | `9bf535a` | **启发式翻后 flop/turn 接线 persona**（§7.2 第 3 行）：`botPersonality` 新增 `renormalizeAggression(w, p, g) = w·g/(p + w·g)`（§7.3 第 3 条 `w(a)/Σw` 的二元形式；`g === 1` 时**逐位**等于 `w`，因 `w+p===1`；`Σw ≤ 0` / `NaN` 收敛到 **0 而不是 `NaN`** —— `random() < NaN` 恒假会静默禁用动作，比 0 更危险）；`botAI.decidePostflop` 接可选尾参 `persona`：`valueShift` → 强/中/边缘三档权益门槛**整条阶梯平移**（不单独抬一档，否则阶梯错位甚至倒挂）、`callBias`(→`callShift`) → 跟注门槛、`aggressionMult` → 中等牌价值下注与边缘牌诈唬**各自归一化**（条件概率分母随之用 `1 − p`，保守动作相对比例 3:1 / 5:2 不变）、孤立诈唬直接乘并夹到 1；`getBotAction` 透传 flop/turn 启发式入口 | 2 聚焦套件 **88 通过 / 0 失败**（新增 `botAI.personaPostflop.test.ts`：无 persona 逐位不变 6 局面×5 手牌含随机消费、valueShift 平移整条阶梯、callBias **只**动跟注门槛（对手全下隔离 `canRaise`）、aggressionMult 加注率、河牌不受影响、参数表合法性；`botPersonality.test.ts` +4 例）；**P1 golden 14 通过 / 0 失败**（含 `flop-heuristic-tptk-rake` / `turn-heuristic-session-aggressive` / `flop-heuristic-deep-400bb`）；`tsc -b` 通过；eslint 0 error |
+| P6b-2 | `9bf535a` | **启发式翻后 flop/turn 接线 persona**（§7.2 第 3 行）：`botPersonality` 新增 `renormalizeAggression(w, p, g) = w·g/(p + w·g)`（§7.3 第 3 条 `w(a)/Σw` 的二元形式；`g === 1` 时**逐位**等于 `w`，因 `w+p===1`；`Σw ≤ 0` / `NaN` 收敛到 **0 而不是 `NaN`** —— `random() < NaN` 恒假会静默禁用动作，比 0 更危险）；`botAI.decidePostflop` 接可选尾参 `persona`：`valueShift` → 强/中/边缘三档权益门槛**整条阶梯平移**（不单独抬一档，否则阶梯错位甚至倒挂）、`callBias`(→`callShift`) → 跟注门槛、`aggressionMult` → 中等牌价值下注与边缘牌诈唬**各自归一化**（条件概率分母当时写成 `1 − p`，**已被 `210180d` 判定为缺陷并修正**为与 `aggressionMult` 无关的常数 `w_check/(w_check+w_call)`；见 P6c-fix 行与 §16.5）、孤立诈唬直接乘并夹到 1；`getBotAction` 透传 flop/turn 启发式入口 | 2 聚焦套件 **88 通过 / 0 失败**（新增 `botAI.personaPostflop.test.ts`：无 persona 逐位不变 6 局面×5 手牌含随机消费、valueShift 平移整条阶梯、callBias **只**动跟注门槛（对手全下隔离 `canRaise`）、aggressionMult 加注率、河牌不受影响、参数表合法性；`botPersonality.test.ts` +4 例）；**P1 golden 14 通过 / 0 失败**（含 `flop-heuristic-tptk-rake` / `turn-heuristic-session-aggressive` / `flop-heuristic-deep-400bb`）；`tsc -b` 通过；eslint 0 error |
 | P6b-3 | `c6563f9` | **GTO 翻后 flop/turn 接线 persona**（§7.2 第 4 行，两个入口都接）：`decidePostflopGTO` + 面板 `getGtoPostflopRecommendation` 共用同一套派生量，保证「面板展示的门槛/频率就是机器人掷骰子所依据的数」。`valueShift` → 本引擎价值门槛全长在 `classifyPostflopHand` 内部（strong 0.70 / medium 0.50 / weak 0.35 + 三个成牌下限），故实现为**权益下移 `valueShift` 后分档**（`equity ≥ floor+s ⟺ equity−s ≥ floor`，一处改动整条阶梯同步平移）；`callBias` → 三条跟注判据共用同一基值，平移一次三处同步（面板「need X%」文案与判据取同一个数）；`aggressionMult` → 所有 `random() < w` 都是「进取 vs 保守」二选一，故 `p = w·g/((1−w)+w·g)`，面板新增 `mixFreq` 生成展示频率（`fold` 取余数保证和为 100）；**无条件分支审计**：无下注的 strong 分支权重恒 1，persona 只通过分档生效，**刻意不乘** `aggressionMult`（单位权重对零保守权重归一化后仍是 1，乘上去只引入 `g=0` 除零退化）；面板新增可选 `persona` 但**渲染层不传**（面板只服务真人，P8b 影子决策才用）；河牌（面板 `phase==='river'` 的分档与门槛字面量）保持不动 | 1 聚焦套件 **31 通过 / 0 失败**（新增 `gtoPostflop.persona.test.ts`：无 persona 逐位不变 **180 组合**（6 局面×5 手牌×6 档权益）含随机消费、valueShift 分档线翻转点在 `0.70 + valueShift`、callBias 三条门槛、aggression 概率**精确值**（常数随机源二分测 p，零抽样波动）、persona 不绕过位置/多人底池/大额加注/SPR commit/合法动作集合、面板 freq 归一化与单调性、河牌不受影响、`getBotAction` 端到端透传）；**回归 3 套件 49 通过 / 0 失败**（含 P1 golden 14 条，其中 `flop-gto-flushdraw` 正是本步路径）；`tsc -b` 通过；eslint 0 error 0 warning（顺带移除一条因 `persona` 尾参而失效的 `eslint-disable`） |
 | P6b-4 | `da7c03a` | **短/深筹码早返回接线 persona**（§7.2 第 7、8 行；第 9 行「非强制的早返回不能静默绕过 persona」）。**短筹码的杠杆只能是范围不能是频率**：实测两个随机槽都已饱和（`random() < (1.0 + stealBoost)` 恒真、`random() >= defendTighten` 在无对手画像时恒真），「进不进池」完全由 `shouldPush`/`shouldDefend` 的范围成员判定决定 —— 正是 §7.3「原 F 格是 0 概率，`0 × multiplier` 仍为 0」的具体表现。故用**翻前**旋钮（不是翻后参数）：push ← `openWiden`（`rfi` role 缩放 R）、defend ← `defendVsOpen`（`facing` role 缩放 C；表内无 R 格 ⇒ threeBet 那步是空操作）。实现把范围字符串**摊成 13×13 表**后交给 P6a 已测过的 `derivePreflopRangeTable`（不写第二份收紧/放宽），为此从 `gtoPreflop` 导出 `RANK_FOR_INDEX`/`lookup`/`GtoAction`；**建表直接调用既有 `handMatchesRange`** ⇒ 成员判定按构造一致、无漂移；恒等时直接走原函数（不建表、不派生、零开销）。**深筹码零处 `random()`** ⇒ 完全确定性，`aggressionMult` 在此**没有作用点**，只接门槛：`valueShift` → 分档用新增的 `config.classifyEquity`、`callShift` → 叠在 `config.potOdds`（全部六条跟注判据的唯一注入点）。两个关键分离：① 门槛判据仍用**原始** `equity`（否则同一偏移被算两次）；② 对手画像门（`equity < 0.5`/`< 0.4`）用**原始** `equity`（§7.2 第 4 行「保留对手调整」，不能让 valueShift 把两个语义不同的判据耦合到同一旋钮）。尺寸（`sizingMult`）**留 P6c** 与共用安全尺寸合法化一起做；`decideRiver` 的 veryDeep 早返回**不传** persona（河牌属 P6c） | 1 聚焦套件 **15 通过 / 0 失败**（新增 `gtoShortDeep.persona.test.ts`：169 格逐格恒等（rfi 与 defend 各一组）、放宽 ⇒ `base ⊆ derived` / 收紧 ⇒ `derived ⊆ base`（集合包含，不依赖具体范围表内容）、探针实测派生格数、深筹码随机消费恒为 0、valueShift/callShift 各自门槛效应、SPR commit 档不解除筹码约束、河牌不受影响、端到端透传）；**回归 6 套件 80 通过 / 0 失败**（含 P1 golden 14 条，其中 `preflop-heuristic-short-bb-push` 与 `flop-heuristic-deep-400bb` 正是本步改的两个早返回）；`tsc -b` 通过；eslint 0 error 0 warning |
+| P6c-fix | `210180d` | **修正 P6b-2 误改的顺序掷骰条件概率分母**（自查发现的真实缺陷）：`decidePostflop` 两处第二掷分母被错写成 `1 − p_进取`，正确值是**与 `aggressionMult` 无关的常数** `w_check/(w_check + w_call)`。错写在 `g = 2.5` 时算出 **1.425 > 1**（过牌分支恒触发，`P(check)` 变成 0.21 而不是 0.158）；边缘牌分支同样被改错（原式 `0.50/(1−0.30)` 恰好等于正确的 `0.50/0.70`，改成随 `bluffProb` 漂后 `g=2.5` 得 1.036 > 1）。两处改成命名常量 `MEDIUM_CHECK_GIVEN_NO_BET` / `MARGINAL_CHECK_GIVEN_NO_BLUFF` 并写明推导 | 新增用例「条件概率分母：check→call 边界恒为 0.75」覆盖 TAG/Nit/LAG/Fish/CS 五类 + 无 persona（**旧公式下 Nit/LAG/Fish/CS 会得 0.615/0.930/0.525/0.435，必红**；TAG 因巧合相等抓不到，Maniac 的 `p_bet 0.789 > 0.75` 使 check 段被遮蔽故不列入）；数值复核新公式在 `g ∈ {1,0.3,0.7,1.4,2.5} × bluffMul ∈ {0,1}` 下逐位复现目标边际分布；`botAI.personaPostflop` 13 + golden 14 + `botAI`/`botAI.spr` 合计 **60 通过 / 0 失败**；tsc 通过；eslint 0 error 0 warning |
+| P6c-1 | `b98bd80` | **启发式河牌接线 persona**（§7.2 第 5 行）：`botAI.decideRiver` 接可选尾参 `persona`，三个旋钮作用于**河牌自己的阶梯**（强 0.70 / 中 0.50 / 边缘 0.30，比 flop 整体低一档，因为摊牌已无后续街）；`valueShift` 平移三档门槛、`callShift` 平移跟注门槛、`aggressionMult` → `renormalizeAggression(0.50,0.50,g)`（= g/(1+g)）+ 孤立诈唬直接乘并夹到 1；深筹码 veryDeep 早返回一并透传。**没有从 flop 移植任何听牌逻辑**（河牌本就没有听牌分支，正是 §7.2 第 5 行的要求）。顺带把条件过牌概率落成命名常量 `RIVER_MEDIUM_CHECK_GIVEN_NO_BET = 0.35/0.50`（原式 `0.35/(1−0.50)` 数值恰好相等，但换成 `1 − p_bet` 就会漂 —— `210180d` 刚修过同型错误）。GTO 河牌与尺寸本步不接 | 新建 `botAI.personaRiver.test.ts` **12 通过 / 0 失败**：无 persona 逐位不变（2 局面 × 8 档权益含随机消费）、valueShift 平移（0.72 Nit 掉出强牌改跟注；0.60 Fish/CS 抬进强牌 r0；0.50 Nit 跳过中等分支 r0）、callShift 的 bluffcatch 与弱牌判据、aggressionMult 的 **p_bet 精确值**（常数随机源二分）+ 三个常数切点两侧对照、强牌分支权重恒 1、参数表合法性；同步翻转两处既有断言（P6b-2 的「河牌不受影响」整节删除、P6b-4 的「河牌深筹码恒等」翻转为「已接线」）；**回归 5 套件 87 通过 / 0 失败**（含 golden 14 条，其中 `river-heuristic-bluffcatch-rake` 正是本步路径）；tsc 通过；eslint 0 error 0 warning |
+| P6c-2 | `7d38af8` | **GTO 河牌接线 persona**（§7.2 第 6 行）：三个入口（`decideRiverGTO`、面板 `getGtoRiverRecommendation`、以及共用的纯策略函数 `getRiverStrategy`）只在 `getRiverStrategy` **一处**接线即全覆盖。`valueShift` → 五档线全长在 `classifyRiverStrength` 内部（NUTS 0.85 / STRONG 0.75 / MEDIUM 0.50 / WEAK 0.30 + 两对抬地板），故实现为权益下移后分档；`callShift` → 叠在 `callBase` 一处，下面全部四条跟注判据都以它为基值派生；`aggressionMult` → 三处混合频率（NUTS 0.6 / STRONG 0.7 / 诈唬 `bluffProb`）二元归一化，诈唬分支的门也改用归一化后的值（`g=0` 时不再产出「动作 raise、频率 0」的自相矛盾展示）。**价格比较仍用原始 `equity`**（只叠对手画像）。「HU exact 权益分支保留」：persona 不碰权益估计、不改迭代次数 ⇒ exact 分支逐位保留。面板加可选 `persona` 但渲染层不传 | 新建 `gtoRiver.persona.test.ts` **18 通过 / 0 失败**：无 persona 逐字段不变（facing/nobet × 8 档权益 × 4 种手牌等级，`RiverStrategy` 全字段相等，并防空断言确实覆盖全部五档）、valueShift 平移五档阶梯（含 NUTS 边界 0.85、两对地板优先于下移）、callShift 只动跟注门槛（含门槛随 callBias 单调的二分验证）、aggressionMult 三处频率**精确等于** `renormalizeAggression`、NUTS 无人下注频率恒 1、约束优先（commit 归零 / 多人不诈唬 / 超池只 call-fold）、面板 freq 单调且不传 persona 等于 TAG、`getBotAction` 端到端透传；同步翻转 P6c-1 的「GTO 河牌未接线」断言；**回归 5 套件 61 通过 / 0 失败**（含 golden 14 条与 `river-gto-hu-exact`）；tsc 通过；eslint 0 error 0 warning |
+| P6c-3 | `7a52607` | **`sizingMult` 与共用安全尺寸变换**（§7.2 第 10 行 / §7.4）—— 六入口接线收尾。新增纯函数 `scaleBetAmount(amount, toCall, minRaiseIncrement, maxAmount, sizing)`：**只缩放加注增量**并夹在 `[minRaiseIncrement, maxAmount]`；`sizing === 1` 原样返回（逐位恒等）；已是全下 / 增量 ≤ 0（纯跟注）不动；**只给「原本就是全额加注」的候选兜下限**（短全下型不兜 —— 否则会把本来会被 reject 的金额洗成合法全额加注）；非法输入退回原值。接线点是 `getBotAction` 末尾（六入口的 `raise` 金额都从这里返回），**不是**六个引擎各自的 `calculateRaiseAmount`/`createBetAction`（那样会散落六份实现、必然漂移）。两层分工：这里保证「缩放不主动造出非法金额」，reducer 侧 `legalizeRaise` 保证「任何非法金额都进不了状态」。⚠️ §7.4 反例 1 之所以致命：reducer 拿到 `reject` 后是 `return state`，动作被**静默丢弃**（不记统计、不换动作）⇒ 机器人空过一手 | 新建 `botAI.personaSizing.test.ts` **17 通过 / 0 失败**：恒等与退化输入、§7.4 两个反例（裸乘 108 ⇒ reject / 288 超筹码 vs 安全变换 ⇒ fullRaise / 合法全下）、下限只对全额加注生效、放大取整与夹筹码上限、**对真实 `legalizeRaise` 的安全性穷举零违例**（所有「变换前合法」的候选 × 六类 sizing，变换后仍合法）、恒等穷举、`getBotAction` 端到端六类金额（Nit 117 / TAG 130 / LAG·CS 143 / Fish 156 / Maniac 208）、非 raise 动作金额恒 undefined；同步修正三处既有金额断言（P6c-3 起金额随 sizingMult 变化是预期行为）；**回归 5 套件 64 通过 / 0 失败**（含 golden 14 条全绿 ⇒ 冻结的 amount 全部命中、`useGameState.actionLegality`）；tsc 通过；eslint 0 error 0 warning |
 
 > **P6b 完整回归（P6b-1…P6b-4 全落地后跑一次，作为 P6b 的关口证据）**：21 套件
 > **538 通过 / 0 失败 / 915.5s** —— `botAI.decisionBaseline`（P1 golden）、
@@ -785,9 +845,21 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 > `gtoPostflop.persona`、`gtoShortStack`、`gtoShortDeep.persona`、`gtoDeepStack`、
 > `gtoDeepStack.drawExit`、`gtoRiver.spr`、`spr`、`sprStrategy`、`handStrength`、
 > `preflopHandStrength`、`playerType`；`tsc -b` 通过；eslint 改动文件 0 error 0 warning。
-> **这不是全量 `npm test`（unit + e2e）** —— 全量按 §12.3 只在 PR 关口跑。
-> 文档提交（§7.3「实施决策（P6b 落地）」9 条、§16 四行提交记录、§16.4 复核结论、
-> §16 摘要与 §17 进度、头部状态行）单独成 commit，不含代码改动。
+>
+> **P6c 完整回归（P6c-fix…P6c-3 全落地后跑一次，作为 P6c 的关口证据）**：21 套件
+> **403 通过 / 0 失败 / 714.4s** —— `botAI.decisionBaseline`（P1 golden）、
+> `botAI.personaPreflop`、`botAI.personaPostflop`、`botAI.personaRiver`、
+> `botAI.personaSizing`、`botAI`、`botAI.spr`、`botPersonality`、`gtoPreflop.persona`、
+> `gtoPostflop.persona`、`gtoRiver.persona`、`gtoShortDeep.persona`、`gtoRiver.spr`、
+> `gtoRiver.sharedStrategy`、`gtoRiver.riverStrength`、`gtoShortStack`、`gtoDeepStack`、
+> `gtoDeepStack.drawExit`、`gtoPostflop`、`gtoPostflop.drawCall`、
+> `useGameState.actionLegality`；`tsc -b` 通过；eslint 改动文件 0 error 0 warning。
+>
+> ⚠️ 两批的套件清单**不完全相同**（P6c 那批换入了四个 persona 新套件与 `gtoRiver.*` /
+> `actionLegality`，换出了 `spr` / `sprStrategy` / `handStrength` / `preflopHandStrength` /
+> `playerType` / `gtoPreflop`），所以通过数（538 vs 403）**不可直接比较**，
+> 两批都各自 0 失败才是重点。两批都**不是**全量 `npm test`（unit + e2e）——
+> 全量按 §12.3 只在 PR 关口跑。
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -811,7 +883,12 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   + **P4（生命周期、开关与持久化；persona 已接线到配置/存档，但尚未进入决策）**
   + **P5（开手快照与稳定手牌身份；记录侧证据已就绪，聚合侧 P7 才消费）**
   + **P6a（翻前 persona 与范围派生；GTO ON/OFF 的翻前两入口都已接，无 persona 路径逐位不变）**
-  + **P6b（翻后 flop/turn + 短/深筹码 persona；四个入口全接，`callShift` 映射已固定）**。
+  + **P6b（翻后 flop/turn + 短/深筹码 persona；`callShift` 映射已固定）**
+  + **P6c（河牌四入口 + `sizingMult`；含修正 P6b-2 引入的条件概率缺陷 `210180d`）**。
+  **至此 §7.2 参数作用点表的决策入口全部接线完毕**（共 12 行）：六个决策入口（翻前 2 /
+  翻后 2 / 河牌 2）、短筹码与深筹码两个早返回、SPR/ICM 约束优先、所有 bet/raise 尺寸、
+  `getBotAction` 共用入口。**唯一未接的是第 12 行 `getShadowBotAction`（TAG/LAG 两行影子）**，
+  它属 P8b。
 - 期间新增聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、
   `opponentModelUtil.wtsdWsd.test.ts`（P0b）、`opponentModelUtil.opportunityCounts.test.ts`（P0c）、
   `useGameState.preflopChain.test.ts`（P0d）、`useGameState.actionLegality.test.ts`（P0e）、
@@ -822,10 +899,15 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   `useGameState.botPersonality.test.ts`、`gamePersistence.personality.test.ts`、
   `StartPage.personality.test.tsx`（P4）、`GameBoard.handSnapshot.test.tsx`（P5）、
   `gtoPreflop.persona.test.ts`、`botAI.personaPreflop.test.ts`（P6a）、
-  `botAI.personaPostflop.test.ts`（P6b-2）、`gtoPostflop.persona.test.ts`（P6b-3）、
-  `gtoShortDeep.persona.test.ts`（P6b-4）。
-- 下一步：**P6c（river persona 与共用安全尺寸合法化；含深筹码 `sizingMult`）** →
-  P7 按分配类型聚合 → P8a/8b 座位标签与两行影子 → P9 闭环 runner 与参数校准 → P10 文档与发布门。
+  `botAI.personaPostflop.test.ts`（P6b-2，P6c-fix 追加条件概率分母用例）、
+  `gtoPostflop.persona.test.ts`（P6b-3）、`gtoShortDeep.persona.test.ts`（P6b-4，P6c-1 翻转河牌深筹码断言）、
+  `botAI.personaRiver.test.ts`（P6c-1，P6c-2 翻转 GTO 河牌断言）、
+  `gtoRiver.persona.test.ts`（P6c-2）、`botAI.personaSizing.test.ts`（P6c-3）。
+- 下一步：**P7（按分配类型聚合统计；这才开始消费 P5 的 `playerTypes` 快照）** →
+  P8a/8b 座位标签与两行影子 → P9 闭环 runner 与参数校准 → P10 文档与发布门。
+  ⚠️ P9 校准会改动 `PERSONALITY_PARAMS` 的初值 —— 所有「无 persona 逐位不变」的断言都
+  **刻意不依赖 TAG 的初值**（`preflopWidths(undefined)` 返回写死的 `{1,1,1}`、
+  `postflopParams(undefined)` 返回写死的恒等），所以校准时 golden 不会红。
 - 实现细节以本文件为准；提交历史见上述 SHA。
 
 ### 16.2 P5 复核结论（一次被推翻的猜测，留档）
@@ -913,6 +995,52 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   修法：`SpotOpts.handSuits` 显式传 `['♠','♠']`。**教训**：构造听牌局面时必须显式控制
   两张底牌的花色，不能依赖辅助函数的默认值。
 
+### 16.5 P6c 复核结论（一个自查出的真实缺陷 + 三条被推翻的推理 + 一个证明方法，留档）
+
+- **P6c-fix：P6b-2 自己引入了一个真实缺陷（自查发现，独立 commit 修正）**
+  这是本轮最值得留档的一条，因为它是**已提交代码**里的错，不是设计阶段的口误。
+  P6b-2 把 `decidePostflop` 两处顺序掷骰的第二掷分母从常量改成了 `1 − p_进取`，
+  看起来「更一致」，实际是错的：三动作分支（bet/check/call 顺序掷骰）要复现边际分布
+  `P(a) = w(a)·g^进取 / T`，第二掷必须是 `w_check/(w_check + w_call)`，一个**与
+  `aggressionMult` 无关的常数**。错写在 `g = 2.5` 时算出 **1.425 > 1**
+  （过牌分支恒触发），`P(check)` 从正确的 0.158 变成 0.21。
+  - **为什么当时没被抓到**：`botAI.personaPostflop` 的用例只比较了「无 persona vs TAG」
+    和「加注率高低」，两者都对；P1 golden 的翻后 case 全部走「面对下注 + 强牌/大额加注」
+    分支，**没有一条**落在「无下注 + 中等牌 + 掷两次骰子」的路径上。
+    是覆盖面缺口，不是断言写错。
+  - **怎么发现的**：写 P6c-1 河牌时，因为河牌有同构的 `0.35/(1−0.50)` 写法，
+    我回头去核对 flop 侧的推导，才发现两者都被我改坏了（河牌侧尚未提交，
+    flop 侧已提交）。
+  - **教训（已写进源码注释，防止再犯）**：顺序掷骰的条件概率分母**只能**来自
+    「保守权重内部的比例」，任何让它随 persona 变化的写法都要怀疑。
+    三个常量（`MEDIUM_CHECK_GIVEN_NO_BET`、`MARGINAL_CHECK_GIVEN_NO_BLUFF`、
+    `RIVER_MEDIUM_CHECK_GIVEN_NO_BET`）都带完整推导注释。
+- **被推翻的推理 ①：「这个缺陷在 commit 档下无 persona 也生效」**
+  我一度认为边缘牌分支的错写在 commit 档（`bluffMultiplier` 归零）会改变无 persona 行为
+  ⇒ 是个更严重的回归。**实测推翻**：commit 档把 `callMargin` 归零 ⇒ `callThreshold` 变 0 ⇒
+  边缘分支最后的 `equity >= callThreshold` 恒真、直接返回 `call`，掷 check 骰子之前就被
+  门槛截住了。所以那个组合下**观察不到**差异。已把这条写进源码注释，避免后人按错误推理改代码。
+- **被推翻的推理 ②：「二分找 check→call 边界就能钉住常量」**
+  最初用「找 check 变 call 的临界 `v`」写测试，实测返回 1（测不出来）。
+  原因：NOBET 局面下 `canCall` 为假（`canCall` 要求 `toCall > 0`），中等牌过牌失败后
+  落到边缘分支、最终**也是过牌** —— 动作恒为 check，区分不出 `v` 在边界的哪一侧。
+  改用**随机消费次数**当判据：`v < p_bet` ⇒ 1 次、`p_bet ≤ v < X` ⇒ 2 次、
+  `v ≥ X` ⇒ 落到边缘分支再掷两次 = 4 次；谓词 `randomCalls ≤ 2` 对 `v` 单调，
+  翻转点恰是 `X`，完全确定性。
+- **被推翻的推理 ③：「河牌的 `sizingMult` 可以先裸乘，反正有 `legalizeRaise` 兜底」**
+  §7.4 反例 1 说明这不成立：裸乘 `120 × 0.9 = 108` 会得到「增量 28 < 最小全额加注 40」，
+  `legalizeRaise` 返回 `reject`，而 reducer 拿到 `reject` 后是 **`return state`** ——
+  机器人的动作被**静默丢弃**（不记统计事件、不换动作），表现为「轮到它却什么都没发生」。
+  兜底在这里不是「降级成合法动作」，而是「动作消失」。所以缩放必须在合法化**之前**
+  保住全额加注下限，这正是 `scaleBetAmount` 存在的理由。
+- **证明方法：安全性用穷举而不是抽查**
+  `botAI.personaSizing.test.ts` 对**真实** `legalizeRaise` 穷举所有「变换前合法」的
+  候选金额 × 六类 sizing，断言变换后仍合法、零违例（数千组合，并带
+  `expect(tested).toBeGreaterThan(5000)` 防空断言）。
+  理由同上：后果是「机器人静默空过一手」，这种缺陷靠抽样测不出来、靠 review 也容易漏，
+  必须可证明。同类手法还有短筹码的「放宽 ⇒ `base ⊆ derived` / 收紧 ⇒ `derived ⊆ base`」
+  集合包含断言（不依赖具体范围表内容，169 格逐格比对）。
+
 ## 17. 明确不做与下一步
 
 - 不写六套独立AI、不把TAG/LAG标签当实力保证、不修改已决分类树以追校准数字。
@@ -922,15 +1050,21 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   基线 fixture**（`8ad5a80`，基线 SHA `5418246`）、**P2 分类器重写 + Fish 展示**（`506c471`）、
   **P3 persona 参数与配额纯数据**（`554e4f1`）、**P4 生命周期/开关/持久化**（`4b4d6b0`，补漏 `2d312c1`）、
   **P5 开手快照/稳定手牌身份**（`6a1700d`，回归用例 `f9389c0`；复核结论见 16.2）、
-  **P6a 翻前 persona 与范围派生**（`2a1c21f`；复核结论见 16.3）与
+  **P6a 翻前 persona 与范围派生**（`2a1c21f`；复核结论见 16.3）、
   **P6b flop/turn + 短/深筹码 persona**（`449669e` → `9bf535a` → `c6563f9` → `da7c03a`；
-  复核结论见 16.4）。
+  复核结论见 16.4）与
+  **P6c 河牌四入口 + `sizingMult`**（`210180d` 修正 P6b-2 缺陷 → `b98bd80` 启发式河牌 →
+  `7d38af8` GTO 河牌 → `7a52607` 尺寸；复核结论见 16.5）。
   P4 之后 persona 已接线到「新盘配置 / 存档恢复 / `Player.botType` 派生视图」；
   P5 之后手牌记录已带上开手快照，但**聚合侧尚未消费**（P7 才按 `playerTypes` 分组）；
-  P6a 之后 persona 进入**翻前**两个入口，P6b 之后进入**翻后 flop/turn 的启发式与 GTO 两对入口**
-  （`decidePostflop` / `decidePostflopGTO` + 面板 `getGtoPostflopRecommendation`）
-  与**短/深筹码两个早返回**（`getShortStackRecommendation` / `getDeepStackRecommendation`）。
-  **仍未接线**：河牌四入口（`decideRiver` / `decideRiverGTO` / 面板 river 分档）与
-  所有 bet/raise 尺寸的 `sizingMult`（§7.2 第 10 行「先变换增量再合法化」）——都属 P6c；
-  且**无 persona 路径逐位不变**（P1 golden `botAI.decisionBaseline` 14 条仍全绿）。
-  下一轮从 P6c（river persona 与共用安全尺寸合法化）开始，按 P6c→P10 顺序继续。
+  P6a/P6b/P6c 之后 persona 已进入 **§7.2 参数作用点表的全部决策入口**：
+  翻前两个、翻后 flop/turn 的启发式与 GTO 两对入口（含面板
+  `getGtoPostflopRecommendation`）、河牌四入口（`decideRiver` / `decideRiverGTO` +
+  面板 `getGtoRiverRecommendation` + 共用的 `getRiverStrategy`）、短/深筹码两个早返回、
+  以及所有 bet/raise 尺寸（`scaleBetAmount` 在 `getBotAction` 末尾统一变换）。
+  **唯一未接的是 §7.2 第 12 行 `getShadowBotAction`（两行影子决策），属 P8b。**
+  且**无 persona 路径逐位不变**（P1 golden `botAI.decisionBaseline` 14 条在 P6b/P6c
+  每步回归中都全绿 —— 含 `flop-heuristic-tptk-rake`、`flop-gto-flushdraw`、
+  `river-heuristic-bluffcatch-rake`、`river-gto-hu-exact`、
+  `preflop-heuristic-short-bb-push`、`flop-heuristic-deep-400bb` 六条正好覆盖本轮改动的路径）。
+  下一轮从 P7（按分配类型聚合统计）开始，按 P7→P10 顺序继续。
