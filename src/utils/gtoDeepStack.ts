@@ -675,6 +675,14 @@ export function getDeepStackRecommendation(
     return {
       ...result,
       action: 'raise',
+      // ⚠️ **必须给 `amount`**：深筹码的调用点（`botAI` 的 `veryDeep` 分支）映射的是
+      // `deepStackRec.amount` —— 不像短筹码 / ICM 那样映射 `.sizing`。漏了它，`getBotAction`
+      // 末尾的「唯一缩放点」会因 `raw.amount === undefined` 直接原样返回，于是
+      // `isActionAccepted('raise', undefined)` 被 `legalizeRaise` 拒绝；而 `GameBoard`
+      // 的机器人 effect 在动作被拒时只 `return`（依赖 `state` 未变 ⇒ 不重跑）⇒
+      // **真人视角里机器人卡住、牌局停住**。金额口径与同文件其它 6 处 `raise` 分支一致：
+      // `target = floor(totalPot × sizing)`，再交给 `calculateRaiseAmount` 夹到合法区间。
+      amount: calculateRaiseAmount(player, state, Math.floor(ctx.totalPot * 0.33)),
       sizing: 0.33,
       reasoning: `${result.reasoning} (opponent folds often, stealing)`,
     };
