@@ -30,6 +30,7 @@ import {
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
 import { computeSettlementSnapshot } from '../utils/handSettlementSnapshot';
+import { buildActionEvent } from '../utils/actionEvent';
 import type { BotTypeMap } from '../utils/botPersonality';
 import { HAND_RANK_NAMES, type Action, type GamePhase, type PlayerId } from '../types/poker';
 import type { ActionEvent, PlayerRole } from '../types/stats';
@@ -152,37 +153,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     };
   }, []);
 
+  /**
+   * 事件构造收敛到 `utils/actionEvent.buildActionEvent` 一处（方案 §9.3）——
+   * `scripts/` 下的 headless 校准 runner 用**同一个**函数产出统计事件，两边形状不可能分叉。
+   * 本手身份在开手时算好放进 `handIdRef`（见下面的手牌检测 effect，它声明在机器人
+   * effect 之前，所以任何动作事件派发时它已经就位）。
+   */
   const createActionEvent = (
-    playerId: number,
+    playerId: PlayerId,
     action: Action,
     amount?: number,
     phaseOverride?: GamePhase,
-  ): ActionEvent => {
-    const player = state.players.find((p) => p.id === playerId);
-    const toCall = state.lastBet - (player?.bet || 0);
-    const position = (playerId - state.dealer + state.players.length) % state.players.length;
-    const phase = phaseOverride ?? state.phase;
-    const timestamp = Date.now();
-    
-    return {
-      // 与容器记录同源：本手的身份在开手时算好放进 `handIdRef`（见下面的手牌检测 effect，
-      // 它声明在机器人 effect 之前，所以任何动作事件派发时它已经就位）。
-      handId: handIdRef.current,
-      playerId: playerId as ActionEvent['playerId'],
-      phase,
+  ): ActionEvent =>
+    buildActionEvent(
+      state,
+      handIdRef.current,
+      playerId,
       action,
       amount,
-      toCall,
-      currentBet: state.lastBet,
-      potSize: state.mainPot + (state.sidePots?.reduce((sum, pot) => sum + pot.amount, 0) || 0),
-      position,
-      // "面对下注/加注" 的语义就是「有需要跟注的金额」，全街道通用。
-      // 原来写成 `state.lastBet > 0 && phase === 'preflop'`，翻后恒为 false，
-      // 且翻前连大盲免费过牌也被判成 facing（lastBet 初始就是大盲）。
-      isFacingRaise: toCall > 0,
-      timestamp: timestamp,
-    };
-  };
+      phaseOverride,
+    );
 
   const handleRaiseAmountChange = (playerId: number, amount: number | null) => {
     setPlayerRaiseAmounts(prev => ({
