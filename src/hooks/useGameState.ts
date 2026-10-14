@@ -95,7 +95,13 @@ function createPlayer(
   };
 }
 
-function createInitialState(
+/**
+ * reducer 的初始状态（**未开局**）。导出给 `scripts/` 下的 headless 校准 runner 用 ——
+ * 它必须从与生产完全相同的冷启动状态出发，否则「跑的是生产状态机」就不成立。
+ *
+ * 注意 `dealer` 走 `Math.random()`：runner 要可复现就得自己钉住 `Math.random`。
+ */
+export function createInitialState(
   realPlayerCount: number,
   botPlayerCount: number,
   smallBlind: number = SMALL_BLIND,
@@ -140,7 +146,11 @@ function createInitialState(
   };
 }
 
-type GameAction =
+/**
+ * 状态机接受的**全部**动作。导出给 `scripts/` 下的 headless 校准 runner ——
+ * 它必须通过这个 reducer 派发动作，不能自己写一套推进逻辑（方案 §10.4）。
+ */
+export type GameAction =
   | {
       type: 'START_GAME';
       realPlayerCount: number;
@@ -433,9 +443,17 @@ function getBlindIndices(
   return { smallBlind: smallBlindIdx, bigBlind: bigBlindIdx };
 }
 
-export function useGameState() {
-  const [state, dispatch] = useReducer(
-    (state: GameState, action: GameAction): GameState => {
+/**
+ * 生产状态机 reducer —— **从 `useGameState` 内联箭头函数原样抽出**，行为逐位不变。
+ *
+ * 抽出的唯一目的是让 `scripts/` 下的 headless 校准 runner 能驱动**同一套**
+ * 状态机（方案 §10.4：「闭环 runner 走生产 reducer/动作接受/计数逻辑，
+ * 不手写第二套扑克引擎」）。`useGameState()` 仍然用它，没有任何分叉。
+ *
+ * ⚠️ 改这里等于改生产行为 —— 任何改动都要靠 `useGameState.*` 套件与 P1 golden
+ * （`botAI.decisionBaseline`）守住，别把它当成「只是给 runner 用的副本」。
+ */
+export function gameReducer(state: GameState, action: GameAction): GameState {
       switch (action.type) {
         case 'START_GAME': {
           const deck = shuffleDeck();
@@ -1320,9 +1338,10 @@ export function useGameState() {
         default:
           return state;
       }
-    },
-    createInitialState(2, 0),
-  );
+}
+
+export function useGameState() {
+  const [state, dispatch] = useReducer(gameReducer, createInitialState(2, 0));
 
   const stateRef = useRef(state);
   useEffect(() => {
