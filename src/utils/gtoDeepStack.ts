@@ -655,8 +655,15 @@ export function getDeepStackRecommendation(
     if (callTighten > 0 && result.action === 'raise' && equity < 0.5) {
       return {
         ...result,
-        action: 'check',
-        reasoning: `${result.reasoning} (opponent calls too much, checking instead)`,
+        // ⚠️ **面对下注不能压成 `check`**：过牌要求 `toCall === 0`（`isActionAccepted` 的
+        // `case 'check'`），而本分支只在 `ctx.toCall > 0` 时进入 —— 压成 `check` 必被
+        // `legalizeRaise`/动作接受层拒绝，`GameBoard` 的机器人 effect 只 `return`
+        // （依赖未变 ⇒ 不重跑）⇒ **机器人卡住**。不诈唬加注的合法替代是**跟注**。
+        action: 'call',
+        // 跟注不带金额（reducer 用 `toCall` 自算）；清掉 `...result` 带来的加注金额，
+        // 免得陈旧 `amount` 被 `createActionEvent` 记进统计事件。
+        amount: undefined,
+        reasoning: `${result.reasoning} (opponent calls too much, calling instead)`,
       };
     }
 
