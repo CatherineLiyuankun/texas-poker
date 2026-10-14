@@ -924,7 +924,11 @@ export interface StatCounts {
   foldToCbet: RatioCounts;
 }
 
-const EMPTY_COUNTS: StatCounts = {
+/**
+ * 全零计数（池化的单位元）。导出给类型聚合（`typeStats`）复用 ——
+ * 「空计数」只此一份定义，加字段时不会出现两处漂移。
+ */
+export const EMPTY_STAT_COUNTS: StatCounts = {
   handsDealt: 0,
   vpip: NO_COUNTS,
   pfr: NO_COUNTS,
@@ -1011,21 +1015,23 @@ export function computePlayerHandCounts(
   };
 }
 
+/** 组级指标（`PlayerStats` 去掉 `playerId`）—— 类型组没有单一座位，**不虚构合成玩家**（§8.1）。 */
+export type GroupStats = Omit<PlayerStats, 'playerId'>;
+
 /**
- * 把池化后的原始计数收敛成一份 `PlayerStats`。
+ * 把池化后的原始计数收敛成指标 + 实测分类。
  *
  * 这是**唯一**把计数变成比率 + 分类的地方，所以按座位与按类型聚合出来的数字口径
- * 完全一致。`vpip` / `pfr` 保持既有契约：无样本（handsDealt 0）时返回 **0 而不是
- * null**（`PlayerStats.vpip` 是 `number`，UI 靠 `handsDealt > 0` 判断是否显示占位符）。
+ * 完全一致（§9.3）。`vpip` / `pfr` 保持既有契约：无样本（handsDealt 0）时返回
+ * **0 而不是 null**（`PlayerStats.vpip` 是 `number`，UI 靠 `handsDealt > 0` 判断占位符）。
  */
-export function playerStatsFromCounts(playerId: PlayerId, c: StatCounts): PlayerStats {
+export function statsFromCounts(c: StatCounts): GroupStats {
   const vpip = c.handsDealt === 0 ? 0 : c.vpip.num / c.handsDealt;
   const pfr = c.handsDealt === 0 ? 0 : c.pfr.num / c.handsDealt;
   const afDetail = afDetailFromCounts(c.afAggressive, c.afCalls, c.afUnknownAllIns);
   const wtsd = percentOf(c.wtsd);
 
   return {
-    playerId,
     handsDealt: c.handsDealt,
     vpip,
     pfr,
@@ -1051,6 +1057,11 @@ export function playerStatsFromCounts(playerId: PlayerId, c: StatCounts): Player
   };
 }
 
+/** 单座位口径：`statsFromCounts` + 座位 id。 */
+export function playerStatsFromCounts(playerId: PlayerId, c: StatCounts): PlayerStats {
+  return { playerId, ...statsFromCounts(c) };
+}
+
 /**
  * 计算单个玩家的完整统计。
  *
@@ -1070,7 +1081,8 @@ export function computePlayerStatsFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): PlayerStats {
-  let pooled = EMPTY_COUNTS;
+  // `sumCounts` 返回新对象、从不改写入参，所以直接以共享的全零常量为初值是安全的。
+  let pooled = EMPTY_STAT_COUNTS;
   for (const hand of hands) {
     const c = computePlayerHandCounts(playerId, hand);
     if (c) pooled = sumCounts(pooled, c);
