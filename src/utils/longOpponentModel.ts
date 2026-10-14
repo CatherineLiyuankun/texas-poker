@@ -5,8 +5,10 @@ import {
   computePlayerStatsFromEvents,
 } from './opponentModelUtil';
 import { saveGameProgress, loadGameProgress } from './gamePersistence';
+import { computeTypeStats, type TypeStats } from './typeStats';
 
 export type { PlayerType, VpipPfrStats, PlayerStats } from './opponentModelUtil';
+export type { TypeStats, BotTypeGroup } from './typeStats';
 
 // 导出PlayerLongStats作为PlayerStats的别名（向后兼容）
 export type PlayerLongStats = PlayerStats;
@@ -130,6 +132,27 @@ export function getPlayerLongStats(playerId: PlayerId): PlayerStats {
  */
 export function getAllPlayerLongStats(playerIds: PlayerId[]): PlayerStats[] {
   return playerIds.map(id => getPlayerLongStats(id));
+}
+
+/**
+ * 按**分配类型**聚合的长期统计（方案 §8.1/§9.1，P7）。
+ *
+ * 与 `getAllPlayerLongStats` 的分工：
+ * - 那个按**座位**（playerId）聚合 —— 座位不是稳定身份，同一座位跨盘可能是
+ *   不同性格、也可能是真人；
+ * - 这个按 P5 冻结的**开手快照**（`HandRecord.playerTypes`）分组 ——
+ *   分配 TAG 的样本永远留在 TAG 组，即使实测像 Fish（§8.1，偏差是 P9 校准信号）。
+ *
+ * 真人**绝不**出现在结果里（决策 38：真人始终按 playerId 聚合）。
+ * 只返回**有样本**的组；关闭性格时旧/新记录都归 `Unknown` 组，不会出现六行空行。
+ *
+ * 数据源是整个长期库（跨会话），所以这里能看到历史所有盘 —— 这也意味着
+ * **性格开关是逐手的**：同一批结果里可能混着「开启时按类型分组的手」与
+ * 「关闭时归 Unknown 的手」。是否展示类型行由调用方（UI）按当前盘配置决定。
+ */
+export function getTypeLongStats(): TypeStats[] {
+  loadFromStorage();
+  return computeTypeStats(persistentData.hands);
 }
 
 export function resetLongTermStats(): void {

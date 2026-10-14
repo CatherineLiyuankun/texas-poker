@@ -26,6 +26,7 @@ import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordActio
 import {
   saveHand,
   getAllPlayerLongStats,
+  getTypeLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
 import type { BotTypeMap } from '../utils/botPersonality';
@@ -540,6 +541,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const longStats = realPlayerIds.length > 0 ? getAllPlayerLongStats(realPlayerIds) : undefined;
   // Bot 行和真人行同口径：都读长期库（跨会话），不再只算当前会话。
   const botLongStats = botPlayerIds.length > 0 ? getAllPlayerLongStats(botPlayerIds) : undefined;
+  // 按**分配类型**聚合的行（§8.1，P7）只在当前盘**开启性格**时展示 —— 关闭时传
+  // `undefined`，表格退回「按座位展示实测类型」的旧形态，不伪装分配（决策 29）。
+  // ⚠️ 长期库里可能混着历史上开启性格时的手（它们会按当时的快照分组），所以这里
+  // 的开关只决定**是否展示类型行**，不影响分组本身（分组永远按每手自己的快照）。
+  // ⚠️ 再叠一层 `playerStatsOpen`：这个值只被浮层内部的 `PlayerStatsTable` 消费，
+  // 而聚合要遍历整个长期库（用户真实库 1000+ 手时是实打实的开销），所以**收起时不算**。
+  // 只有展开的那几帧才付这份成本，收起状态下等于零成本。
+  const typeStats =
+    playerStatsOpen && state.botPersonalityEnabled === true ? getTypeLongStats() : undefined;
   // 「玩家数据 Player Stats」表原先挤在 AI 分析面板内部（13 列把面板撑到溢出边界，
   // 面板又被座位可用空间压到最窄，两边互相挤兑）。现在整块搬到右上角按钮的浮层里，
   // 口径统一为**所有玩家都读长期统计**（真人 + Bot 同源），不再有「自己看长期、
@@ -602,7 +612,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </button>
                 {playerStatsOpen && (
                   <div className="absolute right-0 top-full mt-1 z-[90] max-w-[calc(100vw-1rem)] overflow-x-auto bg-black/85 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                    <PlayerStatsTable longStats={longStats} botLongStats={botLongStats} />
+                    <PlayerStatsTable
+                      longStats={longStats}
+                      botLongStats={botLongStats}
+                      typeStats={typeStats}
+                    />
                   </div>
                 )}
               </div>

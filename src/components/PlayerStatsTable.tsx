@@ -1,6 +1,8 @@
 import React from 'react';
 import { translations } from '../utils/translations';
 import type { PlayerLongStats } from '../utils/longOpponentModel';
+import type { TypeStats } from '../utils/typeStats';
+import { MIN_HANDS_FOR_CLASSIFICATION } from '../utils/opponentModelUtil';
 
 /**
  * 「玩家数据 Player Stats」表。
@@ -110,18 +112,125 @@ interface PlayerStatsTableProps {
   longStats?: PlayerLongStats[];
   /** Bot 玩家的长期（跨会话）统计，与 `longStats` 同口径 */
   botLongStats?: PlayerLongStats[];
+  /**
+   * 按**分配类型**聚合的长期统计（方案 §8.1，P7）。
+   *
+   * 只在**当前盘开启性格**时由 `GameBoard` 传入 —— 关闭时传 `undefined`，表格就退回
+   * 「按座位展示实测类型」的旧形态（§8.3 决策 29「不伪装分配」），一行都不会多出来。
+   */
+  typeStats?: TypeStats[];
 }
+
+/** 一行需要的指标字段（座位行与类型行**共用同一套单元格**，不写两遍）。 */
+interface MetricValues {
+  handsDealt: number;
+  vpip: number;
+  pfr: number;
+  threeBet: number | null;
+  af: number | null;
+  afq: number | null;
+  cbet: number | null;
+  foldToCbet: number | null;
+  turnCbet: number | null;
+  checkRaise: number | null;
+  wtsd: number | null;
+  wsd: number | null;
+}
+
+/** 翻前三列（VPIP / PFR / 3-Bet）。`handsDealt === 0` 时显示占位符而不是 0%。 */
+const PreflopCells: React.FC<{ m: MetricValues }> = ({ m }) => (
+  <>
+    <td className={`text-right ${m.handsDealt > 0 ? getVpipColor(m.vpip * 100) : ''}`}>
+      {m.handsDealt > 0 ? `${(m.vpip * 100).toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.handsDealt > 0 ? getPfrColor(m.pfr * 100) : ''}`}>
+      {m.handsDealt > 0 ? `${(m.pfr * 100).toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.threeBet !== null ? get3BetColor(m.threeBet) : ''}`}>
+      {m.threeBet !== null ? `${m.threeBet.toFixed(0)}%` : '—'}
+    </td>
+  </>
+);
+
+/**
+ * 「类型」列。
+ *
+ * ⚠️ 这一列的语义**因行的种类而不同**，所以由调用方决定传什么：
+ * - 座位行（真人 / 按座位的 Bot）传**实测**分类 —— 座位没有「分配」可言；
+ * - 类型组行传 `observedPlayerType`（实测），而**分配**身份写在「名字」列。
+ *   两者并列正是 §8.1 的要求：分配 TAG 但实测像 Nit，两列就分别显示 TAG 与 Nit，
+ *   这个偏差是 P9 校准的信号，不能互相覆盖。
+ *
+ * 样本不足（`handsDealt < MIN_HANDS_FOR_CLASSIFICATION`）时显示占位符 ——
+ * 类型组的**组标签**仍照常显示在名字列（§8.1「组标签总可显示」）。
+ */
+const TypeCell: React.FC<{ playerType: string; handsDealt: number }> = ({
+  playerType,
+  handsDealt,
+}) => {
+  const typeLabel = translations.playerStats.types[playerType] || playerType;
+  return (
+    // 类型列**不折行**：档位标签是中英双语的（`Nit 紧弱` / `TAG 紧凶` /
+    // `CS 站桩` / `Maniac 疯子`），中间那个空格就是断行点 —— 列一窄就变成
+    // `Nit` / `紧弱` 两行，行高翻倍。nowrap 之后该列按内容取宽，表格整体
+    // 相应变宽（浮层是收缩包裹的，跟着一起变宽）。
+    // 其余数据列不加 nowrap：它们都是 `24%` / `2.2` 这类没有断行点的值，
+    // 加了也不会变，只是徒增一处要维护的类名。
+    <td
+      className={`text-right whitespace-nowrap font-medium border-r border-white/10 ${getPlayerTypeColor(playerType)}`}
+    >
+      {playerType === 'Unknown' && handsDealt < MIN_HANDS_FOR_CLASSIFICATION
+        ? translations.playerStats.insufficientData
+        : typeLabel}
+    </td>
+  );
+};
+
+/** 翻后六列 + 摊牌两列。 */
+const PostflopCells: React.FC<{ m: MetricValues }> = ({ m }) => (
+  <>
+    <td className={`text-right ${m.af !== null ? getAfColor(m.af) : ''}`}>
+      {m.af !== null ? m.af.toFixed(1) : '—'}
+    </td>
+    <td className={`text-right ${m.afq !== null ? getAFqColor(m.afq) : ''}`}>
+      {m.afq !== null ? `${m.afq.toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.cbet !== null ? getCbetColor(m.cbet) : ''}`}>
+      {m.cbet !== null ? `${m.cbet.toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.foldToCbet !== null ? getFoldToCbetColor(m.foldToCbet) : ''}`}>
+      {m.foldToCbet !== null ? `${m.foldToCbet.toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.turnCbet !== null ? getTurnCbetColor(m.turnCbet) : ''}`}>
+      {m.turnCbet !== null ? `${m.turnCbet.toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right border-r border-white/10 ${m.checkRaise !== null ? getCrColor(m.checkRaise) : ''}`}>
+      {m.checkRaise !== null ? `${m.checkRaise.toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.wtsd !== null ? getWtsdColor(m.wtsd) : ''}`}>
+      {m.wtsd !== null ? `${m.wtsd.toFixed(0)}%` : '—'}
+    </td>
+    <td className={`text-right ${m.wsd !== null ? getWsdColor(m.wsd) : ''}`}>
+      {m.wsd !== null ? `${m.wsd.toFixed(0)}%` : '—'}
+    </td>
+  </>
+);
+
+/** 整表的列数（名字 + 12 个指标列），分隔行的 colSpan 用它，改列时不会漏。 */
+const COLUMN_COUNT = 13;
 
 export const PlayerStatsTable: React.FC<PlayerStatsTableProps> = ({
   longStats,
   botLongStats,
+  typeStats,
 }) => {
   const botStats = botLongStats ?? [];
   const realStats = longStats ?? [];
-  if (botStats.length === 0 && realStats.length === 0) return null;
+  const groups = typeStats ?? [];
+  if (botStats.length === 0 && realStats.length === 0 && groups.length === 0) return null;
 
   // **真人行在前、Bot 行在后** —— 看表的人自己（和同场真人）是主角，Bot 是对手，
-  // 放在下面。两行的单元格口径完全相同，只有名字不同 —— 合并成一张列表，
+  // 放在下面。两类座位行的单元格口径完全相同，只有名字不同 —— 合并成一张列表，
   // 避免同一套 13 列写两遍。
   const rows = [
     ...realStats.map((stat) => ({
@@ -168,60 +277,64 @@ export const PlayerStatsTable: React.FC<PlayerStatsTableProps> = ({
         </tr>
       </thead>
       <tbody>
-        {rows.map(({ key, name, stat }) => {
-          const typeLabel =
-            translations.playerStats.types[stat.playerType] || stat.playerType;
-          const typeColor = getPlayerTypeColor(stat.playerType);
-          return (
-            <tr key={key} className="text-white">
-              <td className="text-left">{name}</td>
-              <td className={`text-right ${stat.handsDealt > 0 ? getVpipColor(stat.vpip * 100) : ''}`}>
-                {stat.handsDealt > 0 ? `${(stat.vpip * 100).toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.handsDealt > 0 ? getPfrColor(stat.pfr * 100) : ''}`}>
-                {stat.handsDealt > 0 ? `${(stat.pfr * 100).toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.threeBet !== null ? get3BetColor(stat.threeBet) : ''}`}>
-                {stat.threeBet !== null ? `${stat.threeBet.toFixed(0)}%` : '—'}
-              </td>
-              {/* 类型列**不折行**：档位标签是中英双语的（`Nit 紧弱` / `TAG 紧凶` /
-                  `CS 松弱` / `Maniac 疯子`），中间那个空格就是断行点 —— 列一窄就变成
-                  `Nit` / `紧弱` 两行，行高翻倍。nowrap 之后该列按内容取宽，表格整体
-                  相应变宽（浮层是收缩包裹的，跟着一起变宽）。
-                  其余数据列不加 nowrap：它们都是 `24%` / `2.2` 这类没有断行点的值，
-                  加了也不会变，只是徒增一处要维护的类名。 */}
-              <td className={`text-right whitespace-nowrap font-medium border-r border-white/10 ${typeColor}`}>
-                {stat.playerType === 'Unknown' && stat.handsDealt < 10
-                  ? translations.playerStats.insufficientData
-                  : typeLabel}
-              </td>
-              <td className={`text-right ${stat.af !== null ? getAfColor(stat.af) : ''}`}>
-                {stat.af !== null ? stat.af.toFixed(1) : '—'}
-              </td>
-              <td className={`text-right ${stat.afq !== null ? getAFqColor(stat.afq) : ''}`}>
-                {stat.afq !== null ? `${stat.afq.toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.cbet !== null ? getCbetColor(stat.cbet) : ''}`}>
-                {stat.cbet !== null ? `${stat.cbet.toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.foldToCbet !== null ? getFoldToCbetColor(stat.foldToCbet) : ''}`}>
-                {stat.foldToCbet !== null ? `${stat.foldToCbet.toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.turnCbet !== null ? getTurnCbetColor(stat.turnCbet) : ''}`}>
-                {stat.turnCbet !== null ? `${stat.turnCbet.toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right border-r border-white/10 ${stat.checkRaise !== null ? getCrColor(stat.checkRaise) : ''}`}>
-                {stat.checkRaise !== null ? `${stat.checkRaise.toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.wtsd !== null ? getWtsdColor(stat.wtsd) : ''}`}>
-                {stat.wtsd !== null ? `${stat.wtsd.toFixed(0)}%` : '—'}
-              </td>
-              <td className={`text-right ${stat.wsd !== null ? getWsdColor(stat.wsd) : ''}`}>
-                {stat.wsd !== null ? `${stat.wsd.toFixed(0)}%` : '—'}
+        {rows.map(({ key, name, stat }) => (
+          <tr key={key} className="text-white">
+            <td className="text-left">{name}</td>
+            <PreflopCells m={stat} />
+            {/* 座位行没有「分配」身份，这一列就是实测分类。 */}
+            <TypeCell playerType={stat.playerType} handsDealt={stat.handsDealt} />
+            <PostflopCells m={stat} />
+          </tr>
+        ))}
+        {/*
+          按分配类型聚合的行（§8.1，P7）。只在开启性格时由 GameBoard 传入；
+          关闭时 `groups` 为空 ⇒ 这一段一行都不渲染，表格退回按座位的旧形态。
+        */}
+        {groups.length > 0 && (
+          <>
+            <tr>
+              <td
+                colSpan={COLUMN_COUNT}
+                className="pt-2 text-left whitespace-nowrap text-white/40 border-t border-white/10"
+              >
+                {translations.playerStats.typeGroupHeader}
+                <span className="ml-1 text-white/25">
+                  ({translations.playerStats.assignedType} / {translations.playerStats.observedType})
+                </span>
               </td>
             </tr>
-          );
-        })}
+            {groups.map((group) => {
+              // 名字列显示**分配**身份，类型列显示**实测**分类 —— 两者并列（§8.1）。
+              // `Unknown` 组是「无有效分配」（关闭性格 / 旧记录），标签换文案说明，
+              // 并在有旧数据嫌疑时提示身份未标注（§8.3 决策 38，不设 Legacy 行）。
+              const assignedLabel =
+                group.groupType === 'Unknown'
+                  ? translations.playerStats.unassignedGroup
+                  : translations.playerStats.types[group.groupType] || group.groupType;
+              return (
+                <tr key={group.rowKey} className="text-white/90">
+                  <td className="text-left whitespace-nowrap">{assignedLabel}</td>
+                  <PreflopCells m={group} />
+                  <TypeCell
+                    playerType={group.observedPlayerType}
+                    handsDealt={group.handsDealt}
+                  />
+                  <PostflopCells m={group} />
+                </tr>
+              );
+            })}
+            <tr>
+              <td
+                colSpan={COLUMN_COUNT}
+                className="pb-1 text-left text-white/25 text-[8px] whitespace-nowrap"
+              >
+                {translations.playerStats.typeGroupHint}
+                {groups.some((g) => g.groupType === 'Unknown') &&
+                  ` ${translations.playerStats.legacyNote}`}
+              </td>
+            </tr>
+          </>
+        )}
       </tbody>
     </table>
   );

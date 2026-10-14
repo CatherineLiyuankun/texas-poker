@@ -324,6 +324,15 @@ export const translations = {
     exportStats: 'Export', // 导出玩家数据
     importStats: 'Import', // 导入玩家数据
     insufficientData: '--', // 数据不足
+    // ── 按分配类型聚合的行（方案 §8.1/§8.3，P7）──
+    typeGroupHeader: '按性格分组 By Type', // 类型组小节标题
+    assignedType: '分配', // 开手时的分配身份（groupType）
+    observedType: '实测', // 用统计实测出的分类（observedPlayerType）
+    unassignedGroup: '未分配 Unassigned', // Bot Unknown 组：关闭性格 / 旧记录无分配
+    legacyNote: '含旧数据（身份未标注）', // §8.3 决策 38：旧记录无 roles/type 一律归此组
+    // ⚠️ 刻意不写具体手数：门槛的单一来源是 `MIN_HANDS_FOR_CLASSIFICATION`，
+    // 写死数字会在门槛调整时让 UI 文案撒谎。
+    typeGroupHint: '组标签始终显示；实测列样本不足时显示占位符。', // §8.1
     importSuccess: 'Import Success', // 导入成功
     importSuccessWithProgress: 'Import Success (game progress restored)', // 导入成功（已恢复游戏进度）
     importFailed: 'Import Failed', // 导入失败
