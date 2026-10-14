@@ -1554,6 +1554,19 @@ function hasNoActionableDecision(player: Player, state: GameState): boolean {
 }
 
 /**
+ * 两行的**占位**形态：行还在，但都没有可行动作（§11.2「两行不消失」）。
+ *
+ * 单独导出是因为面板在**连座位都没有**时（`heroPlayer` / `gameState` 缺失）
+ * 也得摆出这两行 —— 那属于渲染层的兜底，不该塞进 `getShadowBotActions` 的入参里。
+ */
+export function placeholderShadowRows(): ShadowActionRow[] {
+  return SHADOW_ASSUMED_TYPES.map((assumedType) => ({
+    assumedType,
+    decision: null,
+  }));
+}
+
+/**
  * 面板的两行影子决策（方案 §11.2，P8b）。
  *
  * 与逐个调 `getShadowBotAction` 的区别：
@@ -1570,10 +1583,7 @@ export function getShadowBotActions(
   state: GameState,
 ): ShadowActionRow[] {
   if (hasNoActionableDecision(player, state)) {
-    return SHADOW_ASSUMED_TYPES.map((assumedType) => ({
-      assumedType,
-      decision: null,
-    }));
+    return placeholderShadowRows();
   }
   return withSharedEquity(() =>
     SHADOW_ASSUMED_TYPES.map((assumedType) => ({

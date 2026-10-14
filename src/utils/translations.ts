@@ -151,9 +151,14 @@ export const translations = {
       + '不打折扣也不折抽水（不再假设「把对手剩余筹码全赢过来」—— 深筹码下那个口径会给出荒谬的比价）。'
       + '只在「我还能变强」时显示这一行：有听牌 / 后门同花听 / 三条（翻前为口袋对）；'
       + '顶对、两对、顺子这类不会再变强的牌不显示。',
-    // 「这个座位交给机器人会怎么打」——与机器人真实动作（座位气泡）同一条决策路径，
-    // 差别只在混合频率的随机抽样（见 botAI.getShadowBotAction）。
-    botAction: 'Bot Action',
+    // 「这个座位交给机器人会怎么打」的**固定两行**（方案 §11.2，P8b）。
+    // 标签固定为假设 TAG / LAG 两种性格 —— 与当盘实际分配无关（当盘没有这两类
+    // Bot、甚至整盘关闭性格，两行都在）。决策路径与机器人真实动作（座位气泡）
+    // 完全相同，差别只在混合频率的随机抽样（见 botAI.getShadowBotActions）。
+    botActionTAG: 'Bot 紧凶Action',
+    botActionLAG: 'Bot 松凶Action',
+    // 没有可行动作时的占位符（§11.2：行不消失，只是值退化成占位符）。
+    botActionUnavailable: '— / 无可行动作',
     // 加注框有值时单独显示的「我方下注所需弃牌率」——与跟注赔率是两个不同的量
     betRequiredFold: '所需弃牌率 Req. Fold',
     gto: 'GTO preflop(位置+SPR 查表)', // GTO建议
