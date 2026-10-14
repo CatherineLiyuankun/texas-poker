@@ -62,6 +62,9 @@ export const translations = {
     allIn: 'All In', // 全押
     thisRoundBet: 'Bet:', // 此轮下注:
     totalBet: 'All bet:', // 本局下注:
+    // 本手结束后的座位性格标签（方案 §11.1，P8a）—— 只作 `title`（悬停说明），
+    // 标签正文用 `playerStats.types` 的档位文案（与统计表同一个来源，不写第二份）。
+    personality: '性格 Personality',
   },
   potDisplay: {
     totalPot: '总奖池 Pot',

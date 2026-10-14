@@ -523,6 +523,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     return `${translations.playerArea.bot}${index + 1}`;
   };
 
+  /**
+   * 本手结束后的座位性格标签（方案 §11.1，P8a）。
+   *
+   * 来源是 `Player.botType` —— 它是**本盘分配身份**的派生视图（P4：只由
+   * `START_GAME` / `RESET_ROUND` 从 `botTypes` 派生），关闭性格 / 未分配 / 真人都
+   * 是 `undefined`，所以「不虚构标签」（决策 29）是**自然**满足的，不需要额外判断。
+   * 文案复用 `playerStats.types` 的档位名，与统计表同一来源，不写第二份。
+   */
+  const getPersonalityLabel = (
+    player: (typeof state.players)[0],
+  ): string | undefined => {
+    if (!player.botType) return undefined;
+    return translations.playerStats.types[player.botType] || player.botType;
+  };
+
   const getNextPhaseLabel = () => {
     switch (state.phase) {
       case 'preflop':
@@ -813,6 +828,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         )}
                         phase={state.phase}
                         lastAction={player.lastAction}
+                        // 本手结束标签（§11.1，P8a）：只在**本手已无可行动作**后出现。
+                        // `roundSettled` 覆盖三种终局 —— 全弃获胜（`winner !== null`，
+                        // 此时 `phase` 仍停在 preflop）、单人摊牌胜、平局
+                        // （`phase === 'showdown' && mainPot === 0`）。
+                        // ⚠️ 刻意**不**看 `adminRevealAll`：管理员提前亮牌不是结算。
+                        // 下一手 `winner`/`mainPot` 被 `START_GAME` 重置 ⇒ 标签自动消失。
+                        personalityLabel={
+                          roundSettled ? getPersonalityLabel(player) : undefined
+                        }
                         chipChange={
                           roundSettled && state.chipsAtRoundStart.length > 0
                             ? player.chips - state.chipsAtRoundStart[idx]
