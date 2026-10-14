@@ -246,27 +246,66 @@ function classifyAllInAggression(e: ActionEvent): boolean | null {
   return e.toCall === 0 ? true : null;
 }
 
+/**
+ * 一个「分子 / 分母」对（方案 §9.1「先加分子/机会分母再除」的载体）。
+ *
+ * 所有比率指标都先以这种形式产出，**池化时只对 `num` / `den` 求和**，最后才除一次 ——
+ * 于是 `1/1` 与 `0/9` 合并成 `1/10 = 10%`，而不是两者比率的均值 `50%`。
+ */
+export interface RatioCounts {
+  /** 分子：命中次数。 */
+  num: number;
+  /** 分母：机会数。`0` 表示无机会（比率应为 `null`，不是 0%）。 */
+  den: number;
+}
+
+const NO_COUNTS: RatioCounts = { num: 0, den: 0 };
+
+/** 池化多个计数（顺序无关，整数加法）。 */
+function addRatio(a: RatioCounts, b: RatioCounts): RatioCounts {
+  return { num: a.num + b.num, den: a.den + b.den };
+}
+
+/** 0–100 百分数口径：无机会 → `null`（不伪造 0%）。 */
+function percentOf(c: RatioCounts): number | null {
+  return c.den > 0 ? (c.num / c.den) * 100 : null;
+}
+
+/**
+ * 单手 VPIP 计数。入参是**该玩家自己**在本手的事件。
+ *
+ * 整手任意一次自愿投入即算（不再只看第一个翻前动作）。
+ * 返回 `den = 1`（这手就是 VPIP 的一个分母单位），由调用方决定要不要计入
+ * —— 未参与的手由 `computePlayerHandCounts` 直接跳过。
+ */
+function vpipCountsOfHand(ownEvents: ActionEvent[]): RatioCounts {
+  const hit = ownEvents.some(
+    e => e.phase === 'preflop' && isVoluntaryPreflopEntry(e),
+  );
+  return { num: hit ? 1 : 0, den: 1 };
+}
+
+/** 单手 PFR 计数。整手任意一次主动加注即算（先 call 后 raise、BB check 后 raise 都不漏）。 */
+function pfrCountsOfHand(ownEvents: ActionEvent[]): RatioCounts {
+  const hit = ownEvents.some(e => e.phase === 'preflop' && isPreflopRaise(e));
+  return { num: hit ? 1 : 0, den: 1 };
+}
+
 export function computeVPIPFromEvents(
   events: ActionEvent[],
   handsDealt: number
 ): number {
+  // ⚠️ 分母为 0 时返回 **0 而不是 null** —— 这是既有契约（`PlayerStats.vpip` 是
+  // `number`，UI 用 `handsDealt > 0` 判断是否显示占位符），不要"顺手修"成 null。
   if (handsDealt === 0) return 0;
 
   const eventsByHand = groupEventsByHand(events);
-  let vpipCount = 0;
-
+  let counts = NO_COUNTS;
   for (const handEvents of eventsByHand.values()) {
-    // 整手任意一次自愿投入即算（不再只看第一个翻前动作）
-    if (
-      handEvents.some(
-        e => e.phase === 'preflop' && isVoluntaryPreflopEntry(e)
-      )
-    ) {
-      vpipCount++;
-    }
+    counts = addRatio(counts, vpipCountsOfHand(handEvents));
   }
 
-  return vpipCount / handsDealt;
+  return counts.num / handsDealt;
 }
 
 export function computePFRFromEvents(
@@ -276,19 +315,12 @@ export function computePFRFromEvents(
   if (handsDealt === 0) return 0;
 
   const eventsByHand = groupEventsByHand(events);
-  let pfrCount = 0;
-
+  let counts = NO_COUNTS;
   for (const handEvents of eventsByHand.values()) {
-    // 整手任意一次主动加注即算 —— 先 call 后 raise（limp-reraise）、
-    // BB check 后 raise 都不再被漏记
-    if (
-      handEvents.some(e => e.phase === 'preflop' && isPreflopRaise(e))
-    ) {
-      pfrCount++;
-    }
+    counts = addRatio(counts, pfrCountsOfHand(handEvents));
   }
 
-  return pfrCount / handsDealt;
+  return counts.num / handsDealt;
 }
 
 /** AF 的三态（plan 决策 37）：区分「没打过翻后」与「打过但零跟注」。 */
@@ -420,37 +452,39 @@ function wasDonkedBefore(
 }
 
 /**
- * 持续下注率（C-bet）。入参必须是**完整**手牌记录 —— 必须看到全桌的动作才能
- * 找到真实的最后翻前进攻者。
+ * 单手 c-bet 计数。入参必须是**完整**手牌记录 —— 必须看到全桌的动作才能找到
+ * 真实的最后翻前进攻者。
  *
  * - 机会 = 我（真实的最后翻前进攻者）到翻牌、可行动，且首次决策前未被对手 donk；
- * - 分子 = 我翻牌首次合法主动下注。
+ * - 分子 = 我翻牌首次合法主动下注。没机会时返回 `{0,0}`（不进分母）。
  *
  * 旧实现先按玩家过滤再找「最后加注者」，会把「自己开池后被别人 3-bet、翻牌由
  * 对手下注」误算成我的 c-bet 机会；被 donk 抢先下注也仍计入分母。
  */
+function cbetCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  const aggressor = lastPreflopRaiser(hand);
+  if (!aggressor || aggressor.playerId !== playerId) return NO_COUNTS;
+
+  const flopEvents = hand.events.filter(e => e.phase === 'flop');
+  const firstIdx = flopEvents.findIndex(e => e.playerId === playerId);
+  // 没走到翻牌 / 全下 runout 无行动能力 → 非机会
+  if (firstIdx < 0) return NO_COUNTS;
+  if (wasDonkedBefore(flopEvents, playerId)) return NO_COUNTS;
+
+  return {
+    num: isAggressivePostflop(flopEvents[firstIdx]) ? 1 : 0,
+    den: 1,
+  };
+}
+
+/** 持续下注率（C-bet）。逐手 `cbetCountsOfHand` 池化后相除；无机会 → `null`。 */
 export function computeCBetFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let opportunities = 0;
-  let cbets = 0;
-
-  for (const hand of hands) {
-    const aggressor = lastPreflopRaiser(hand);
-    if (!aggressor || aggressor.playerId !== playerId) continue;
-
-    const flopEvents = hand.events.filter(e => e.phase === 'flop');
-    const firstIdx = flopEvents.findIndex(e => e.playerId === playerId);
-    // 没走到翻牌 / 全下 runout 无行动能力 → 非机会
-    if (firstIdx < 0) continue;
-    if (wasDonkedBefore(flopEvents, playerId)) continue;
-
-    opportunities++;
-    if (isAggressivePostflop(flopEvents[firstIdx])) cbets++;
-  }
-
-  return opportunities > 0 ? (cbets / opportunities) * 100 : null;
+  let counts = NO_COUNTS;
+  for (const hand of hands) counts = addRatio(counts, cbetCountsOfHand(playerId, hand));
+  return percentOf(counts);
 }
 
 /**
@@ -469,30 +503,27 @@ function sawFlop(hand: HandRecordLike, playerId: PlayerId): boolean {
 }
 
 /**
- * 见到翻牌后走到摊牌的比例（WTSD）。
+ * 单手 WTSD 计数（分子 = 是否到摊牌，分母 = 是否看到翻牌）。
  *
- * 玩家身份显式传入，不再从 `hand.events[0]` 推断 —— 一旦喂进完整记录，
- * 那个推断会取到「本手第一个动作的人」，把统计算到别人头上。
- * 入参可以是该玩家自己的手牌记录，也可以是完整记录（回退分支按 `playerId` 过滤）。
+ * 玩家身份显式传入，不从 `hand.events[0]` 推断 —— 喂进完整记录时那个推断会取到
+ * 「本手第一个动作的人」，把统计算到别人头上。入参可以是该玩家自己的手牌记录，
+ * 也可以是完整记录（回退分支按 `playerId` 过滤）。
  */
+function wtsdCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  if (!sawFlop(hand, playerId)) return NO_COUNTS;
+  return {
+    num: hand.showdownPlayers?.includes(playerId) ? 1 : 0,
+    den: 1,
+  };
+}
+
 export function computeWTSDFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let flopsSeen = 0;
-  let showdowns = 0;
-
-  for (const hand of hands) {
-    if (!sawFlop(hand, playerId)) continue;
-
-    flopsSeen++;
-
-    if (hand.showdownPlayers?.includes(playerId)) {
-      showdowns++;
-    }
-  }
-
-  return flopsSeen > 0 ? (showdowns / flopsSeen) * 100 : null;
+  let counts = NO_COUNTS;
+  for (const hand of hands) counts = addRatio(counts, wtsdCountsOfHand(playerId, hand));
+  return percentOf(counts);
 }
 
 /**
@@ -506,78 +537,80 @@ function wonAnyShare(hand: HandRecordLike, playerId: PlayerId): boolean {
   return hand.result?.winner === playerId;
 }
 
-/** 摊牌胜率（WSD）。入参是**该玩家自己**的手牌记录；玩家身份显式传入（理由同 WTSD）。 */
+/**
+ * 单手 WSD 计数（分子 = 是否赢到任意奖池份额，分母 = 是否真进摊牌）。
+ * 入参是**该玩家自己**的手牌记录或完整记录；玩家身份显式传入（理由同 WTSD）。
+ */
+function wsdCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  if (!hand.showdownPlayers?.includes(playerId)) return NO_COUNTS;
+  return { num: wonAnyShare(hand, playerId) ? 1 : 0, den: 1 };
+}
+
 export function computeWSDFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let showdowns = 0;
-  let wins = 0;
-
-  for (const hand of hands) {
-    if (!hand.showdownPlayers?.includes(playerId)) continue;
-
-    showdowns++;
-
-    if (wonAnyShare(hand, playerId)) {
-      wins++;
-    }
-  }
-
-  return showdowns > 0 ? (wins / showdowns) * 100 : null;
+  let counts = NO_COUNTS;
+  for (const hand of hands) counts = addRatio(counts, wsdCountsOfHand(playerId, hand));
+  return percentOf(counts);
 }
 
 /**
- * Check-raise 率。入参必须是**完整**手牌记录，且玩家身份**显式传入**。
+ * 单手 check-raise 计数。入参必须是**完整**手牌记录，玩家身份**显式传入**。
  *
- * - 机会 = 我在某街首个动作是 check，且之后**确实面对了对手的主动下注**
- *   （才有再加注权）；分子 = 我随后主动加注。
- * - 所有人互相 check 过牌不是机会（没有下注可加注）；
- * - 每街最多 1 次。
+ * 单位是 **player-street**（方案 §9.2「每街最多 1」），所以一手最多贡献 3 个机会 ——
+ * 这里对 flop/turn/river 三条街分别判定后累加，**不能**按「每手最多 1」折叠，
+ * 否则池化时同一手的多街机会会被吞掉。
  *
- * 旧实现用 `events[0].playerId` 猜目标 —— 一旦喂进完整记录，`events[0]` 是
- * 「全局第一个动作的人」，于是 check-raise 被算到了别人头上；而且只按玩家过滤
- * 后的事件列表判断，根本看不到对手的下注，「面对下注」这一半条件形同虚设。
+ * - 机会 = 我在某街首个动作是 check，且之后**确实面对了对手的主动下注**（才有再加注权）；
+ * - 分子 = 我随后主动加注；
+ * - 所有人互相 check 过牌不是机会（没有下注可加注）。
  */
+function checkRaiseCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  let counts = NO_COUNTS;
+  const streets = ['flop', 'turn', 'river'] as const;
+
+  for (const street of streets) {
+    const streetEvents = hand.events.filter(e => e.phase === street);
+    if (streetEvents.length === 0) continue;
+
+    const firstIdx = streetEvents.findIndex(e => e.playerId === playerId);
+    if (firstIdx < 0) continue;
+    // 只有首个动作是 check 才有 check-raise 机会
+    if (streetEvents[firstIdx].action !== 'check') continue;
+
+    // 从我 check 之后扫描：对手下注（进攻）→ 有再加注权；轮到我 → 停止
+    let facedBet = false;
+    let response: ActionEvent | null = null;
+    for (let i = firstIdx + 1; i < streetEvents.length; i++) {
+      const e = streetEvents[i];
+      if (e.playerId === playerId) {
+        response = e;
+        break;
+      }
+      if (isAggressivePostflop(e)) facedBet = true;
+    }
+
+    if (!facedBet) continue; // 没人下注 → 不是机会
+
+    counts = addRatio(counts, {
+      num: response && isAggressivePostflop(response) ? 1 : 0,
+      den: 1,
+    });
+  }
+
+  return counts;
+}
+
 export function computeCheckRaiseFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let opportunities = 0;
-  let checkRaises = 0;
-
-  const streets = ['flop', 'turn', 'river'] as const;
-
+  let counts = NO_COUNTS;
   for (const hand of hands) {
-    for (const street of streets) {
-      const streetEvents = hand.events.filter(e => e.phase === street);
-      if (streetEvents.length === 0) continue;
-
-      const firstIdx = streetEvents.findIndex(e => e.playerId === playerId);
-      if (firstIdx < 0) continue;
-      // 只有首个动作是 check 才有 check-raise 机会
-      if (streetEvents[firstIdx].action !== 'check') continue;
-
-      // 从我 check 之后扫描：对手下注（进攻）→ 有再加注权；轮到我 → 停止
-      let facedBet = false;
-      let response: ActionEvent | null = null;
-      for (let i = firstIdx + 1; i < streetEvents.length; i++) {
-        const e = streetEvents[i];
-        if (e.playerId === playerId) {
-          response = e;
-          break;
-        }
-        if (isAggressivePostflop(e)) facedBet = true;
-      }
-
-      if (!facedBet) continue; // 没人下注 → 不是机会
-
-      opportunities++;
-      if (response && isAggressivePostflop(response)) checkRaises++;
-    }
+    counts = addRatio(counts, checkRaiseCountsOfHand(playerId, hand));
   }
-
-  return opportunities > 0 ? (checkRaises / opportunities) * 100 : null;
+  return percentOf(counts);
 }
 
 function groupEventsByHand(events: ActionEvent[]): Map<string, ActionEvent[]> {
@@ -592,109 +625,114 @@ function groupEventsByHand(events: ActionEvent[]): Map<string, ActionEvent[]> {
 }
 
 /**
- * 3-bet 率。入参必须是**完整**手牌记录 —— 机会的定义是「有人在我之前翻前加注」，
- * 所以必须看得到对手的动作。喂进按玩家过滤过的记录时机会恒为 0，结果恒为 `null`。
+ * 单手 3-bet 计数（方案 §9.2）。入参必须是**完整**手牌记录 —— 机会的定义是
+ * 「有人在我之前翻前加注」，所以必须看得到对手的动作；喂进按玩家过滤过的记录时
+ * 机会恒为 0。每手最多 1 次。
  *
  * 机会 = 轮到我行动时，前面**恰好有一次**由别人做出的自愿加注（一个 open），
- * 且我可以合法再加注；分子 = 我这次做再加注。每手最多 1 次。
+ * 且我可以合法再加注；分子 = 我这次做再加注。
  *
  * - 自己先 open、别人 3-bet 之后我再加注 → 我面对的是两个加注（4-bet），
  *   不是 3-bet 机会（旧实现只看「别人是否曾加注」，会误判）；
  * - 先 limp（跟注）后面对 open 再 3-bet → 在「面对 open」那一刻判定，是机会；
  * - 低于 `toCall` 的全下是跟注，不是 3-bet（`isPreflopRaise` 已区分）。
  */
+function threeBetCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  const preflop = hand.events.filter(e => e.phase === 'preflop');
+
+  let raisesBefore = 0;
+  let opportunity = false;
+  let threeBet = false;
+
+  for (const e of preflop) {
+    // 轮到我行动：之前恰好一次加注 → 我面对一个 open，可再加注
+    if (e.playerId === playerId) {
+      if (!opportunity && raisesBefore === 1) {
+        opportunity = true;
+        if (isPreflopRaise(e)) threeBet = true;
+      }
+    }
+    if (isPreflopRaise(e)) raisesBefore++;
+  }
+
+  return opportunity ? { num: threeBet ? 1 : 0, den: 1 } : NO_COUNTS;
+}
+
 export function compute3BetFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let opportunities = 0;
-  let threeBets = 0;
-
+  let counts = NO_COUNTS;
   for (const hand of hands) {
-    const preflop = hand.events.filter(e => e.phase === 'preflop');
-
-    let raisesBefore = 0;
-    let opportunity = false;
-    let threeBet = false;
-
-    for (const e of preflop) {
-      // 轮到我行动：之前恰好一次加注 → 我面对一个 open，可再加注
-      if (e.playerId === playerId) {
-        if (!opportunity && raisesBefore === 1) {
-          opportunity = true;
-          if (isPreflopRaise(e)) threeBet = true;
-        }
-      }
-      if (isPreflopRaise(e)) raisesBefore++;
-    }
-
-    if (opportunity) {
-      opportunities++;
-      if (threeBet) threeBets++;
-    }
+    counts = addRatio(counts, threeBetCountsOfHand(playerId, hand));
   }
-
-  return opportunities > 0 ? (threeBets / opportunities) * 100 : null;
+  return percentOf(counts);
 }
 
 /**
- * 面对 c-bet 的弃牌率。入参必须是**完整**手牌记录 —— 定义是「对手翻前加注并持续下注后，
- * 我是否弃牌」，必须看得到对手的加注与下注；喂过滤后的记录会恒为 `null`。
+ * 单手面对 c-bet 弃牌计数。入参必须是**完整**手牌记录 —— 定义是「对手翻前加注并
+ * 持续下注后，我是否弃牌」，必须看得到对手的加注与下注；喂过滤后的记录恒无机会。
+ * 每手最多 1 次。
  *
  * - 机会 = 对手（真实的最后翻前进攻者）在翻牌持续下注，且我**在没有中间加注**的
- *   情况下直接轮到面对这个 c-bet；分子 = 我直接弃牌。每手最多 1 次。
+ *   情况下直接轮到面对这个 c-bet；分子 = 我直接弃牌。
  * - 我先 check、对手再 c-bet、我再弃牌 → 也算（我是对 c-bet 弃牌）；
  * - c-bet 之后、轮到我之前若有人加注 → 我不再是「直接面对 c-bet」→ 非机会；
  * - 翻前就弃牌 / 没走到翻牌 → 非机会（否则会把分母拉大、比率被稀释）。
  */
+function foldToCbetCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  const aggressor = lastPreflopRaiser(hand);
+  if (!aggressor || aggressor.playerId === playerId) return NO_COUNTS;
+
+  const flopEvents = hand.events.filter(e => e.phase === 'flop');
+
+  // 进攻者必须真的 c-bet：他到翻牌、首次决策前未被 donk、且首次动作是主动下注
+  const aggressorIdx = flopEvents.findIndex(e => e.playerId === aggressor.playerId);
+  if (aggressorIdx < 0) return NO_COUNTS;
+  if (wasDonkedBefore(flopEvents, aggressor.playerId)) return NO_COUNTS;
+  if (!isAggressivePostflop(flopEvents[aggressorIdx])) return NO_COUNTS;
+
+  // 从 c-bet 之后向前扫：轮到我之前若有人再加注 → 非机会
+  let responseIdx = -1;
+  for (let i = aggressorIdx + 1; i < flopEvents.length; i++) {
+    const e = flopEvents[i];
+    if (e.playerId === playerId) {
+      responseIdx = i;
+      break;
+    }
+    if (isAggressivePostflop(e)) return NO_COUNTS; // 被插入加注
+  }
+  if (responseIdx < 0) return NO_COUNTS;
+
+  return {
+    num: flopEvents[responseIdx].action === 'fold' ? 1 : 0,
+    den: 1,
+  };
+}
+
 export function computeFoldToCbetFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let opportunities = 0;
-  let folds = 0;
-
+  let counts = NO_COUNTS;
   for (const hand of hands) {
-    const aggressor = lastPreflopRaiser(hand);
-    if (!aggressor || aggressor.playerId === playerId) continue;
-
-    const flopEvents = hand.events.filter(e => e.phase === 'flop');
-
-    // 进攻者必须真的 c-bet：他到翻牌、首次决策前未被 donk、且首次动作是主动下注
-    const aggressorIdx = flopEvents.findIndex(e => e.playerId === aggressor.playerId);
-    if (aggressorIdx < 0) continue;
-    if (wasDonkedBefore(flopEvents, aggressor.playerId)) continue;
-    if (!isAggressivePostflop(flopEvents[aggressorIdx])) continue;
-
-    // 从 c-bet 之后向前扫：轮到我之前若有人再加注 → 非机会
-    let responseIdx = -1;
-    for (let i = aggressorIdx + 1; i < flopEvents.length; i++) {
-      const e = flopEvents[i];
-      if (e.playerId === playerId) {
-        responseIdx = i;
-        break;
-      }
-      if (isAggressivePostflop(e)) break; // 被插入加注
-    }
-    if (responseIdx < 0) continue;
-
-    opportunities++;
-    if (flopEvents[responseIdx].action === 'fold') folds++;
+    counts = addRatio(counts, foldToCbetCountsOfHand(playerId, hand));
   }
-
-  return opportunities > 0 ? (folds / opportunities) * 100 : null;
+  return percentOf(counts);
 }
 
-export function computeAFqFromEvents(events: ActionEvent[]): number | null {
-  const postflopEvents = events.filter(e => e.phase !== 'preflop');
-  if (postflopEvents.length === 0) return null;
-
-  // all-in 语义与 AF 一致：加注式计入分子、跟注式不计；
-  // 证据缺失的旧事件（无 amount 且 toCall > 0）既不进分子也不进分母，不猜。
+/**
+ * AFq 计数（分子 = 翻后主动动作数，分母 = 可归类的翻后动作数）。
+ *
+ * all-in 语义与 AF 一致：加注式计入分子、跟注式不计；证据缺失的旧事件
+ * （无 `amount` 且 `toCall > 0`）**既不进分子也不进分母**，不猜。
+ */
+export function afqCountsFromEvents(events: ActionEvent[]): RatioCounts {
   let aggressive = 0;
   let classified = 0;
 
-  for (const e of postflopEvents) {
+  for (const e of events) {
+    if (e.phase === 'preflop') continue;
     if (e.action === 'raise') {
       aggressive++;
       classified++;
@@ -708,48 +746,49 @@ export function computeAFqFromEvents(events: ActionEvent[]): number | null {
     }
   }
 
-  if (classified === 0) return null;
-  return (aggressive / classified) * 100;
+  return { num: aggressive, den: classified };
+}
+
+export function computeAFqFromEvents(events: ActionEvent[]): number | null {
+  return percentOf(afqCountsFromEvents(events));
 }
 
 /**
- * 转牌持续下注率（在翻牌 c-bet 之后）。入参必须是**完整**手牌记录 ——
- * 需要判定真实最后进攻者就是该玩家。
+ * 单手转牌持续下注计数。入参必须是**完整**手牌记录（要判定真实最后进攻者就是该玩家）。
  *
- * - 分母 = 我 flop 真实 c-bet，且**打到转牌**、可行动、未被对手 donk 抢先的手数；
+ * - 分母 = 我 flop 真实 c-bet，且**打到转牌**、可行动、未被对手 donk 抢先；
  * - 分子 = 我在转牌首次合法主动下注。
  *
  * 仅 flop c-bet 但没见转牌（例如翻牌就结束、或全下 runout 后直接摊牌）**不计入
  * 分母** —— 旧实现在确认 c-bet 后就先给分母 +1，会把这类手数算进分母。
+ * flop c-bet 的判定复用 `cbetCountsOfHand`（`num === 1` 即这手 flop 真的 c-bet 了），
+ * 避免两处各写一遍「真实进攻者 + 未被 donk + 首次动作主动」。
  */
+function turnCbetCountsOfHand(playerId: PlayerId, hand: HandRecordLike): RatioCounts {
+  // flop 必须真的 c-bet（有机会且首次动作主动）
+  if (cbetCountsOfHand(playerId, hand).num !== 1) return NO_COUNTS;
+
+  // 必须打到转牌、可行动、未被 donk 才算分母
+  const turnEvents = hand.events.filter(e => e.phase === 'turn');
+  const turnIdx = turnEvents.findIndex(e => e.playerId === playerId);
+  if (turnIdx < 0) return NO_COUNTS;
+  if (wasDonkedBefore(turnEvents, playerId)) return NO_COUNTS;
+
+  return {
+    num: isAggressivePostflop(turnEvents[turnIdx]) ? 1 : 0,
+    den: 1,
+  };
+}
+
 export function computeTurnCbetFromEvents(
   playerId: PlayerId,
   hands: HandRecordLike[],
 ): number | null {
-  let flopCbets = 0;
-  let turnCbets = 0;
-
+  let counts = NO_COUNTS;
   for (const hand of hands) {
-    const aggressor = lastPreflopRaiser(hand);
-    if (!aggressor || aggressor.playerId !== playerId) continue;
-
-    const flopEvents = hand.events.filter(e => e.phase === 'flop');
-    const flopIdx = flopEvents.findIndex(e => e.playerId === playerId);
-    if (flopIdx < 0) continue;
-    if (wasDonkedBefore(flopEvents, playerId)) continue;
-    if (!isAggressivePostflop(flopEvents[flopIdx])) continue; // 翻牌没 c-bet
-
-    // 必须打到转牌才算分母
-    const turnEvents = hand.events.filter(e => e.phase === 'turn');
-    const turnIdx = turnEvents.findIndex(e => e.playerId === playerId);
-    if (turnIdx < 0) continue;
-    if (wasDonkedBefore(turnEvents, playerId)) continue;
-
-    flopCbets++;
-    if (isAggressivePostflop(turnEvents[turnIdx])) turnCbets++;
+    counts = addRatio(counts, turnCbetCountsOfHand(playerId, hand));
   }
-
-  return flopCbets > 0 ? (turnCbets / flopCbets) * 100 : null;
+  return percentOf(counts);
 }
 
 /**
@@ -858,56 +897,140 @@ export function computeFoldRateFromEvents(
 }
 
 /**
- * 计算单个玩家的完整统计。
- *
- * **入参 `hands` 必须是完整手牌记录** —— 每手的 `events` 含所有玩家的动作。
- * 过滤由本函数自己做，理由有两条：
- *
- * 1. `3-bet` / `fold-to-c-bet` 必须看到**对手**的动作（「对手加注后我是否 3-bet」
- *    「面对对手的 c-bet 我是否弃牌」）。调用方若先按玩家过滤，这两项会静默变 `null`。
- * 2. `c-bet` / `turn c-bet` / `WTSD` / `WSD` 必须只看**该玩家自己**的动作，
- *    否则会把「最后一个翻前加注者」的成绩算到目标玩家头上。
- *
- * 也就是说两种口径都要，所以只有完整记录是充分的输入。
+ * 一个 player-hand（方案 §9.1 的基本单位 `(containerHandId, playerId)`）的全部
+ * **原始计数**。所有比率都以「分子 / 分母」形式保存，绝不提前相除 —— 这样按座位
+ * 聚合与按分配类型聚合（P7）都只是**把同一批 player-hand 的计数求和**，
+ * 结果必然一致（§9.3「共享计数内核让单座位与类型聚合一致」）。
  */
-export function computePlayerStatsFromEvents(
+export interface StatCounts {
+  /** 参与的手数（每个 player-hand 贡献 1）。 */
+  handsDealt: number;
+  vpip: RatioCounts;
+  pfr: RatioCounts;
+  /** 翻后进攻动作数（raise / 加注式 all-in）。 */
+  afAggressive: number;
+  /** 翻后跟注动作数（call / 跟注式 all-in）。 */
+  afCalls: number;
+  /** 证据缺失的旧 all-in（无 amount 且 toCall > 0），不进 A 也不进 C。 */
+  afUnknownAllIns: number;
+  afq: RatioCounts;
+  wtsd: RatioCounts;
+  wsd: RatioCounts;
+  cbet: RatioCounts;
+  turnCbet: RatioCounts;
+  /** 单位是 player-street（一手最多 3），见 `checkRaiseCountsOfHand`。 */
+  checkRaise: RatioCounts;
+  threeBet: RatioCounts;
+  foldToCbet: RatioCounts;
+}
+
+const EMPTY_COUNTS: StatCounts = {
+  handsDealt: 0,
+  vpip: NO_COUNTS,
+  pfr: NO_COUNTS,
+  afAggressive: 0,
+  afCalls: 0,
+  afUnknownAllIns: 0,
+  afq: NO_COUNTS,
+  wtsd: NO_COUNTS,
+  wsd: NO_COUNTS,
+  cbet: NO_COUNTS,
+  turnCbet: NO_COUNTS,
+  checkRaise: NO_COUNTS,
+  threeBet: NO_COUNTS,
+  foldToCbet: NO_COUNTS,
+};
+
+/** 池化两份计数（逐字段求和）。类型聚合就是把同组的所有 player-hand 这样累加起来。 */
+export function sumCounts(a: StatCounts, b: StatCounts): StatCounts {
+  return {
+    handsDealt: a.handsDealt + b.handsDealt,
+    vpip: addRatio(a.vpip, b.vpip),
+    pfr: addRatio(a.pfr, b.pfr),
+    afAggressive: a.afAggressive + b.afAggressive,
+    afCalls: a.afCalls + b.afCalls,
+    afUnknownAllIns: a.afUnknownAllIns + b.afUnknownAllIns,
+    afq: addRatio(a.afq, b.afq),
+    wtsd: addRatio(a.wtsd, b.wtsd),
+    wsd: addRatio(a.wsd, b.wsd),
+    cbet: addRatio(a.cbet, b.cbet),
+    turnCbet: addRatio(a.turnCbet, b.turnCbet),
+    checkRaise: addRatio(a.checkRaise, b.checkRaise),
+    threeBet: addRatio(a.threeBet, b.threeBet),
+    foldToCbet: addRatio(a.foldToCbet, b.foldToCbet),
+  };
+}
+
+/** AF 明细从池化后的 A/C/unknownAllIns 计数重建（与 `computeAFDetailFromEvents` 同一套三态规则）。 */
+function afDetailFromCounts(aggressive: number, calls: number, unknownAllIns: number): AFDetail {
+  if (calls > 0) {
+    return { af: aggressive / calls, state: 'finite', aggressive, calls, unknownAllIns };
+  }
+  if (aggressive > 0) {
+    return { af: null, state: 'no-calls', aggressive, calls, unknownAllIns };
+  }
+  return { af: null, state: 'no-actions', aggressive, calls, unknownAllIns };
+}
+
+/**
+ * 单个 player-hand 的全部原始计数。**入参必须是完整手牌记录**（含所有玩家的动作）——
+ * c-bet / 3-bet / fold-to-c-bet / check-raise / turn-c-bet 都要看到对手的动作；
+ * 本函数内部按 `playerId` 过滤出「只看自己」的口径给 VPIP/PFR/AF/AFq/WTSD/WSD。
+ *
+ * 该玩家**没参与**这手（既不在 `players` 名单、也没留下动作）时返回 `null`，
+ * 调用方跳过 —— 与 `computePlayerStatsFromEvents` 原有的 `dealtHands` 过滤同一口径。
+ */
+export function computePlayerHandCounts(
   playerId: PlayerId,
-  hands: HandRecordLike[],
-): PlayerStats {
-  // 该玩家参与过的手牌：在 players 名单里，或留下过动作
-  const dealtHands = hands.filter(
-    hand =>
-      hand.players?.includes(playerId) ||
-      hand.events.some(e => e.playerId === playerId),
-  );
-  const handsDealt = dealtHands.length;
+  hand: HandRecordLike,
+): StatCounts | null {
+  const participated =
+    hand.players?.includes(playerId) ||
+    hand.events.some(e => e.playerId === playerId);
+  if (!participated) return null;
 
-  // 只看自己的口径：每手只保留该玩家的事件
-  const playerHands: HandRecordLike[] = dealtHands.map(hand => ({
-    handId: hand.handId,
-    events: hand.events.filter(e => e.playerId === playerId),
-    flopSeenPlayers: hand.flopSeenPlayers,
-    showdownPlayers: hand.showdownPlayers,
-    showdownWinners: hand.showdownWinners,
-    result: hand.result,
-  }));
-  const events = playerHands.flatMap(hand => hand.events);
+  // 只看自己的事件（VPIP/PFR/AF/AFq 用）；WTSD/WSD 只查 hand 级字段，用完整 hand 即可。
+  const ownEvents = hand.events.filter(e => e.playerId === playerId);
+  const af = computeAFDetailFromEvents(ownEvents);
 
-  const vpip = computeVPIPFromEvents(events, handsDealt);
-  const pfr = computePFRFromEvents(events, handsDealt);
-  const afDetail = computeAFDetailFromEvents(events);
-  // WTSD / WSD 只看自己的动作 → 用过滤后的手牌（提前算，分类器要用 WTSD）
-  const wtsd = computeWTSDFromEvents(playerId, playerHands);
-  const wsd = computeWSDFromEvents(playerId, playerHands);
+  return {
+    handsDealt: 1,
+    vpip: vpipCountsOfHand(ownEvents),
+    pfr: pfrCountsOfHand(ownEvents),
+    afAggressive: af.aggressive,
+    afCalls: af.calls,
+    afUnknownAllIns: af.unknownAllIns,
+    afq: afqCountsFromEvents(ownEvents),
+    wtsd: wtsdCountsOfHand(playerId, hand),
+    wsd: wsdCountsOfHand(playerId, hand),
+    cbet: cbetCountsOfHand(playerId, hand),
+    turnCbet: turnCbetCountsOfHand(playerId, hand),
+    checkRaise: checkRaiseCountsOfHand(playerId, hand),
+    threeBet: threeBetCountsOfHand(playerId, hand),
+    foldToCbet: foldToCbetCountsOfHand(playerId, hand),
+  };
+}
+
+/**
+ * 把池化后的原始计数收敛成一份 `PlayerStats`。
+ *
+ * 这是**唯一**把计数变成比率 + 分类的地方，所以按座位与按类型聚合出来的数字口径
+ * 完全一致。`vpip` / `pfr` 保持既有契约：无样本（handsDealt 0）时返回 **0 而不是
+ * null**（`PlayerStats.vpip` 是 `number`，UI 靠 `handsDealt > 0` 判断是否显示占位符）。
+ */
+export function playerStatsFromCounts(playerId: PlayerId, c: StatCounts): PlayerStats {
+  const vpip = c.handsDealt === 0 ? 0 : c.vpip.num / c.handsDealt;
+  const pfr = c.handsDealt === 0 ? 0 : c.pfr.num / c.handsDealt;
+  const afDetail = afDetailFromCounts(c.afAggressive, c.afCalls, c.afUnknownAllIns);
+  const wtsd = percentOf(c.wtsd);
 
   return {
     playerId,
-    handsDealt,
+    handsDealt: c.handsDealt,
     vpip,
     pfr,
     gap: vpip - pfr,
-    // 分类树要用 AF / WTSD 证据（§3.1 规则 2/3/4/6/8）；AF 的 no-calls 状态一并传入
-    playerType: classifyPlayerType(vpip, pfr, handsDealt, {
+    playerType: classifyPlayerType(vpip, pfr, c.handsDealt, {
       af: afDetail.af,
       afState: afDetail.state,
       wtsd,
@@ -917,15 +1040,40 @@ export function computePlayerStatsFromEvents(
     afAggressive: afDetail.aggressive,
     afCalls: afDetail.calls,
     afUnknownAllIns: afDetail.unknownAllIns,
-    afq: computeAFqFromEvents(events),
+    afq: percentOf(c.afq),
     wtsd,
-    wsd,
-    // 下面这些必须看到**全桌**的动作（真实最后进攻者、donk、面对的下注、
-    // 面对几次加注）→ 一律用完整手牌，由各函数自己按 playerId 过滤
-    cbet: computeCBetFromEvents(playerId, dealtHands),
-    turnCbet: computeTurnCbetFromEvents(playerId, dealtHands),
-    checkRaise: computeCheckRaiseFromEvents(playerId, dealtHands),
-    threeBet: compute3BetFromEvents(playerId, dealtHands),
-    foldToCbet: computeFoldToCbetFromEvents(playerId, dealtHands),
+    wsd: percentOf(c.wsd),
+    cbet: percentOf(c.cbet),
+    turnCbet: percentOf(c.turnCbet),
+    checkRaise: percentOf(c.checkRaise),
+    threeBet: percentOf(c.threeBet),
+    foldToCbet: percentOf(c.foldToCbet),
   };
+}
+
+/**
+ * 计算单个玩家的完整统计。
+ *
+ * **入参 `hands` 必须是完整手牌记录** —— 每手的 `events` 含所有玩家的动作。
+ * 过滤由本函数（经 `computePlayerHandCounts`）自己做，理由有两条：
+ *
+ * 1. `3-bet` / `fold-to-c-bet` 必须看到**对手**的动作（「对手加注后我是否 3-bet」
+ *    「面对对手的 c-bet 我是否弃牌」）。调用方若先按玩家过滤，这两项会静默变 `null`。
+ * 2. `c-bet` / `turn c-bet` / `WTSD` / `WSD` 必须只看**该玩家自己**的动作，
+ *    否则会把「最后一个翻前加注者」的成绩算到目标玩家头上。
+ *
+ * 实现是「逐 player-hand 算原始计数 → 池化 → 收敛」，与按类型聚合共用同一内核
+ * （`computePlayerHandCounts` / `sumCounts` / `playerStatsFromCounts`），
+ * 保证两条路径口径一致、判定逻辑只存在一次。
+ */
+export function computePlayerStatsFromEvents(
+  playerId: PlayerId,
+  hands: HandRecordLike[],
+): PlayerStats {
+  let pooled = EMPTY_COUNTS;
+  for (const hand of hands) {
+    const c = computePlayerHandCounts(playerId, hand);
+    if (c) pooled = sumCounts(pooled, c);
+  }
+  return playerStatsFromCounts(playerId, pooled);
 }
