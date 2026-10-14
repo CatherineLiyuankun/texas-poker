@@ -1,9 +1,9 @@
 # Bot 性格（Player Personality）改动计划
 
-> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节），**翻后 flop/turn 与短/深筹码 persona 已接线**（P6b 四个独立提交，`callShift` 映射已固定，见第 16 节），**河牌四入口与 `sizingMult` 已接线**（P6c 四个独立提交，含修正 P6b-2 引入的条件概率缺陷，见第 16 节）。**至此 §7.2 参数作用点表的决策入口全部接线完毕**（唯一未接的是第 12 行 `getShadowBotAction` 两行影子，属 P8b）；**按分配类型聚合统计已打通**（P7 三个独立提交：计数内核拆分 → `TypeStats` 聚合 → 长期库与浮层接线，聚合侧已消费 P5 的开手快照，见第 16 节）；**无 persona 路径逐位不变**（P1 golden 每步回归都全绿）。  
+> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节），**翻后 flop/turn 与短/深筹码 persona 已接线**（P6b 四个独立提交，`callShift` 映射已固定，见第 16 节），**河牌四入口与 `sizingMult` 已接线**（P6c 四个独立提交，含修正 P6b-2 引入的条件概率缺陷，见第 16 节）。**至此 §7.2 参数作用点表的决策入口全部接线完毕**（唯一未接的是第 12 行 `getShadowBotAction` 两行影子，属 P8b）；**按分配类型聚合统计已打通**（P7 三个独立提交：计数内核拆分 → `TypeStats` 聚合 → 长期库与浮层接线，聚合侧已消费 P5 的开手快照，见第 16 节），**本手结束后的座位性格标签已落地**（P8a，结算语义已按 §11.1 在状态机上下文核验，见第 16 节）；**无 persona 路径逐位不变**（P1 golden 每步回归都全绿）。  
 > 本文件是本次讨论的唯一权威方案；继续讨论时更新此文件，不另建版本副本。
 >
-> **最后更新**：2026-10-14（P7 完成，聚合侧已消费开手快照）  
+> **最后更新**：2026-10-14（P8a 完成，本手结束座位标签）  
 > **源码基线**：`workbuddy/main-30908a87` @ `e54d4e3`（2026-10-12 自 `origin/main` fast-forward；含 PR #16 的 SPR/ICM 与后续 passive-all-in 改动）。行号均绑定此 SHA，不表示今后 main 不会变化。  
 > **备份分支**：`backup/pre-personality-sync-20261012`（同步前 `6ed9980`）、`backup/pre-personality-sync2-e350939`（`e350939`）。  
 > **后续 golden 基线**：`5418246`（P0a–P0g 全部完成、persona 未接线时的 HEAD；即 `botDecisionBaseline.json` 的 `meta.baselineSha`）。**不是 e54d4e3，也不是 e350939**。
@@ -840,6 +840,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P7-1a | `820a64a` | **抽出 player-hand 计数内核**（方案 §9.3「共享计数内核让单座位与类型聚合一致」；**纯重构、行为不变**）：`opponentModelUtil` 新增 `RatioCounts`（`{num, den}` **原始计数，不是比率**）+ `addRatio` / `percentOf`（`den > 0 ? num/den*100 : null`）；9 个单手计数函数（`vpipCountsOfHand` / `pfrCountsOfHand` / `afqCountsFromEvents` / `cbetCountsOfHand` / `wtsdCountsOfHand` / `wsdCountsOfHand` / `checkRaiseCountsOfHand`（**三街累加**）/ `threeBetCountsOfHand` / `foldToCbetCountsOfHand` / `turnCbetCountsOfHand`（复用 `cbetCountsOfHand(...).num === 1` 判 flop c-bet））成为**唯一**判定逻辑；既有 `computeXxxFromEvents` 全部退化为「池化 + `percentOf`」薄包装。新增内核：`StatCounts`（含 `afAggressive`/`afCalls`/`afUnknownAllIns` 三项扁平计数）+ `EMPTY_STAT_COUNTS`（原 `EMPTY_COUNTS` 改名导出，消除两份副本漂移）+ `sumCounts` + `afDetailFromCounts` + `computePlayerHandCounts(playerId, hand)`（**未参与返回 `null`**）+ `statsFromCounts` + `playerStatsFromCounts` + `GroupStats`（`Omit<PlayerStats,'playerId'>`）。`computePlayerStatsFromEvents` 变成「逐手 `computePlayerHandCounts` → `sumCounts` 池化 → `playerStatsFromCounts`」。**VPIP/PFR 的 `handsDealt === 0 → 0` 契约原样保留**（UI 靠 `handsDealt > 0` 判断占位符，不能改成 `null`） | 聚合 6 套件 **108 通过 / 0 失败**（与重构前基线**逐位一致**）；`tsc -b` 通过；eslint 0 error |
 | P7-1b | `4bf7f18` | **`TypeStats` 按分配类型聚合**（方案 §8.1/§8.3/§9.1/§10.2 硬门）：新建 `src/utils/typeStats.ts`（纯函数模块，不 import 组件/引擎）。`groupOf(hand, playerId)` 只认**分配快照** `HandRecord.playerTypes`：`playerRoles[pid] === 'human'` → `null`（**真人绝不入组**，决策 38 真人始终按 `playerId` 聚合）、合法 type → 该组、其余（旧记录无字段 / 关闭性格的空 map / 非法值）→ `Unknown`；`participantsOf(hand)` 取 `players ∪ 有事件的座位`（只看事件会**漏掉**「拿到牌但零动作」的 runout 玩家）；`computeTypeStats(hands)` 逐手逐参与者取计数 → 按组 `sumCounts` 池化 → `statsFromCounts`，并**用解构显式剔除 `playerType`**（否则一行上同时有 `playerType` 与 `observedPlayerType` 两个同义字段 —— 正是 §8.1 要防的混淆）。输出 `TypeStats`（`rowKey` = `typeRowKey(group)` = `bot-type:${group}`、`groupType`、`observedPlayerType`、`counts`），按 `BOT_PERSONALITY_TYPES + Unknown` 稳定序、**只输出 `handsDealt > 0` 的组**（六行空行不出现）。**不平均比率**（§9.1/§10.2）：池化**原始计数**，`1/1` 与 `0/9` 合并 = `1/10` = 10%（比率平均会得 50%）。同手两个同类型 Bot = **两份 player-hand**（分母 +2）；重复导入不 +2 由 `importStats` 按 `handId` 去重负责。**不虚构合成玩家**：`TypeStats` 上没有 `playerId` | 新建 `typeStats.test.ts` **20 通过 / 0 失败**（7 组：不平均比率（`1/1 + 0/3` ⇒ 25%）、同手两个同类 Bot 分母 +2、历史兼容三种形态、真人绝不进类型组（含跨手 bot→human 与跨手换类型）、分配/实测并列、缺证据不伪造 0%、与单座位聚合**逐字段一致** 14 项 + 防空断言）；聚合回归 **7 套件 128 通过 / 0 失败**（108 与基线逐位一致 + 20 新增）；`tsc -b` 通过；eslint 0 error |
 | P7-2 | `8d26ad3` | **展示层接线**（方案 §8.1/§8.3）：`longOpponentModel` 新增 `getTypeLongStats()`（读**整个长期库** → `computeTypeStats`）+ 转发导出 `TypeStats` / `BotTypeGroup`；`PlayerStatsTable` 新增可选 `typeStats`，在座位行之后追加小节（标题「按性格分组 By Type（分配 / 实测）」+ 每组一行 + 提示行），组行的**名字列 = 分配身份**（`Unknown` → 「未分配 Unassigned」）、**类型列 = 实测分类** —— 两者**并列**，分配 TAG 实测 Nit 时分别显示，偏差是 P9 校准信号；顺带把 13 列抽成 `PreflopCells` / `TypeCell` / `PostflopCells` 三个共用片段（座位行与组行共用同一套单元格，不写两遍）、`COLUMN_COUNT = 13` 供分隔行 `colSpan`、硬编码 `10` → `MIN_HANDS_FOR_CLASSIFICATION`（门槛单一来源）；`GameBoard` 只在 `playerStatsOpen && botPersonalityEnabled` 时才算 —— 实测 1166 手规模下按类型聚合 **3.8ms**、既有按座位统计 **4.0ms**，而结果只在浮层展开时被消费 ⇒ **收起时不算，等于零成本**；`translations.playerStats` +6 键（提示文案**刻意不写死手数**，避免门槛调整后 UI 撒谎） | 关口回归 `npx jest --runInBand 'longOpponentModel\|opponentModelUtil\|PlayerStatsTable\|GameBoard.playerStats'` **8 套件 86 通过 / 0 失败 / 234.1s**；另 `GameBoard.handSnapshot` / `GameBoard.bettingLoop` / `GameBoard.showdown.settlement` **3 套件 10 通过**；`tsc -b` 通过；eslint 0 error（2 条既有 warning，已用 `git stash` 验证与本步无关） |
+| P8a | `5a4aada` | **本手结束后的座位性格标签**（方案 §11.1）：`PlayerArea` 新增可选 `personalityLabel`，渲染为座位名旁的小徽章（`title` 作悬停说明与测试锚点，`whitespace-nowrap` 防双语档位名折行）；`GameBoard.getPersonalityLabel(player)` 来源是 `Player.botType`（本盘分配身份的派生视图）—— 关闭性格 / 未分配 / 真人座位都是 `undefined` ⇒ 「不虚构标签」（决策 29）**自然**满足；文案复用 `playerStats.types`，与统计表同一来源。透传条件 `roundSettled ? ... : undefined`。**结算语义已在状态机上下文逐条核验**（见 §16.7）：`winner` 只在终局转移处赋值（全弃获胜 752–795、摊牌单人胜 1119、`COLLECT_POT` 1205），平局靠 `phase: 'showdown'` + `mainPot: 0` 兜住（1117/976/995 三分支均置 0），下注阶段两条件都不为真；`phase === 'ended'` 只存在于类型与消费方、`useGameState` **从未赋值** ⇒ 不含它安全。刻意**不**看 `adminRevealAll`（提前亮牌不是结算）。`translations.playerArea` +1 键 | 新增 `GameBoard.personalityLabel.test.tsx` **8 通过 / 0 失败**（下注阶段负断言、全弃获胜（phase 仍 preflop）、平局、亮牌后切回下注态仍无标签、下一手消失、未分配/真人不虚构、同盘两类 Bot 互不串、徽章文案与 `title`）；`npx jest --runInBand GameBoard` **8 套件 31 通过 / 2 跳过 / 0 失败 / 355.4s**；`tsc -b` 通过；eslint 0 error（2 条既有 warning） |
 
 > **P6b 完整回归（P6b-1…P6b-4 全落地后跑一次，作为 P6b 的关口证据）**：21 套件
 > **538 通过 / 0 失败 / 915.5s** —— `botAI.decisionBaseline`（P1 golden）、
@@ -875,6 +876,17 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 >
 > ⚠️ 这一批是**统计聚合**的关口，与 P6b/P6c 两批（决策引擎）套件清单**完全不重叠**，
 > 通过数不可比较。P7 也**没有**跑全量 `npm test` —— 全量按 §12.3 只在 PR 关口跑。
+>
+> **P8a 关口回归（P8a 落地后跑一次）**：`npx jest --runInBand GameBoard` → 8 套件
+> **31 通过 / 2 跳过 / 0 失败 / 355.4s** —— `GameBoard.personalityLabel`（本步新增）、
+> `GameBoard.playerStats`、`GameBoard.handSnapshot`、`GameBoard.bettingLoop`、
+> `GameBoard.showdown.settlement`、`GameBoard.blind`、`GameBoard.blind.logic`（2 跳过，
+> 既有）、`GameBoard.equityPanel`；`tsc -b` 通过；eslint 改动文件 0 error
+> （2 条既有 warning）。
+>
+> ⚠️ 这一批与 P7 那批**部分重叠**（都含 `GameBoard.playerStats`），但换入了另外 7 个
+> `GameBoard.*` 套件 —— 本步改的是 `PlayerArea`（座位渲染），影响面是**所有**
+> GameBoard 渲染用例，所以按组件族整体跑一遍才是对的。P8a 也**没有**跑全量 `npm test`。
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -1093,8 +1105,41 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   1. **真人绝不入类型组**，即使某手快照里 `playerRoles` 缺失 —— 缺角色快照的旧记录
      按 §8.3 归 `Unknown`，真人靠**有角色快照时**的 `human` 判定排除；跨手「同一
      `playerId` 先 bot 后 human」也不会污染（每手独立判定）。
-  2. **同手两个同类型 Bot 的分母 +2 由聚合负责，重复导入不 +2 由 `importStats`
-     按 `handId` 去重负责** —— 两件事在两个模块，测试分别覆盖，不要混为一谈。
+   2. **同手两个同类型 Bot 的分母 +2 由聚合负责，重复导入不 +2 由 `importStats`
+      按 `handId` 去重负责** —— 两件事在两个模块，测试分别覆盖，不要混为一谈。
+
+### 16.7 P8a 复核结论（一个必须先做的状态机核验 + 一个测试构造技巧，留档）
+
+- **`roundSettled` 先核验再使用（§11.1 明确要求的「需在状态机上下文确认」）**
+  §11.1 给的 `winner !== null || (phase === 'showdown' && mainPot === 0)` 只是「核验起点」，
+  所以先把 `useGameState` 里所有终局转移读了一遍，结论：
+  - `winner` **只在终局赋值** —— 全弃获胜（`PLAYER_ACTION`/`FOLD` 的 `activePlayers.length === 1`
+    分支，752–795）、摊牌单人胜（1119）、`COLLECT_POT`（1205）；`FOLD` 分支另有
+    `winner: null`（997 属摊牌块、1257/1303 属重置）。
+  - **平局时 `winner` 是 `null`**（1119 的 `uniqueWinnerIds.length === 1 ? ... : null`），
+    只能靠第二个条件兜住 —— 而摊牌块的三个分支（976 / 995 / 1117）都同时置
+    `phase: 'showdown'` 与 `mainPot: 0`，所以平局、无人可赢、零底池都被覆盖。
+  - **下注阶段两个条件都不为真** ⇒ 不存在「还能行动却显示标签」。
+  - 附带发现：`phase === 'ended'` **从未被 `useGameState` 赋值**（只在 `types/poker.ts`
+    声明、在 `PlayerArea`/`HandAnalysis` 被读），所以 `roundSettled` 不含它**不是**缺口。
+    这条避免以后有人「顺手把 `'ended'` 加进判据」并以为修了个 bug。
+- **「管理员提前亮牌不算结算」这条测试的构造技巧**
+  管理员开关按钮**只在 `roundSettled` 为真时渲染**，所以没法「先亮牌再结算」。
+  改为：① 渲染**结算态** → ② 点开管理员开关（组件实例不重挂载，`adminRevealAll` 变 true）
+  → ③ 把 mock 的 state 换成**下注态**并 `rerender`（props 用同一个模块级常量对象，
+  保证引用不变、不触发重挂载）→ ④ 断言标签消失。
+  这样测的正是「`adminRevealAll` 为真但未结算」这个危险组合 —— 如果有人把门控写成
+  `isShowdown || adminRevealAll`（照抄 `PlayerArea.canShowHand` 的写法），这条会红。
+- **测试坑：mock 装配函数不能叫 `useXxx`**
+  第一版把 mock helper 命名为 `useGameStateWith`（跟既有套件一致），但它被普通函数
+  `renderBoard` 调用 ⇒ `react-hooks/rules-of-hooks` 直接报 error（「Hook 只能在组件或
+  自定义 Hook 里调用」）。既有套件没报是因为它在 `it(...)` 回调里直接调用。
+  改名 `mockGameStateWith` 后 0 error —— 名字不叫 `use*` 就不被当 Hook。
+- **类型坑：测试基态的 `phase` 不能写 `as const`**
+  `phase: 'preflop' as const` 会把类型收窄成字面量 `'preflop'`，于是
+  `Partial<ReturnType<typeof baseState>>` 里的 `phase` 也只剩 `'preflop'`，
+  覆盖成 `'showdown'` 报 `TS2322`（ts-jest 会因此**整个套件不运行**，
+  看起来像 0 个测试）。改成 `'preflop' as GamePhase`。
 
 ## 17. 明确不做与下一步
 
@@ -1111,7 +1156,8 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   **P6c 河牌四入口 + `sizingMult`**（`210180d` 修正 P6b-2 缺陷 → `b98bd80` 启发式河牌 →
   `7d38af8` GTO 河牌 → `7a52607` 尺寸；复核结论见 16.5）与
   **P7 按分配类型聚合**（`820a64a` 计数内核拆分 → `4bf7f18` `TypeStats` 聚合 →
-  `8d26ad3` 长期库与浮层接线；复核结论见 16.6）。
+  `8d26ad3` 长期库与浮层接线；复核结论见 16.6）与
+  **P8a 本手结束后的座位性格标签**（`5a4aada`；复核结论见 16.7）。
   P4 之后 persona 已接线到「新盘配置 / 存档恢复 / `Player.botType` 派生视图」；
   P5 之后手牌记录已带上开手快照，**P7 之后聚合侧已消费它**（按 `playerTypes` 分组，
   与按座位的实测聚合**并列**展示，分配 TAG 实测 Fish 的样本仍留在 TAG 组 —— 这是
@@ -1126,5 +1172,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   每步回归中都全绿 —— 含 `flop-heuristic-tptk-rake`、`flop-gto-flushdraw`、
   `river-heuristic-bluffcatch-rake`、`river-gto-hu-exact`、
   `preflop-heuristic-short-bb-push`、`flop-heuristic-deep-400bb` 六条正好覆盖本轮改动的路径）。
-  下一轮从 **P8a（结算座位标签）** 开始，按 P8→P10 顺序继续（P8a → P8b 两行影子
-  `getShadowBotAction` → P9 闭环 runner 与参数校准 → P10 文档与发布门）。
+  下一轮从 **P8b（TAG/LAG 两行影子决策）** 开始，按 P8b→P10 顺序继续
+  （P8b `getShadowBotAction` → P9 闭环 runner 与参数校准 → P10 文档与发布门）。
+  P8a 之后「本手结束」的座位标签已按 §11.1 落地（下注阶段不出现、关闭/未分配不虚构、
+  下一手自动隐藏）；**P8b 是 §7.2 参数作用点表最后一行未接的入口**。
