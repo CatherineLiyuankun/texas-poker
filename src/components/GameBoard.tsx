@@ -29,6 +29,7 @@ import {
   getTypeLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
+import { computeSettlementSnapshot } from '../utils/handSettlementSnapshot';
 import type { BotTypeMap } from '../utils/botPersonality';
 import { HAND_RANK_NAMES, type Action, type GamePhase, type PlayerId } from '../types/poker';
 import type { ActionEvent, PlayerRole } from '../types/stats';
@@ -335,54 +336,30 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   useEffect(() => {
     if (roundSettled) {
       const currentHand = getCurrentHand();
-      const isShowdown = state.phase === 'showdown';
-      const showdownPlayers = isShowdown
-        ? state.players.filter(p => !p.folded).map(p => p.id)
-        : undefined;
+      // 三份快照 + 底池金额的计算收敛到 `computeSettlementSnapshot` 一处 ——
+      // `scripts/` 下的 headless 校准 runner 用**同一份**实现，避免两处口径漂移
+      // （方案 §9.3：统计数字与面板显示必须同源）。
+      const snapshot = computeSettlementSnapshot(state, currentHand?.events ?? []);
 
-      if (showdownPlayers) {
-        setCurrentHandShowdownPlayers(showdownPlayers);
+      if (snapshot.showdownPlayers) {
+        setCurrentHandShowdownPlayers(snapshot.showdownPlayers);
       }
-
-      // 翻牌是否真的发出：phase 一旦离开 preflop 就说明发了翻牌
-      // （弃牌胜保留当前 phase，全下 runout 会推进到 showdown）。
-      // 见翻牌名单 = 翻前未弃牌者，含翻前 all-in 后无动作的 runout ——
-      // 不能用「本人是否有 flop 动作」推断（那样会漏掉全下者）。
-      const preflopFoldedIds = new Set(
-        (currentHand?.events ?? [])
-          .filter(e => e.phase === 'preflop' && e.action === 'fold')
-          .map(e => e.playerId),
-      );
-      const flopSeenPlayers = state.phase !== 'preflop'
-        ? state.players.filter(p => !preflopFoldedIds.has(p.id)).map(p => p.id)
-        : undefined;
-
-      // 摊牌获奖者：从 potDistribution 汇总所有奖池中 > 0 的份额（含平分/边池）。
-      // 单个 state.winner 无法表达多赢家/边池结果（WSD 需要真实获奖事实）。
-      const showdownWinners = isShowdown
-        ? state.players
-            .filter((_, idx) =>
-              state.potDistribution.some(pd => (pd.winnings[idx] ?? 0) > 0),
-            )
-            .map(p => p.id)
-        : undefined;
-
-      if (flopSeenPlayers) {
-        setCurrentHandFlopSeenPlayers(flopSeenPlayers);
+      if (snapshot.flopSeenPlayers) {
+        setCurrentHandFlopSeenPlayers(snapshot.flopSeenPlayers);
       }
-      if (showdownWinners) {
-        setCurrentHandShowdownWinners(showdownWinners);
+      if (snapshot.showdownWinners) {
+        setCurrentHandShowdownWinners(snapshot.showdownWinners);
       }
 
       if (currentHand) {
         const handWithResult: typeof currentHand = {
           ...currentHand,
-          flopSeenPlayers,
-          showdownPlayers,
-          showdownWinners,
+          flopSeenPlayers: snapshot.flopSeenPlayers,
+          showdownPlayers: snapshot.showdownPlayers,
+          showdownWinners: snapshot.showdownWinners,
           result: {
             winner: state.winner,
-            potAmount: state.players.reduce((sum, p) => sum + p.totalBet, 0),
+            potAmount: snapshot.potAmount,
           },
         };
         saveHand(handWithResult);

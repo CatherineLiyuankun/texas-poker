@@ -218,8 +218,11 @@ export function detectLimpers(bigBlind: number): PlayerId[] {
  * 必须整份交给 `computePlayerStatsFromEvents`，由它自己按玩家过滤：
  * 3-bet / fold-to-c-bet 要看对手的动作，c-bet / WTSD 只看自己的动作，
  * 两种口径都要，所以调用方不能提前过滤。
+ *
+ * 导出给 `scripts/` 下的 headless 校准 runner：它按同样的口径喂
+ * `computeTypeStats` / `computePlayerStatsFromEvents`，不另建一份记录容器。
  */
-function sessionHandRecords(): HandRecord[] {
+export function sessionHandRecords(): HandRecord[] {
   return sessionData.currentHand
     ? [...sessionData.sessionHands, sessionData.currentHand]
     : sessionData.sessionHands;
