@@ -1,9 +1,9 @@
 # Bot 性格（Player Personality）改动计划
 
-> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节），**翻后 flop/turn 与短/深筹码 persona 已接线**（P6b 四个独立提交，`callShift` 映射已固定，见第 16 节），**河牌四入口与 `sizingMult` 已接线**（P6c 四个独立提交，含修正 P6b-2 引入的条件概率缺陷，见第 16 节）。**至此 §7.2 参数作用点表的决策入口全部接线完毕**（唯一未接的是第 12 行 `getShadowBotAction` 两行影子，属 P8b）；**按分配类型聚合统计已打通**（P7 三个独立提交：计数内核拆分 → `TypeStats` 聚合 → 长期库与浮层接线，聚合侧已消费 P5 的开手快照，见第 16 节），**本手结束后的座位性格标签已落地**（P8a，结算语义已按 §11.1 在状态机上下文核验，见第 16 节）；**无 persona 路径逐位不变**（P1 golden 每步回归都全绿）。  
+> **状态**：rev 6；产品决策与实施契约全部确定，第 13.2 的待确认项已全部关闭（决策 34–43）；**前置统计/合法性修复已全部完成**（P0a–P0g，见第 16 节），**无 persona 基线 fixture 已生成**（P1：`botDecisionBaseline.json` + 复现测试，见第 16 节），**分类器已重写为有序规则树并新增 Fish 档**（P2，见第 16 节），**persona 参数与配额纯数据模块已就位**（P3，见第 16 节），**性格开关、新盘分配与存档恢复已接线**（P4，见第 16 节），**开手快照与稳定手牌身份已落地**（P5，见第 16 节），**翻前 persona 与范围派生已接线**（P6a，见第 16 节），**翻后 flop/turn 与短/深筹码 persona 已接线**（P6b 四个独立提交，`callShift` 映射已固定，见第 16 节），**河牌四入口与 `sizingMult` 已接线**（P6c 四个独立提交，含修正 P6b-2 引入的条件概率缺陷，见第 16 节），**按分配类型聚合统计已打通**（P7 三个独立提交：计数内核拆分 → `TypeStats` 聚合 → 长期库与浮层接线，聚合侧已消费 P5 的开手快照，见第 16 节），**本手结束后的座位性格标签已落地**（P8a，结算语义已按 §11.1 在状态机上下文核验，见第 16 节），**面板的「Bot Action」已改为 §11.2 的固定两行影子决策**（P8b 三个独立提交：作用域权益缓存 → 两行影子 API → 面板两行渲染，见第 16 节）。**至此 §7.2 参数作用点表的 12 行全部接线完毕**（含最后一行第 12 行 `getShadowBotAction`）；**无 persona 路径逐位不变**（P1 golden 每步回归都全绿）。  
 > 本文件是本次讨论的唯一权威方案；继续讨论时更新此文件，不另建版本副本。
 >
-> **最后更新**：2026-10-14（P8a 完成，本手结束座位标签）  
+> **最后更新**：2026-10-14（P8b 完成，面板 Bot Action 固定两行影子决策）  
 > **源码基线**：`workbuddy/main-30908a87` @ `e54d4e3`（2026-10-12 自 `origin/main` fast-forward；含 PR #16 的 SPR/ICM 与后续 passive-all-in 改动）。行号均绑定此 SHA，不表示今后 main 不会变化。  
 > **备份分支**：`backup/pre-personality-sync-20261012`（同步前 `6ed9980`）、`backup/pre-personality-sync2-e350939`（`e350939`）。  
 > **后续 golden 基线**：`5418246`（P0a–P0g 全部完成、persona 未接线时的 HEAD；即 `botDecisionBaseline.json` 的 `meta.baselineSha`）。**不是 e54d4e3，也不是 e350939**。
@@ -841,6 +841,9 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P7-1b | `4bf7f18` | **`TypeStats` 按分配类型聚合**（方案 §8.1/§8.3/§9.1/§10.2 硬门）：新建 `src/utils/typeStats.ts`（纯函数模块，不 import 组件/引擎）。`groupOf(hand, playerId)` 只认**分配快照** `HandRecord.playerTypes`：`playerRoles[pid] === 'human'` → `null`（**真人绝不入组**，决策 38 真人始终按 `playerId` 聚合）、合法 type → 该组、其余（旧记录无字段 / 关闭性格的空 map / 非法值）→ `Unknown`；`participantsOf(hand)` 取 `players ∪ 有事件的座位`（只看事件会**漏掉**「拿到牌但零动作」的 runout 玩家）；`computeTypeStats(hands)` 逐手逐参与者取计数 → 按组 `sumCounts` 池化 → `statsFromCounts`，并**用解构显式剔除 `playerType`**（否则一行上同时有 `playerType` 与 `observedPlayerType` 两个同义字段 —— 正是 §8.1 要防的混淆）。输出 `TypeStats`（`rowKey` = `typeRowKey(group)` = `bot-type:${group}`、`groupType`、`observedPlayerType`、`counts`），按 `BOT_PERSONALITY_TYPES + Unknown` 稳定序、**只输出 `handsDealt > 0` 的组**（六行空行不出现）。**不平均比率**（§9.1/§10.2）：池化**原始计数**，`1/1` 与 `0/9` 合并 = `1/10` = 10%（比率平均会得 50%）。同手两个同类型 Bot = **两份 player-hand**（分母 +2）；重复导入不 +2 由 `importStats` 按 `handId` 去重负责。**不虚构合成玩家**：`TypeStats` 上没有 `playerId` | 新建 `typeStats.test.ts` **20 通过 / 0 失败**（7 组：不平均比率（`1/1 + 0/3` ⇒ 25%）、同手两个同类 Bot 分母 +2、历史兼容三种形态、真人绝不进类型组（含跨手 bot→human 与跨手换类型）、分配/实测并列、缺证据不伪造 0%、与单座位聚合**逐字段一致** 14 项 + 防空断言）；聚合回归 **7 套件 128 通过 / 0 失败**（108 与基线逐位一致 + 20 新增）；`tsc -b` 通过；eslint 0 error |
 | P7-2 | `8d26ad3` | **展示层接线**（方案 §8.1/§8.3）：`longOpponentModel` 新增 `getTypeLongStats()`（读**整个长期库** → `computeTypeStats`）+ 转发导出 `TypeStats` / `BotTypeGroup`；`PlayerStatsTable` 新增可选 `typeStats`，在座位行之后追加小节（标题「按性格分组 By Type（分配 / 实测）」+ 每组一行 + 提示行），组行的**名字列 = 分配身份**（`Unknown` → 「未分配 Unassigned」）、**类型列 = 实测分类** —— 两者**并列**，分配 TAG 实测 Nit 时分别显示，偏差是 P9 校准信号；顺带把 13 列抽成 `PreflopCells` / `TypeCell` / `PostflopCells` 三个共用片段（座位行与组行共用同一套单元格，不写两遍）、`COLUMN_COUNT = 13` 供分隔行 `colSpan`、硬编码 `10` → `MIN_HANDS_FOR_CLASSIFICATION`（门槛单一来源）；`GameBoard` 只在 `playerStatsOpen && botPersonalityEnabled` 时才算 —— 实测 1166 手规模下按类型聚合 **3.8ms**、既有按座位统计 **4.0ms**，而结果只在浮层展开时被消费 ⇒ **收起时不算，等于零成本**；`translations.playerStats` +6 键（提示文案**刻意不写死手数**，避免门槛调整后 UI 撒谎） | 关口回归 `npx jest --runInBand 'longOpponentModel\|opponentModelUtil\|PlayerStatsTable\|GameBoard.playerStats'` **8 套件 86 通过 / 0 失败 / 234.1s**；另 `GameBoard.handSnapshot` / `GameBoard.bettingLoop` / `GameBoard.showdown.settlement` **3 套件 10 通过**；`tsc -b` 通过；eslint 0 error（2 条既有 warning，已用 `git stash` 验证与本步无关） |
 | P8a | `5a4aada` | **本手结束后的座位性格标签**（方案 §11.1）：`PlayerArea` 新增可选 `personalityLabel`，渲染为座位名旁的小徽章（`title` 作悬停说明与测试锚点，`whitespace-nowrap` 防双语档位名折行）；`GameBoard.getPersonalityLabel(player)` 来源是 `Player.botType`（本盘分配身份的派生视图）—— 关闭性格 / 未分配 / 真人座位都是 `undefined` ⇒ 「不虚构标签」（决策 29）**自然**满足；文案复用 `playerStats.types`，与统计表同一来源。透传条件 `roundSettled ? ... : undefined`。**结算语义已在状态机上下文逐条核验**（见 §16.7）：`winner` 只在终局转移处赋值（全弃获胜 752–795、摊牌单人胜 1119、`COLLECT_POT` 1205），平局靠 `phase: 'showdown'` + `mainPot: 0` 兜住（1117/976/995 三分支均置 0），下注阶段两条件都不为真；`phase === 'ended'` 只存在于类型与消费方、`useGameState` **从未赋值** ⇒ 不含它安全。刻意**不**看 `adminRevealAll`（提前亮牌不是结算）。`translations.playerArea` +1 键 | 新增 `GameBoard.personalityLabel.test.tsx` **8 通过 / 0 失败**（下注阶段负断言、全弃获胜（phase 仍 preflop）、平局、亮牌后切回下注态仍无标签、下一手消失、未分配/真人不虚构、同盘两类 Bot 互不串、徽章文案与 `title`）；`npx jest --runInBand GameBoard` **8 套件 31 通过 / 2 跳过 / 0 失败 / 355.4s**；`tsc -b` 通过；eslint 0 error（2 条既有 warning） |
+| P8b-1 | `8dc855a` | **作用域权益缓存 `withSharedEquity`**（方案 §11.2「两行共享一次相同权益」/ §7.2 第 12 行）：`rangeEquity` 新增**同步**作用域缓存 —— `withSharedEquity(fn)` 进作用域时换上一张新 `Map`、退出（含抛错）还原上一层；`calculateRangeAwareEquity` 先 `estimateOpponentCombos` 再构造键（`hero.id\|hero.hand\|community\|numOpponents\|iterations\|(range.signature\|combos.length 或 'no-range')`），命中直接返回、否则算一次（两条分支合并成一次 `calculateEquity`）后写入。**作用域外连键都不构造** ⇒ 默认路径逐位不变。机制与既有 `setRandomSource`、`boardTexture` 按牌面 memo **同型**；⚠️ 只对**同步**调用链成立（注释已写明）。选它而非「显式参数注入」（要改五个模块签名 ⇒ 触碰 P1 golden 风险最大）或「不共享」（不满足契约） | 新建 `rangeEquity.sharedEquity.test.ts` **8 通过 / 0 失败**（用 spy 数**实际 MC 调用次数**而非比较返回值：作用域外不缓存、作用域内只算一次、无范围回退分支也共享、键任一维不同即重算（6 次调用只命中 1 次 ⇒ 实算 5）、退出后恢复、抛错也还原、嵌套独立、透传返回值含 `undefined`）；回归 `rangeEquity\|botAI.decisionBaseline\|botAI.test` **4 套件 97 通过 / 0 失败 / 208.3s**（P1 golden 全绿 ⇒ 默认路径逐位不变）；`tsc -b` 通过；eslint 0 problem |
+| P8b-2 | `f30e044` | **两行影子决策 API**（§11.2 / §7.2 第 12 行）：`getBotAction` / `getShadowBotAction` 新增可选尾参 `assumedType`（覆盖 `player.botType` —— 真人座位恒无 botType，要问「这个座位**如果**是 TAG/LAG 会怎么打」只能从外面注入；不传时行为与加参数前逐位相同）；`shadowSeed` 签名**条件追加** `assumedType`（只在显式假设时才入签名 ⇒ 两行走不同子流、默认路径种子不变 —— ⚠️ 无条件追加常量会改掉默认种子，**实测已把 `botAI.test.ts` 的「局面变化会换抽样」用例翻红**，当场发现并修掉）；新增 `SHADOW_ASSUMED_TYPES`（固定 TAG/LAG，与当盘分配无关）、`ShadowActionRow`、`hasNoActionableDecision`（showdown/ended、已 fold、all-in、筹码 ≤0、底牌 <2 张 ⇒ 不强算动作）、`getShadowBotActions`（两行包在 `withSharedEquity` 里共享一次权益，策略随机各自独立且不碰全局流）。**本步只做数据层，渲染留 P8b-3** | 新建 `botAI.shadowRows.test.ts` **14 通过 / 0 失败**：固定两行、关闭性格也两行、**共享权益（`separate === shared × 2`，含防空断言 `shared > 0`）**、两行独立子流（与单独按该性格调用逐位一致）、不消耗全局流、还原调用前的源、重复调用稳定、不传/传 `undefined` 等价、可行动局面才算权益、5 个不可行动占位符（**权益调用为 0**）；`npx jest --runInBand 'botAI'` **8 套件 124 通过 / 0 失败 / 258.0s**；`tsc -b` 通过；eslint 0 problem |
+| P8b-3 | `99b2f0e` | **面板两行渲染**（§11.2，**行为变更**）：`HandAnalysis` 的单行 `shadowBotAction` useMemo → `shadowBotActions`（`getShadowBotActions`；无 hero/gameState 时退到 `placeholderShadowRows()`），渲染改成**固定两行**（`SHADOW_ROW_LABELS` 把 TAG/LAG 映射到固定文案、复用 `Row` + `getBotActionColor`，占位符用 `text-white/40`）；两行**恒在**，不可行动时值 = `— / 无可行动作`；沿用既有面板语义（**不要求**「非得轮到 hero 才允许假设」，§11.2 末句）；`botAI` 导出 `placeholderShadowRows()` 让渲染层兜底与 `getShadowBotActions` 共用同一份占位形态（单一来源）；`translations.handAnalysis` 删掉已无引用的 `botAction: 'Bot Action'`、新增 `botActionTAG` / `botActionLAG` / `botActionUnavailable` | 重写 `HandAnalysis.botAction.test.tsx`（5 → **11 通过 / 0 失败**）：固定两行与行名写死、与当盘分配无关（hero 无 botType 也两行且都算出动作）、两行都排在 GTO Math 之前、翻前也显示、**两行允许给出同一个动作**（§11.2 明示不要求不同）、5 个不可行动场景两行都在且值为占位符、渲染是只读的（不改动对局状态）；§12.3 的 P8b 关口 `npx jest --runInBand 'HandAnalysis\|botAI'` **13 套件 208 通过 / 0 失败 / 403.1s**；`tsc -b` 通过；eslint 0 problem |
 
 > **P6b 完整回归（P6b-1…P6b-4 全落地后跑一次，作为 P6b 的关口证据）**：21 套件
 > **538 通过 / 0 失败 / 915.5s** —— `botAI.decisionBaseline`（P1 golden）、
@@ -887,6 +890,22 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 > ⚠️ 这一批与 P7 那批**部分重叠**（都含 `GameBoard.playerStats`），但换入了另外 7 个
 > `GameBoard.*` 套件 —— 本步改的是 `PlayerArea`（座位渲染），影响面是**所有**
 > GameBoard 渲染用例，所以按组件族整体跑一遍才是对的。P8a 也**没有**跑全量 `npm test`。
+>
+> **P8b 关口回归（P8b-1…P8b-3 全落地后跑一次，即 §12.3 为 P8b 声明的验证命令）**：
+> `npx jest --runInBand 'HandAnalysis|botAI'` → 13 套件 **208 通过 / 0 失败 / 403.1s** ——
+> `HandAnalysis.botAction`（本步重写，5 → 11 例）、`HandAnalysis.equity`、
+> `HandAnalysis.impliedOdds`、`HandAnalysis.nodelock`、`HandAnalysis.potOddsRatio`、
+> `botAI.shadowRows`（P8b-2 新增）、`botAI`、`botAI.decisionBaseline`（P1 golden）、
+> `botAI.personaPreflop`、`botAI.personaPostflop`、`botAI.personaRiver`、
+> `botAI.personaSizing`、`botAI.spr`；`tsc -b` 通过；eslint 改动文件 0 problem。
+>
+> 另**补跑** `npx jest --runInBand GameBoard` → 8 套件 **31 通过 / 2 跳过 / 0 失败 / 283.0s**
+> —— 面板嵌在 `PlayerArea` → `GameBoard` 里（P8a 的教训），所以「渲染该组件的集成套件」
+> 也必须过一遍（`GameBoard.equityPanel` 正是走 GameBoard 渲染面板的用例）。
+>
+> ⚠️ 这两批与 P8a 那批（同为 `GameBoard` 族）**部分重叠**，通过数不可直接比较；
+> 且 P8a 那批是 P8b-3 **之前**跑的，覆盖不到面板改动 —— 所以这次必须重跑。
+> P8b 也**没有**跑全量 `npm test` —— 全量按 §12.3 只在 PR 关口跑。
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -915,7 +934,7 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   **至此 §7.2 参数作用点表的决策入口全部接线完毕**（共 12 行）：六个决策入口（翻前 2 /
   翻后 2 / 河牌 2）、短筹码与深筹码两个早返回、SPR/ICM 约束优先、所有 bet/raise 尺寸、
   `getBotAction` 共用入口。**唯一未接的是第 12 行 `getShadowBotAction`（TAG/LAG 两行影子）**，
-  它属 P8b。
+  它属 P8b。（**该行已于 P8b 接线完成**，见 §16.8 与 §17；此处保留 P6c 时点的记录。）
 - 期间新增聚焦测试文件：`opponentModelUtil.preflopPostflopCounts.test.ts`（P0a）、
   `opponentModelUtil.wtsdWsd.test.ts`（P0b）、`opponentModelUtil.opportunityCounts.test.ts`（P0c）、
   `useGameState.preflopChain.test.ts`（P0d）、`useGameState.actionLegality.test.ts`（P0e）、
@@ -1141,6 +1160,53 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   覆盖成 `'showdown'` 报 `TS2322`（ts-jest 会因此**整个套件不运行**，
   看起来像 0 个测试）。改成 `'preflop' as GamePhase`。
 
+### 16.8 P8b 复核结论（一处机制选择 + 两处口径 + 两个坑，留档）
+
+- **「两行共享一次权益」的机制选择（先调研后定，三种机制里选一种）**
+  §11.2 要求两行共享一次相同权益。调研结论：**纹理已共享**（`boardTexture.analyzeBoardWithEquity`
+  按牌面 memo）、**对手上下文**由 `(player, state)` 确定性推出（无随机）⇒ 两行天然相同；
+  **只有权益未共享** —— `calculateRangeAwareEquity` 是蒙特卡洛（`Math.random()`），
+  在 `getBotAction` 可达路径上有 **6 个调用点**（`botAI:960/1170`、`gtoPostflop:152`、
+  `gtoRiver:627`、`gtoShortStack:465`、`gtoDeepStack:603`）。
+  三种机制：① 显式参数注入要改五个模块签名（触碰 P1 golden 风险最大）；② 不共享不满足契约；
+  ③ **作用域缓存**（最终采用）只改 `rangeEquity` 一处 + `getShadowBotActions`，
+  与既有 `setRandomSource`、`boardTexture` 牌面 memo **同型**，**零引擎签名变更 ⇒ P1 golden 风险为零**。
+  ⚠️ 它的前提是**同步调用链**（面板在渲染期同步跑两行）—— 若将来引入异步计算，
+  必须改成显式注入，否则并发的两个作用域会互相污染（`rangeEquity` 注释已写明这一条）。
+- **`shadowSeed` 的 persona 只能「条件追加」，不能无条件追加**
+  第一版无条件把常量 `'auto'` 追加进签名，把**默认路径**的种子也改了 —— 症状是
+  `botAI.test.ts` 的「局面变化会换抽样」用例翻红（`Expected: > 1, Received: 1`），
+  而**不是**报「随机被污染」。改成 `...(assumedType === undefined ? [] : [assumedType])`
+  后默认路径逐字不变。**教训**：任何「给既有签名加一维」的改动，都要先确认
+  **不传该维时**签名与改动前逐字相同 —— 与 P5 的 `beginSession` 不消耗随机源是同一类坑。
+- **两行**不**测试「动作必须不同」（§11.2 明示）**
+  混合频率下两行本来就允许给出同一个动作，所以断言只能落在「都是合法动作词」。
+  这条同时意味着：**两行的差异不能当作 persona 生效的证据** —— 证据要落在数据层
+  （`botAI.shadowRows` 的**共享权益次数**、独立子流），而不是渲染层的动作对比。
+- **`handAnalysis.botAction` 是死键，本步删掉**
+  单行改两行后 `botAction: 'Bot Action'` 全仓无引用（已 grep 确认），连同其注释一起删除，
+  避免留下「看起来还在用」的旧文案。新增三键：`botActionTAG` / `botActionLAG` /
+  `botActionUnavailable`。
+- **测试坑：面板在摊牌时**整体**不渲染**
+  `PlayerArea` 的门控是 `canShowHand && player.isRealPlayer && !isShowdown && phase` ——
+  即**整块面板**在摊牌时消失，所以「已结算 ⇒ 两行显示占位符」这条**只能在直接渲染
+  `HandAnalysis` 的组件测试里覆盖**（真实 UI 走不到）。这是既有面板语义，不在本步改动范围
+  （§11.2 末句要求「保持既有面板语义」）。
+- **面板在渲染期调决策引擎的既有约束（本步未变，但值得记一笔）**
+  `getShadowBotActions` 走的是与真机器人**完全同一条**决策路径，只在随机源上做了隔离；
+  两行还共享一次权益 ⇒ 面板每换一次局面只多付**一次** MC（不是两次）。
+  §11.2 末句要求「记录**实际 MC 调用次数**与面板重复渲染开销，而非估算固定增加两倍」，
+  两条证据都已实测：
+  - **MC 调用次数**（`botAI.shadowRows.test.ts`，spy 计数）：
+    `separate === shared × 2` 且 `shared > 0`；不可行动局面为 **0 次**。
+  - **重复渲染开销**（esbuild 打包 cjs + `node`，翻牌局面、取 40 次最小值）：
+    单行 `getShadowBotAction(TAG)` **65.0ms**（1 次 MC）／
+    两行 `getShadowBotActions` **65.1ms**（共享后仍 1 次 MC）／
+    两次独立 `getShadowBotAction` **128.7ms**（2 次 MC）。
+    ⇒ 两行 / 单行 = **1.00 倍**（第二次决策的纯逻辑相对 MC 可忽略），
+    独立两次 / 单行 = **1.98 倍**；**共享相对不共享省 49.5%**。
+    即「面板从单行改两行」**没有**增加可观测的渲染成本 —— 这个量级由 MC 主导。
+
 ## 17. 明确不做与下一步
 
 - 不写六套独立AI、不把TAG/LAG标签当实力保证、不修改已决分类树以追校准数字。
@@ -1157,7 +1223,9 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   `7d38af8` GTO 河牌 → `7a52607` 尺寸；复核结论见 16.5）与
   **P7 按分配类型聚合**（`820a64a` 计数内核拆分 → `4bf7f18` `TypeStats` 聚合 →
   `8d26ad3` 长期库与浮层接线；复核结论见 16.6）与
-  **P8a 本手结束后的座位性格标签**（`5a4aada`；复核结论见 16.7）。
+  **P8a 本手结束后的座位性格标签**（`5a4aada`；复核结论见 16.7）与
+  **P8b TAG/LAG 两行影子决策**（`8dc855a` 作用域权益缓存 → `f30e044` 两行影子 API →
+  `99b2f0e` 面板两行渲染；复核结论见 16.8）。
   P4 之后 persona 已接线到「新盘配置 / 存档恢复 / `Player.botType` 派生视图」；
   P5 之后手牌记录已带上开手快照，**P7 之后聚合侧已消费它**（按 `playerTypes` 分组，
   与按座位的实测聚合**并列**展示，分配 TAG 实测 Fish 的样本仍留在 TAG 组 —— 这是
@@ -1167,12 +1235,15 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   `getGtoPostflopRecommendation`）、河牌四入口（`decideRiver` / `decideRiverGTO` +
   面板 `getGtoRiverRecommendation` + 共用的 `getRiverStrategy`）、短/深筹码两个早返回、
   以及所有 bet/raise 尺寸（`scaleBetAmount` 在 `getBotAction` 末尾统一变换）。
-  **唯一未接的是 §7.2 第 12 行 `getShadowBotAction`（两行影子决策），属 P8b。**
-  且**无 persona 路径逐位不变**（P1 golden `botAI.decisionBaseline` 14 条在 P6b/P6c
+  **§7.2 参数作用点表至此全部接线完毕** —— 包括最后一行第 12 行
+  `getShadowBotAction`（P8b：面板两行影子决策，两行共享一次权益、策略随机各自独立
+  且不碰真机器人流）。
+  且**无 persona 路径逐位不变**（P1 golden `botAI.decisionBaseline` 14 条在 P6b/P6c/P8b
   每步回归中都全绿 —— 含 `flop-heuristic-tptk-rake`、`flop-gto-flushdraw`、
   `river-heuristic-bluffcatch-rake`、`river-gto-hu-exact`、
   `preflop-heuristic-short-bb-push`、`flop-heuristic-deep-400bb` 六条正好覆盖本轮改动的路径）。
-  下一轮从 **P8b（TAG/LAG 两行影子决策）** 开始，按 P8b→P10 顺序继续
-  （P8b `getShadowBotAction` → P9 闭环 runner 与参数校准 → P10 文档与发布门）。
+  下一轮从 **P9（闭环 runner 与参数校准）** 开始，按 P9→P10 顺序继续
+  （P9 闭环 runner 与参数校准 → P10 文档与发布门）。
   P8a 之后「本手结束」的座位标签已按 §11.1 落地（下注阶段不出现、关闭/未分配不虚构、
-  下一手自动隐藏）；**P8b 是 §7.2 参数作用点表最后一行未接的入口**。
+  下一手自动隐藏）；P8b 之后面板的「Bot Action」已是 §11.2 的固定两行
+  （TAG/LAG 假设，与当盘分配无关，不可行动时显示占位符、两行不消失）。
