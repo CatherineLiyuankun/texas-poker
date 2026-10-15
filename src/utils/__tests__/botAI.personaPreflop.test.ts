@@ -1,22 +1,24 @@
 /**
  * P6a：启发式翻前（GTO OFF）的 persona 接线。
  *
- * 这里钉三件事：
+ * 这里钉四件事：
  *   1. **无 persona 逐位不变** —— `botType: undefined` 必须**完全不读**参数表：
  *      把六类参数改成任意极端值，它的动作与**随机消费次数**都不变（策略随机流
  *      不能被多掷一次）。⚠️ 这条不能再用「与 TAG 比对」来表达 —— P9-4 校准后
  *      TAG 的翻前宽度已漂移，不再是恒等（方案 §7.1 早已声明那只是巧合）；
- *   2. **按真实场景选旋钮** —— 方案 §7.2 要求「按真实 unopened/limp/open/3bet 场景
- *      派生」，所以判据是 `detectPreflopScenario`，不是 `ctx.toCall > 0`
- *      （后者把「非盲位补大盲注」也算成面对加注）。同一局面只换场景、不换别的，
- *      `LAG`（openWiden 1.7 / defendVsOpen 0.5）必须从「进池」翻成「弃牌」——
- *      这是「换的是旋钮」的直接证据；
- *   3. **翻后不受影响** —— 翻后 persona 属 P6b，现在一个座位都不该被改动。
+ *   2. **开池树可达** —— 缺口①修复（`… && openSpot`，`openSpot =
+ *      detectPreflopScenario(state, player) === 'rfi'`）之前，开池树被
+ *      `!isFacingRaise`（`= ctx.toCall > 0`，非盲位恒真）门控，对**所有座位都不可达**，
+ *      策略随机消费恒为 0；现在非盲位在 RFI 真的会走到「加注 / 跛入」；
+ *   3. **加注与跟注分属两个旋钮** —— RFI 的**加注**概率由 `openWiden` 决定，
+ *      **跛入 / 跟注**宽度由 `defendVsOpen` 决定。这是缺口①的验收核心：加注本身
+ *      计入 VPIP，两者若共用一个数，ratio 与 VPIP 只能同向变动，而 §4 要 Fish 的
+ *      VPIP 高于 TAG、ratio 却低于 TAG —— 单旋钮算术上不可达；
+ *   4. **翻后不受影响** —— 翻后 persona 属 P6b，现在一个座位都不该被改动。
  *
- * ⚠️ 本文件里那些「基准 fold / LAG call」的数字来自实测，不是推导出来的：
- * 启发式的 `isFacingRaise` 是「我必须再掏筹码」，非盲位恒为 true，于是
- * `ctx.isXxx && !isFacingRaise` 那棵开池树到不了；真正决定「要不要进池」的是
- * **跟注价格门槛**。所以下面用的是「A9o（tier 5）+ 跟注价格 0.4」这类局面。
+ * ⚠️ 下面用「A9o（tier 5）+ 跟注价格 0.4 + 座位 4（6 人桌 UTG，`isMiddlePosition`）」
+ * 这类局面，并用**常数随机源**（`setRandomSource(() => v)`）驱动：开池树是「先掷加注、
+ * 再掷条件跟注」，所以 `v` 单调地决定动作，**零抽样波动**。
  */
 import { getBotAction } from '../botAI';
 import { BOT_PERSONALITY_TYPES, PERSONALITY_PARAMS } from '../botPersonality';
@@ -185,32 +187,76 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
     });
   });
 
-  describe('按真实场景选旋钮（方案 §7.2 第 1 行）', () => {
-    /** 座位 4（相对位置 3 = late position）、A9o（tier 5）、跟注价格 0.4 —— 基准 fold。 */
+  describe('缺口①修复：开池树可达，加注 / 跟注分属两个旋钮', () => {
+    /**
+     * 座位 4 = 6 人桌 UTG（`isMiddlePosition`）；A9o（tier 5）；跟注价格
+     * `10 / (15 + 10) = 0.4`。
+     */
     const seat: PlayerId = 4;
     const hand: [string, string] = ['A', '9'];
 
-    it('开池场景用 openWiden：openWiden > 4/3 进池，≤ 4/3 弃牌', () => {
-      // 判据（P6a 实测 + §16.3）：非盲位在 RFI 必须补大盲 ⇒ `isFacingRaise` 恒真 ⇒
-      // tier 5 的 `!isFacingRaise` 位置分支不可达。真正决定「进不进池」的是
-      // 「跟注价格 0.4」与 `entryOdds(0.30) = min(0.30 × openWiden, 1)`（late position
-      // 阈值 0.30）的比较：call ⟺ 0.4 < 0.30 × openWiden ⟺ openWiden > 4/3 ≈ 1.333。
-      const of = (botType?: BotPersonality) =>
-        decide(preflopState({ seat, hand, botType }), seat).action;
-      expect(of(undefined)).toBe('fold'); // 恒等宽度 0.30 < 0.4
-      expect(of('Nit')).toBe('fold'); // 0.5 → 0.15
-      expect(of('TAG')).toBe('fold'); // 1.1 → 0.33
-      expect(of('LAG')).toBe('call'); // 1.7 → 0.51 > 0.4
-      expect(of('Maniac')).toBe('call'); // 2.2 → 0.66
-      expect(of('Calling Station')).toBe('call'); // 2.6 → 0.78
-      expect(of('Fish')).toBe('call'); // 2.8 → 0.84
+    /**
+     * 用**常数**随机源跑一次决策。开池树是「先掷加注、再掷条件跟注」，所以动作是 `v`
+     * 的阶梯函数：`v < pRaise` → 加注；否则 `v < pCall` → 跟注；否则落到后面的
+     * `entryOdds` 兜底 / 弃牌。常数源 ⇒ **零抽样波动**（比数种子稳得多）。
+     */
+    const decideAt = (v: number, botType?: BotPersonality): string => {
+      resetRandomSource();
+      setRandomSource(() => v);
+      try {
+        const state = preflopState({ seat, hand, botType });
+        const player = state.players.find((p) => p.id === seat) as Player;
+        return getBotAction(player, state).action;
+      } finally {
+        resetRandomSource();
+      }
+    };
+
+    /** 临时改写某一类的两个翻前宽度（其它参数与其它类型都不动），跑完还原。 */
+    const withWidths = <T>(
+      botType: BotPersonality,
+      openWiden: number,
+      defendVsOpen: number,
+      fn: () => T,
+    ): T => {
+      const saved = { ...PERSONALITY_PARAMS[botType] };
+      Object.assign(PERSONALITY_PARAMS[botType], { openWiden, defendVsOpen });
+      try {
+        return fn();
+      } finally {
+        Object.assign(PERSONALITY_PARAMS[botType], saved);
+      }
+    };
+
+    it('开池树可达：非盲位在 RFI 真的会走到加注 / 跛入（修复前随机消费恒为 0）', () => {
+      // tier 5 的 UTG 分支（`ctx.isMiddlePosition && openSpot`）：
+      //   pRaise = 0.25 × 1.10(A) × openWiden
+      //   跛入条件概率 = adjCall / (1 − 0.25 − adjCall)，adjCall = 0.13 × 1.40(A) × defendVsOpen
+      expect(decideAt(0.1, 'TAG')).toBe('raise'); // pRaise 0.3025 > 0.1
+      expect(decideAt(0.9, 'Fish')).toBe('call'); // pRaise 0.77 ≤ 0.9，但跛入门槛被 defendVsOpen 6.0 放大
+      expect(decideAt(0.99, 'TAG')).toBe('fold'); // 两项都不中，且 defendVsOpen 0.18 连兜底门槛都够不到
     });
 
-    it('面对开池场景换成 defendVsOpen：同一局面只换旋钮，LAG 由 call 翻成 fold', () => {
-      // 同座位、同手牌、同跟注价格，**只**把链改成「有人真实加注过」，callWidth 从
-      // openWiden 换成 defendVsOpen（判据同样是 0.4 < 0.30 × callWidth）。这是「换的是
-      // 旋钮」的直接证据：LAG 的 openWiden 1.7 让它开池进池，但 defendVsOpen 0.5 让它
-      // 面对加注时弃牌。
+    it('加注概率只由 openWiden 决定：固定 defendVsOpen，抬高 openWiden 由 fold 翻成 raise', () => {
+      // 同一局面（v = 0.5）、同一 defendVsOpen = 0.2，**只**动 openWiden：
+      // pRaise = 0.25 × 1.10 × openWiden ⇒ 1.0 → 0.275（0.5 不中）／2.0 → 0.55（0.5 中）。
+      expect(withWidths('TAG', 1.0, 0.2, () => decideAt(0.5, 'TAG'))).toBe('fold');
+      expect(withWidths('TAG', 2.0, 0.2, () => decideAt(0.5, 'TAG'))).toBe('raise');
+    });
+
+    it('跛入 / 跟注宽度只由 defendVsOpen 决定：固定 openWiden，抬高它由 fold 翻成 call', () => {
+      // 同一局面（v = 0.5 > pRaise 0.275，所以不会加注）、同一 openWiden = 1.0，
+      // **只**动 defendVsOpen。跟注有三条路：开池树的条件跟注，以及后面两处
+      // `entryOdds` 兜底（门槛 0.30 / 0.18，都乘 defendVsOpen）；跟注价格是 0.4 ⇒
+      // defendVsOpen ≤ 4/3 时三处都不中。
+      expect(withWidths('TAG', 1.0, 0.2, () => decideAt(0.5, 'TAG'))).toBe('fold');
+      expect(withWidths('TAG', 1.0, 6.0, () => decideAt(0.5, 'TAG'))).toBe('call');
+    });
+
+    it('面对开池场景：开池树整棵不可达，跟注仍取 defendVsOpen', () => {
+      // 同座位、同手牌、同跟注价格，**只**把链改成「有人真实加注过」⇒ 场景变
+      // `facing_open`、`openSpot` 为假 ⇒ 开池树不可达，落到 `entryOdds` 门槛
+      // （call ⟺ 0.4 < 0.30 × defendVsOpen）。
       const chain = [{ playerId: 6 as PlayerId, kind: 'raise' as const, fullRaise: true }];
       const of = (botType?: BotPersonality) =>
         decide(preflopState({ seat, hand, botType, chain }), seat).action;
@@ -271,12 +317,30 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
       expect(violations).toEqual([]);
     });
 
-    it('真人在启用性格的桌面上（botType 缺失）行为与无性格桌面一致', () => {
-      // 真人座位永远没有 botType（P4），所以 persona 接线对真人零影响。
+    it('真人在启用性格的桌面上（botType 缺失）不受参数表影响', () => {
+      // 真人座位永远没有 botType（P4），所以 persona 接线对真人零影响。这里用强形式：
+      // 把六类参数改成极端值后，真人座位的决策必须**逐位不变**。
       const seats = preflopState({ seat: 4, hand: ['A', '9'] });
       const human = seats.players.find((p) => p.id === 4) as Player;
       expect(human.botType).toBeUndefined();
-      expect(decide(seats, 4).action).toBe('fold');
+
+      const before = decide(seats, 4).action;
+      const saved = BOT_PERSONALITY_TYPES.map((t) => ({
+        type: t,
+        params: { ...PERSONALITY_PARAMS[t] },
+      }));
+      try {
+        for (const t of BOT_PERSONALITY_TYPES) {
+          Object.assign(PERSONALITY_PARAMS[t], {
+            openWiden: 9,
+            defendVsOpen: 9,
+            threeBetFreq: 9,
+          });
+        }
+        expect(decide(seats, 4).action).toBe(before);
+      } finally {
+        for (const { type, params } of saved) Object.assign(PERSONALITY_PARAMS[type], params);
+      }
     });
   });
 
