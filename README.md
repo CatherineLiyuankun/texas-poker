@@ -23,7 +23,7 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Assigned ≠ measured**: the *assigned* type drives decisions through seven knobs (`openWiden` / `defendVsOpen` / `threeBetFreq` / `valueShift` / `aggressionMult` / `callBias` / `sizingMult`), while the *measured* type in the stats table is classified from the bot's real VPIP/PFR — the two may legitimately differ
   - **Seat label**: once a hand is settled each bot seat shows its assigned personality (with a hover explanation); nothing is shown during betting, and disabled/unassigned seats never get a fabricated label
   - **Stats by assigned type**: the stats popover groups bots by assigned personality, alongside the per-seat measured stats
-  - **Calibration**: parameters were fitted by a closed-loop runner (`npm run calibrate`, reusing the production reducer, 3000 hands) — see [Known Limits](#known-limits); several §4 target ranges are **not reachable** by tuning the knobs alone
+  - **Calibration**: parameters were fitted by a closed-loop runner (`npm run calibrate`, reusing the production reducer, 3000 hands at production equity iterations) — see [Known Limits](#known-limits); the ratio and TAG/LAG PFR targets became reachable once the preflop raise branch was un-gated, and **16/19** joint checks now pass (the remaining 2 are semantic gaps)
 - **Hand Analysis Panel**: Real-time display of **random-hand equity** and **range-aware equity**, pot odds, implied odds, draw info, **Bot Action**, and action recommendations
   - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration) — its "vs random hands" caveat sits in that row's **hover tooltip**, not inline (an inline note would crowd the percentage out of the row)
   - **Range equity**: hero vs. an inferred opponent continuing range (preflop role + position tables + card removal + VPIP, then narrowed by the observed postflop action line)
@@ -203,7 +203,7 @@ Per-combination breakdown:
 
 ### Known Limits
 
-- **Personality calibration is partial.** The §4 VPIP/PFR/AF/WTSD ranges are *working targets*, not hard guarantees. On the 6-player calibration table the VPIP/PFR **ratio** and the TAG/LAG **PFR** targets are **not reachable** by tuning the personality knobs alone (the preflop raise branch is gated so that non-blind seats almost always enter by *calling*), the Fish `WTSD ≤ 30` target contradicts its loose-passive semantics, and Maniac is not sampled by the calibration runner. Full data, root cause and follow-up plan: `docs/BOT_PERSONALITY_PLAN.md` §17.1.
+- **Personality calibration is partial (updated after the structural fix).** The §4 VPIP/PFR/AF/WTSD ranges are *working targets*, not hard guarantees. The preflop raise branch used to be gated so that non-blind seats almost always entered by *calling*, which made the VPIP/PFR **ratio** and the TAG/LAG **PFR** targets unreachable by tuning the knobs alone. That gate is now fixed (RFI **raise** ← `openWiden`, **limp/call** ← `defendVsOpen`) and the parameters were re-scaled, so on the 6-player table at production equity iterations **16 of 19** joint checks pass (up from 13) and the assigned→measured classification is correct **5/5**. Two targets remain unmet and are known *semantic* gaps rather than knob-range problems: the Fish `WTSD ≤ 30` target contradicts its loose-passive semantics, and the Fish/CS `AF < 1.5` target has no knob left to move. Maniac is still not sampled by the calibration runner. Full data, root cause and follow-up plan: `docs/BOT_PERSONALITY_PLAN.md` §17.1 and §17.3.
 - **7/8-player tables.** The first full acceptance round is the 6-player table `1 real + 5 bots`. For 7/8 players only configuration correctness, save/restore and all-seat legality are gated; the full six-type calibration at 7 players (R1/B6, with a Maniac real-play special) and at 8 players is a later phase. Full position unification for 7/8 seats is **not** part of this change.
 - **Save / refresh mid-hand.** Recovery is guaranteed from a **settled-hand snapshot**. Resuming an in-progress hand after a refresh is a separate, known issue and is not claimed as supported.
 
@@ -270,7 +270,7 @@ npm run build
   - **分配 ≠ 实测**: **分配**的类型通过七个旋钮（`openWiden` / `defendVsOpen` / `threeBetFreq` / `valueShift` / `aggressionMult` / `callBias` / `sizingMult`）驱动机器人决策；统计表里的**实测**类型则由机器人真实 VPIP/PFR 分类得出 —— 两者可以合法地不同
   - **座位标签**: 一手结算后每个 Bot 座位显示其**分配**的性格（悬停有说明）；下注阶段不显示，关闭/未分配的座位不虚构标签
   - **按分配类型聚合**: 统计浮层按**分配**的性格把 Bot 分组展示，与按座位的实测统计并列
-  - **校准**: 参数由闭环 runner（`npm run calibrate`，复用生产 reducer，3000 手）拟合得出 —— 见 [已知限制](#已知限制)；§4 的若干目标区间**仅靠调旋钮无法达到**
+  - **校准**: 参数由闭环 runner（`npm run calibrate`，复用生产 reducer，3000 手、生产迭代）拟合得出 —— 见 [已知限制](#已知限制)；翻前加注分支解除门控后 ratio 与 TAG/LAG PFR 目标已可达，19 项联合检查**通过 16 项**（余 2 项为语义缺口）
 - **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、隐含赔率、听牌信息、**Bot Action** 和行动建议
   - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）—— 「vs 随机牌」的口径说明挂在该行的**悬停提示**里，不占版面（写在行内会把百分比挤出去）
   - **范围权益**: 我方手牌 vs 推断出的对手续玩范围（翻前角色 + 位置表 + 去牌 + VPIP 宽度修正，再按观测到的翻后行动线收窄）
@@ -449,7 +449,7 @@ npm run build
 
 ### 已知限制
 
-- **性格校准是部分的。** §4 的 VPIP/PFR/AF/WTSD 区间是**工作目标**，不是硬保证。六人桌校准实测下，VPIP/PFR 的 **ratio** 与 TAG/LAG 的 **PFR** 目标**仅靠调性格旋钮无法达到**（翻前加注分支被门控，非盲位几乎总走跟注入池）；Fish 的 `WTSD ≤ 30` 与「松被动」语义相悖；Maniac 未被校准 runner 采样。完整数据、根因与后续计划见 `docs/BOT_PERSONALITY_PLAN.md` §17.1。
+- **性格校准是部分的（结构修复后已更新）。** §4 的 VPIP/PFR/AF/WTSD 区间是**工作目标**，不是硬保证。此前翻前加注分支被门控，非盲位几乎总走**跟注**入池，导致 VPIP/PFR 的 **ratio** 与 TAG/LAG 的 **PFR** 目标仅靠调性格旋钮**无法达到**；该门控已修（RFI 的**加注** ← `openWiden`、**跛入/跟注** ← `defendVsOpen`）并重标了参数，六人桌在生产迭代下 19 项联合检查**通过 16 项**（原 13 项），分配→实测分类 **5/5 全对**。仍有两项未达标，且都是**语义**缺口而非量程问题：Fish 的 `WTSD ≤ 30` 与「松被动」语义相悖；Fish/CS 的 `AF < 1.5` 已无旋钮可用。Maniac 仍未被校准 runner 采样。完整数据、根因与后续计划见 `docs/BOT_PERSONALITY_PLAN.md` §17.1 与 §17.3。
 - **7/8 人桌。** 首轮完整验收是六人桌 `1 真人 + 5 Bot`。7/8 人只做配置正确性、存档恢复与全座位合法性门；七人（R1/B6，含 Maniac 真实对局专项）与八人的六类完整校准为后续阶段。7/8 的完整位置统一**不在**本次改动内。
 - **中途存档 / 刷新。** 只保证从**结算快照**恢复。刷新后续打一手进行中的牌是另一个已知问题，不在支持范围内。
 

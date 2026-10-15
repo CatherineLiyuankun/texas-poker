@@ -215,10 +215,11 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
 
   describe('推注范围（rfi，openWiden）', () => {
     // 探针实测的 in-range 格数（169 格中 allin/raise 的数量），锁定派生幅度。
-    // ⚠️ 这些数字是**预期行为变更**的硬编码清单：P9-4 改了 openWiden，它们就变了。
+    // ⚠️ 这些数字是**预期行为变更**的硬编码清单：P9-4 改过一次，缺口①的「两旋钮重标」
+    // 又整体改过一次（`openWiden` 从「跟注宽度」语义改成「加注宽度」语义）。
     const RFI_COUNTS: Record<string, Record<Name, number>> = {
-      'UTG@10': { '(none)': 40, Nit: 26, TAG: 48, LAG: 83, Fish: 123, 'Calling Station': 114, Maniac: 100 },
-      'BTN@10': { '(none)': 132, Nit: 82, TAG: 150, LAG: 169, Fish: 169, 'Calling Station': 169, Maniac: 169 },
+      'UTG@10': { '(none)': 40, Nit: 6, TAG: 17, LAG: 57, Fish: 16, 'Calling Station': 10, Maniac: 100 },
+      'BTN@10': { '(none)': 132, Nit: 21, TAG: 64, LAG: 166, Fish: 61, 'Calling Station': 34, Maniac: 169 },
     };
     const RFI_SPOTS: Record<string, { depth: number; pos: number }> = {
       'UTG@10': { depth: 10, pos: 3 },
@@ -287,13 +288,16 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
     });
 
     it('派生幅度落在预期量级（探针实测格数）', () => {
+      // 一次列出**全部**偏差：逐条断言会在第一个偏差处中断，看不到后面还有哪些类型变了。
+      const mismatches: { label: string; name: Name; got: number; want: number }[] = [];
       for (const [label, counts] of Object.entries(RFI_COUNTS)) {
         const spot = RFI_SPOTS[label];
         for (const name of ALL_NAMES) {
           const got = inRangeCells(spot.depth, spot.pos, personaOf(name), 'rfi').size;
-          expect({ label, name, got }).toEqual({ label, name, got: counts[name] });
+          if (got !== counts[name]) mismatches.push({ label, name, got, want: counts[name] });
         }
       }
+      expect(mismatches).toEqual([]);
     });
 
     it('方向：Maniac 推注范围 > 无 persona > Nit（未打满时）', () => {
@@ -308,8 +312,8 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
 
   describe('防守范围（facing open，defendVsOpen）', () => {
     const DEFEND_COUNTS: Record<string, Record<Name, number>> = {
-      'BB@15': { '(none)': 48, Nit: 30, TAG: 11, LAG: 30, Fish: 169, 'Calling Station': 169, Maniac: 79 },
-      'SB@15': { '(none)': 118, Nit: 74, TAG: 30, LAG: 74, Fish: 169, 'Calling Station': 169, Maniac: 166 },
+      'BB@15': { '(none)': 48, Nit: 7, TAG: 15, LAG: 29, Fish: 69, 'Calling Station': 76, Maniac: 79 },
+      'SB@15': { '(none)': 118, Nit: 17, TAG: 41, LAG: 70, Fish: 154, 'Calling Station': 162, Maniac: 166 },
     };
     const DEFEND_SPOTS: Record<string, { depth: number; pos: number }> = {
       'BB@15': { depth: 15, pos: 2 },
@@ -375,26 +379,30 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
     });
 
     it('派生幅度落在预期量级（探针实测格数）', () => {
+      const mismatches: { label: string; name: Name; got: number; want: number }[] = [];
       for (const [label, counts] of Object.entries(DEFEND_COUNTS)) {
         const spot = DEFEND_SPOTS[label];
         for (const name of ALL_NAMES) {
           const got = inRangeCells(spot.depth, spot.pos, personaOf(name), 'defend').size;
-          expect({ label, name, got }).toEqual({ label, name, got: counts[name] });
+          if (got !== counts[name]) mismatches.push({ label, name, got, want: counts[name] });
         }
       }
+      expect(mismatches).toEqual([]);
     });
 
     it('防守宽度用的是 defendVsOpen（不是 openWiden）：TAG 收紧、Fish 放宽', () => {
-      // defendVsOpen（P9-4）：Nit 0.5 / TAG 0.18 / LAG 0.5 < 1；Fish 6.0 / CS 5.5 / Maniac 1.4 > 1。
       // 这条钉住「防守宽度用的是 defendVsOpen 而不是 openWiden」—— 若接错旋钮，
-      // TAG（openWiden 1.1 > 1 本会放宽）在防守上就会变大而不是变小。
+      // 在缺口①重标前 TAG（openWiden 1.1 > 1）本会放宽；重标后 TAG 的 openWiden 0.36 < 1，
+      // 所以改用**方向关系**断言：三个紧凶类（defendVsOpen < 1）都收紧、Fish 放宽。
       const spot = DEFEND_SPOTS['BB@15'];
       const sizeOf = (name: Name) => inRangeCells(spot.depth, spot.pos, personaOf(name), 'defend').size;
       const base = inRangeCells(spot.depth, spot.pos, undefined, 'defend').size;
-      expect(sizeOf('TAG')).toBeLessThan(base); // TAG openWiden 1.1 但 defendVsOpen 0.18
-      expect(sizeOf('Nit')).toBeLessThan(base);
-      expect(sizeOf('LAG')).toBeLessThan(base);
-      expect(sizeOf('Fish')).toBeGreaterThan(base); // Fish openWiden 2.8、defendVsOpen 6.0
+      for (const t of ['TAG', 'Nit', 'LAG'] as Name[]) {
+        expect(preflopWidths(personaOf(t)).defend).toBeLessThan(1);
+        expect({ t, tighter: sizeOf(t) < base }).toEqual({ t, tighter: true });
+      }
+      expect(preflopWidths(personaOf('Fish')).defend).toBeGreaterThan(1);
+      expect(sizeOf('Fish')).toBeGreaterThan(base);
     });
   });
 });

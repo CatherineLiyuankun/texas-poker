@@ -69,29 +69,31 @@
   **注意**：同段 :397 的 `random() >= defendTighten` 是**正确的**（`defendTighten`
   ∈ {0, 0.05}，非零时确实有 5% 收紧），别顺手改。
 
-### 3. 翻前加注分支被门控 ⇒ ratio / PFR 目标「参数不可达」
+### 3. 同一张参数表同时喂启发式引擎与 GTO 引擎的范围派生（重标后暴露）
 
-- **位置**：`src/utils/botAI.ts` 的 `decidePreflop` 翻前加注分支门控
-  （`!isFacingRaise`，而 `isFacingRaise = ctx.toCall > 0` 对非盲位恒真 —— 非盲位要补大盲注）；
-  `src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS`。
-- **现象/证据**：P9-4 生产迭代实测（3000 手，报告 `scripts/reports/p9-4-final.md`）：
-  ratio 上限约 **0.63–0.69**（Nit 0.693 / TAG 0.627），而 §4 要 TAG ≥0.78 / LAG ≥0.80、
-  §3.1 分类器主规则也要 `ratio > 0.7`；TAG/LAG/Maniac 的 **PFR** 目标同样达不到
-  （TAG 实测 14.8 vs 目标 16–20）。根因：RFI 的 `ctx.isXxx && !isFacingRaise` 开池树
-  **对所有座位不可达**（§16.3 早已记录），入池几乎全走 `entryOdds` 跟注 ⇒ 「加注/跟注」比
-  由硬编码字面量（最大 `0.22 × raiseWidth`）锁死，旋钮改不动它。`threeBetFreq` 确实是 PFR
-  杠杆（TAG 7.9→14.8），但在 ~5 饱和，且它把 `R` 从 `C` 搬走、**抬 PFR 的同时压 ratio**。
-- **影响**：性格的「松凶 / 紧凶」区分度不足 —— 实测 LAG 与 Fish 都被压进 CS 的低 ratio 区间，
-  分类回归出现 LAG→CS、Fish→CS。
-- **修法方向**：让非盲位在 RFI 能真正选到开池树（用 `detectPreflopScenario` 选树，而不是复用
-  `isFacingRaise`），使 `openWiden` 能分别表达「加注宽度」与「跟注宽度」。**属引擎行为变更**，
-  须独立提交 + P1 golden 复核 + 全量回归；影响面覆盖所有非盲位的翻前决策，**风险最高**。
-  若确认不可修，则须重估 §4 的 ratio 目标**与** §3.1 的 `ratio > 0.7` 阈值（二者同源）。
+- **位置**：`src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS` —— 有两个消费者：
+  - **启发式引擎** `botAI.decidePreflop`（经 `preflopWidths`）；
+  - **GTO 引擎**的范围派生 `gtoPreflop.derivePreflopRangeTable` —— 那里 `openWiden` 是
+    **整个 RFI 范围的倍率**、`defendVsOpen` 是 `C` 的倍率、`threeBetFreq` 是 `R` 的倍率。
+- **现象/证据**：两侧对 `openWiden` 的**语义不同** —— 启发式侧它只缩放 tier3–4 的**边缘
+  开池**（tier1–2 有恒定加注打底），GTO 侧它是**整表倍率**且**按对子 6 / 同花 4 / 非同花 12
+  组合量化**。缺口①重标后（方案 §17.3），GTO 面板里 Fish/CS 在 UTG@10 的推注范围从
+  123 / 114 格**缩到 16 / 10 格**（`gtoShortDeep.persona.test.ts` 的 `RFI_COUNTS`）。
+- **影响**：① 为启发式标定出的参数会在 GTO 面板里产生**非预期的极端范围** —— 重标前是反向
+  极端（Fish/CS 2.6–2.8 → 169 格打满），重标后是缩到 AA 量级。② **Nit 的 `openWiden`
+  不能低于约 0.10**：否则 UTG 推注范围只剩 AA+KK = 12 组合，`gtoPreflop.persona.test.ts` 的
+  「锦标赛 ⊂ 现金局」断言退化（本轮实测：0.04 时 cash/tournament 都是 12 格、测试失败；
+  抬到 0.12 才恢复区分度）。这把「为启发式调参」的自由度**反过来绑在 GTO 面板的可读性上**。
+- **修法方向**：两条路，须先拍板 —— (a) **拆表**：给 GTO 侧单独的宽度（如按场景的
+  `gtoWidths`），启发式参数只喂启发式；(b) **保留共享但改语义**：把 GTO 侧的 `openWiden`
+  解释成「tier 阈值偏移」而非「整表倍率」，与启发式侧对齐。在此之前，**任何 `openWiden`
+  校准都必须同时跑 `gtoShortDeep` / `gtoPreflop` 的 persona 套件**（本轮已按此验证）。
 
 ### 4. Fish 的 `WTSD ≤ 30` 目标与「松被动」语义冲突
 
 - **位置**：`docs/BOT_PERSONALITY_PLAN.md` §4 的 Fish 目标 `WTSD ≤ 30`。
-- **现象/证据**：P9-4 实测 Fish `WTSD = 50.2`（同盘 VPIP 41.0、多跟注）；而**同一份 §4**
+- **现象/证据**：P9-4 实测 Fish `WTSD = 50.2`（同盘 VPIP 41.0、多跟注）；缺口①重标后
+  （方案 §17.3）两次生产口径实测为 **50.8 / 46.6**，仍远高于 30。而**同一份 §4**
   给 CS 的目标却是 `WTSD ≥ 36`（高）。两条目标语义方向相反。
 - **影响**：Fish 的 ≤30 在「高 VPIP + 多跟注」下**不可达** —— 这不是旋钮量程问题，
   是目标本身与「松被动」语义相悖。
@@ -109,3 +111,23 @@
   不是闭环实测）。
 - **修法方向**：把 runner 的桌型扩到能覆盖 Maniac（或单开 Maniac 专用跑法）后再校准。
   对应 §13 决策 34 的「七人 R1/B6 追加 Maniac 真实对局专项」。
+
+### 6. 校准 runner 的发牌流与动作随机共用 `Math.random`（换配置即重抽样本）
+
+- **位置**：`scripts/calibrationRunner.ts:391-399` —— `const dealRng = mulberry32(seed);`
+  `Math.random = dealRng;` 一次设定、**全程共用**；翻后权益的蒙特卡洛（`equityCalculator`）
+  也从这条流取数。
+- **现象/证据**：任何参数改动都会改变权益调用次数 ⇒ **整条发牌序列错位** ⇒ 全部指标重抽。
+  实测：只把 Nit 的 `openWiden` 从 0.04 抬到 0.12（**TAG / LAG 的参数一个都没动**），
+  TAG 的 PFR 从 18.4 变 20.2、LAG 的 VPIP 从 33.8 变 31.7
+  （`scripts/reports/gap1-probe-e.md` vs `gap1-probe-g.md`）。
+- **影响**：① **跨配置差异在 ~2pp 以内不可归因**于具体旋钮 —— 调参做不了受控对比，
+  只能看大方向；② 每次跑都只是该配置的**一个样本**（Wilson 区间常互相重叠），
+  「16/19 vs 15/19」这类差异没有意义；③ 会让「改 A 的参数却动了 B 的指标」看起来像
+  跨性格耦合，真实原因多半只是发牌流错位（§17.3 已据此修正上一轮对 probe-f 的归因）。
+- **修法方向**：改**校准仪器**的随机源分工 —— (a) 发牌流与动作/权益流分离（权益单独一条流），
+  或 (b) 每手用 `hash(seed, handIndex)` 重播种发牌，使「同一手在不同配置下拿到同一副牌」
+  （这才是受控对比）。⚠️ 这会**改变验收口径**，须先拍板 + 复核既有 `p9-4-*` /
+  `gap1-probe-*` 报告的可比性。
+- **注意**：同配置是**完全确定**的（两条 RNG 都播种），所以这不是「不可复现」，
+  而是「**不可比**」。

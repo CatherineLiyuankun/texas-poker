@@ -119,7 +119,7 @@ function getPlayerPosition(
  * 决策 41（P0g）：**早位必须排除盲位**。旧公式 `position > 0 && position <
  * floor(N*0.3)` 在 7/8 人桌（`floor(N*0.3) === 2`）会把小盲（position 1）同时标成
  * 早位；10 人桌（`floor(N*0.3) === 3`）还会把大盲（position 2）标成早位 —— 而大盲
- * 免费看牌时 `isFacingRaise === false`，会真的走进「早位 30% 加注 / 20% 跟注 /
+ * 免费看牌时是开池场景（`openSpot === true`），会真的走进「早位 30% 加注 / 20% 跟注 /
  * 50% 弃牌」分支，而正确行为是 check/fold。改为 `position > 2` 后：
  * 6 人桌早位本来就是空集（`floor(1.8) === 1`），净变化为 0；7/8 人桌早位变空集，
  * 而小盲翻前恒面对大盲（`toCall > 0`）本就到不了早位分支，净变化同样为 0。
@@ -292,32 +292,49 @@ function decidePreflop(
   const stealBoost = adj.raiseBonus > 0 ? 0.10 : 0;
   const foldBoost = adj.foldPenalty > 0 ? 0.10 : 0;
 
-  // ── persona 宽度（方案 §7.2 第 1 行：按**真实**翻前场景派生） ──
+  // ── persona 宽度 + 真实翻前场景（方案 §7.2 第 1 行） ──
   //
-  // ⚠️ 判据必须用 `detectPreflopScenario`，**不能**用下面的 `isFacingRaise`。
-  // `isFacingRaise = ctx.toCall > 0` 的真实含义是「我必须再掏筹码」，把「非盲位
-  // 补大盲注」也算成了面对加注；而盲位（SB/BB）没有任何位置标志，于是
-  // `ctx.isXxx && !isFacingRaise` 那棵开池树对**所有座位**都到不了。拿它当性格
-  // 维度判据，`openWiden` 会整个落在死分支上（已实测：BTN/CO/HJ/UTG 拿 A9o 时
-  // 随机消费 0 次，决定完全由下面的跟注价格门槛给出）。
+  // ⚠️ **开池树的门控必须用 `openSpot`，不能用 `isFacingRaise`。**
+  // `isFacingRaise = ctx.toCall > 0` 的真实含义是「我必须再掏筹码」，把「非盲位补大盲
+  // 注」也算成了面对加注；而盲位（SB/BB）没有任何位置标志。于是用 `!isFacingRaise`
+  // 门控 `ctx.isXxx && …` 的开池树时，那棵树对**所有座位**都到不了（历史缺陷，已实测
+  // BTN/CO/HJ/UTG 拿 A9o 时策略随机消费 0 次；见方案 §16.3 与 TODO 缺口①）——
+  // 入池几乎全走 `entryOdds` 跟注，「加注/跟注」比被硬编码字面量锁死，`openWiden`
+  // 改不动 PFR，TAG/LAG 的 ratio / PFR 目标因此不可达。改用**真实场景**门控后，
+  // 非盲位在 RFI 真正能选到开池树，且「加注宽度」与「跟注宽度」落在**两个独立旋钮**上
+  // （`openWiden` / `defendVsOpen`），ratio 与 VPIP 才可能各自达标。
   //
-  // 所以按**真实场景**（P0d 的唯一判定口径：链上无自愿加注 = 开池 / 跛入）选旋钮：
-  // - 开池 / 跛入底池 → `openWiden`（范围是「要不要进池」的宽度）
-  // - 面对开池 / 3bet / 冷 3bet → 跟注用 `defendVsOpen`、再加注用 `threeBetFreq`
+  // 判据是 P0d 的唯一口径（只读状态机**已被接受**的自愿投入链）：
+  // - 链上无自愿加注（开池 / 跛入底池）→ `openSpot`：开池树可达，**加注**取 `openWiden`
+  // - 面对开池 / 3bet / 冷 3bet → **加注**取 `threeBetFreq`
+  // - 两个场景的**跟注 / 跛入**宽度都取 `defendVsOpen`
   const openSpot = detectPreflopScenario(state, player) === 'rfi';
-  /** 继续入池（跟注 / 便宜看牌 / 跛入）的宽度倍率。 */
-  const callWidth = openSpot ? widths.open : widths.defend;
-  /** 主动加注的宽度倍率（开池 / 隔离加注 vs 3bet / 4bet）。 */
+  /**
+   * **继续入池**（跟注 / 便宜看牌 / 跛入）的宽度倍率 —— 两个场景都用 `defendVsOpen`。
+   *
+   * 为什么开池场景的入池宽度也归 `defendVsOpen`：开池场景里的「入池」就是**跛入**，
+   * 与「防守」同为「愿意用边缘牌把钱放进去」这同一件事。而 §4 要求「松被动」（Fish/CS）
+   * VPIP 高、PFR 低 —— 必须有一个**只**管跟注宽度的旋钮（理由见 `raiseWidth`）。
+   */
+  const callWidth = widths.defend;
+  /**
+   * **主动加注**的宽度倍率：开池场景 `openWiden`、面对加注场景 `threeBetFreq`。
+   *
+   * ⚠️ 与 `callWidth` **必须是两个独立旋钮**（本项为缺口①修复的核心）。加注本身计入
+   * VPIP，所以若两者共用一个数，`ratio` 与 `VPIP` 只能同向变动 —— 而 §4 要 Fish 的
+   * VPIP（38–45）**高于** TAG（20–25）、ratio 却**低于** TAG（≤0.45 vs ≥0.78），
+   * 单旋钮在算术上不可达（实测见 `scripts/reports/gap1-probe-a.md` 与 TODO 缺口①）。
+   */
   const raiseWidth = openSpot ? widths.open : widths.threeBet;
 
   // 手牌含 A 时的全局调整因子 + persona 宽度倍率。两者都是「乘在概率上的因子」，
   // 所以折进同一批变量，各站点侧不用逐个改公式：
   // - aceRaiseFactor: A 高牌更倾向加注（×1.10）× `raiseWidth`。本变量**只**用在
-  //   `!isFacingRaise` 的加注点（已逐站点核对）。
-  // - aceCallFactor:  A 高牌更倾向跟注/过牌（×1.40），同时作用于分子和条件概率分母
-  //   adjCall = baseCallProb * aceCallFactor
-  //   条件概率 = adjCall / max(1 - baseRaiseProb - adjCall, 0.01)
-  //   Math.max 防止高 raiseProb 时分母 ≤ 0
+  //   开池树（`openSpot` 门控）的加注点（已逐站点核对）。
+  // - aceCallFactor:  A 高牌更倾向跟注/过牌（×1.40）。
+  // - adjCall: 开池树跟注分支的**未条件化**跟注概率 = baseCallProb × aceCallFactor
+  //   × `callWidth`；实际条件概率 = adjCall / max(1 - baseRaiseProb - adjCall, 0.01)，
+  //   Math.max 防止高 raiseProb 时分母 ≤ 0。
   // - defendCallFactor: 面对加注时的跟注倾向 = aceCallFactor × `callWidth`。
   // - raiseWidth: 硬编码的反加概率字面量用它（它们本来就没走 aceRaiseFactor）。
   // - entryOdds: 「跟注价格」门槛倍率（门槛随 `callWidth` 放大，夹到 1）。
@@ -383,10 +400,10 @@ function decidePreflop(
     
     // 无人加注：raise-first 模式（加注优先，位置越靠前概率越低）
     // BTN/CO: 73% raise (×1.10 for Ax), 17% call, 10% fold
-    if ((ctx.isButton || ctx.isCutoff) && !isFacingRaise) {
+    if ((ctx.isButton || ctx.isCutoff) && openSpot) {
       const baseRaiseProb = 0.73;
       const baseCallProb = 0.17;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
       if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.05) };
@@ -398,10 +415,10 @@ function decidePreflop(
     }
     
     // HJ（劫持位）: 52% raise, 23% call, 25% fold
-    if (ctx.isHijack && !isFacingRaise) {
+    if (ctx.isHijack && openSpot) {
       const baseRaiseProb = 0.52;
       const baseCallProb = 0.23;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
@@ -412,10 +429,10 @@ function decidePreflop(
     }
     
     // Middle position: 38% raise (×1.10 for Ax), 27% call, 35% fold
-    if (ctx.isMiddlePosition && !isFacingRaise) {
+    if (ctx.isMiddlePosition && openSpot) {
       const baseRaiseProb = 0.38;
       const baseCallProb = 0.27;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
@@ -426,10 +443,10 @@ function decidePreflop(
     }
     
     // Early position: 30% raise (×1.10 for Ax), 20% call, 50% fold
-    if (ctx.isEarlyPosition && !isFacingRaise) {
+    if (ctx.isEarlyPosition && openSpot) {
       const baseRaiseProb = 0.30;
       const baseCallProb = 0.20;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 1.0) };
       }
@@ -477,10 +494,10 @@ function decidePreflop(
     if (flags.canCheckResult) return { action: 'check' };
     
     // BTN: 63% raise (×1.10 for Ax), 17% call, 20% fold
-    if (ctx.isButton && !isFacingRaise) {
+    if (ctx.isButton && openSpot) {
       const baseRaiseProb = 0.63;
       const baseCallProb = 0.17;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
       if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
@@ -492,10 +509,10 @@ function decidePreflop(
     }
     
     // CO: 53% raise (×1.10 for Ax), 18% call, 29% fold
-    if (ctx.isCutoff && !isFacingRaise) {
+    if (ctx.isCutoff && openSpot) {
       const baseRaiseProb = 0.53;
       const baseCallProb = 0.18;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
       if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
@@ -507,10 +524,10 @@ function decidePreflop(
     }
     
     // Hijack: 38% raise (×1.10 for Ax), 20% call, 42% fold
-    if (ctx.isHijack && !isFacingRaise) {
+    if (ctx.isHijack && openSpot) {
       const baseRaiseProb = 0.38;
       const baseCallProb = 0.20;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
       if (flags.canRaiseResult && random() < effectiveRaise) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
@@ -522,10 +539,10 @@ function decidePreflop(
     }
     
     // Middle position: 26% raise (×1.10 for Ax), 16% call, 58% fold
-    if (ctx.isMiddlePosition && !isFacingRaise) {
+    if (ctx.isMiddlePosition && openSpot) {
       const baseRaiseProb = 0.26;
       const baseCallProb = 0.16;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
@@ -536,10 +553,10 @@ function decidePreflop(
     }
     
     // Early position: 16% raise (×1.10 for Ax), 12% call, 72% fold
-    if (ctx.isEarlyPosition && !isFacingRaise) {
+    if (ctx.isEarlyPosition && openSpot) {
       const baseRaiseProb = 0.16;
       const baseCallProb = 0.12;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.95) };
       }
@@ -575,10 +592,10 @@ function decidePreflop(
     if (flags.canCheckResult) return { action: 'check' };
 
     // Button: 52% raise (×1.10 for Ax), 12% call (×1.40 for Ax), 36% fold
-    if (ctx.isButton && !isFacingRaise) {
+    if (ctx.isButton && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.30;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.18;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -589,7 +606,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.52;
         const baseCallProb = 0.12;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
         if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
@@ -601,10 +618,10 @@ function decidePreflop(
     }
 
     // Cutoff: 42% raise (×1.10 for Ax), 14% call (×1.40 for Ax), 44% fold
-    if (ctx.isCutoff && !isFacingRaise) {
+    if (ctx.isCutoff && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.28;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.15;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -615,7 +632,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.42;
         const baseCallProb = 0.14;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
         if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
@@ -627,10 +644,10 @@ function decidePreflop(
     }
 
     // Hijack: 33% raise (×1.10 for Ax), 17% call (×1.40 for Ax), 50% fold
-    if (ctx.isHijack && !isFacingRaise) {
+    if (ctx.isHijack && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.33;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.13;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -641,7 +658,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.33;
         const baseCallProb = 0.17;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
         if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
@@ -653,10 +670,10 @@ function decidePreflop(
     }
 
     // Middle position: 25% raise (×1.10 for Ax), 13% call (×1.40 for Ax), 62% fold
-    if (ctx.isMiddlePosition && !isFacingRaise) {
+    if (ctx.isMiddlePosition && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.35;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.05;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -667,7 +684,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.25;
         const baseCallProb = 0.13;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
         }
@@ -678,10 +695,10 @@ function decidePreflop(
     }
 
     // Early position (UTG): 12% raise (×1.10 for Ax), 8% call (×1.40 for Ax), 80% fold
-    if (ctx.isEarlyPosition && !isFacingRaise) {
+    if (ctx.isEarlyPosition && openSpot) {
       const baseRaiseProb = 0.12;
       const baseCallProb = 0.08;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }
@@ -738,10 +755,10 @@ function decidePreflop(
     if (flags.canCheckResult) return { action: 'check' };
 
     // Button: 15% raise (×1.10 for Ax), 5% call (×1.40 for Ax), 80% fold
-    if (ctx.isButton && !isFacingRaise) {
+    if (ctx.isButton && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.05;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.03;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -752,7 +769,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.15;
         const baseCallProb = 0.05;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
         if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
@@ -764,10 +781,10 @@ function decidePreflop(
     }
 
     // Cutoff: 12% raise (×1.10 for Ax), 4% call (×1.40 for Ax), 84% fold
-    if (ctx.isCutoff && !isFacingRaise) {
+    if (ctx.isCutoff && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.03;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.02;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -778,7 +795,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.12;
         const baseCallProb = 0.04;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
         if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
@@ -790,10 +807,10 @@ function decidePreflop(
     }
 
     // Hijack: 8% raise (×1.10 for Ax), 3% call (×1.40 for Ax), 89% fold
-    if (ctx.isHijack && !isFacingRaise) {
+    if (ctx.isHijack && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.02;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.015;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -804,7 +821,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.08;
         const baseCallProb = 0.03;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const effectiveRaise = Math.min(baseRaiseProb * aceRaiseFactor + stealBoost, 1);
         if (flags.canRaiseResult && random() < effectiveRaise) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.85) };
@@ -816,10 +833,10 @@ function decidePreflop(
     }
 
     // Middle position: 5% raise (×1.10 for Ax), 2% call (×1.40 for Ax), 93% fold
-    if (ctx.isMiddlePosition && !isFacingRaise) {
+    if (ctx.isMiddlePosition && openSpot) {
       if (ctx.hasLimpers) {
         const baseCallProb = 0.02;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         const baseRaiseProb = 0.00;
         if (flags.canCallResult && random() < adjCall) {
           return { action: 'call' };
@@ -830,7 +847,7 @@ function decidePreflop(
       } else {
         const baseRaiseProb = 0.05;
         const baseCallProb = 0.02;
-        const adjCall = baseCallProb * aceCallFactor;
+        const adjCall = baseCallProb * aceCallFactor * callWidth;
         if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
           return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
         }
@@ -841,10 +858,10 @@ function decidePreflop(
     }
 
     // Early position (UTG): 2% raise (×1.10 for Ax), 1% call (×1.40 for Ax), 97% fold
-    if (ctx.isEarlyPosition && !isFacingRaise) {
+    if (ctx.isEarlyPosition && openSpot) {
       const baseRaiseProb = 0.02;
       const baseCallProb = 0.01;
-      const adjCall = baseCallProb * aceCallFactor;
+      const adjCall = baseCallProb * aceCallFactor * callWidth;
       if (flags.canRaiseResult && random() < baseRaiseProb * aceRaiseFactor) {
         return { action: 'raise', amount: calculateRaiseAmount(player, state, 0.8) };
       }

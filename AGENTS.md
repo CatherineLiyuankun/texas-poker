@@ -309,9 +309,14 @@ widths (`preflopWidths`), postflop thresholds / aggression (`postflopParams`, `c
   sharing one `withSharedEquity` scope; the per-row `getShadowBotAction` is the seed-swapping
   primitive used for anything that runs during render.
 - **Calibration is partial.** Parameters were fitted by `npm run calibrate` (closed-loop over
-  the production `gameReducer`). The §4 target ranges are *working targets* — the VPIP/PFR
-  ratio, the LAG/TAG PFR and Fish `WTSD` are **not reachable** by knobs alone. See
-  `docs/BOT_PERSONALITY_PLAN.md` §17.1.
+  the production `gameReducer`). The §4 target ranges are *working targets*. The preflop raise
+  branch used to be gated by `isFacingRaise` (true for every non-blind seat), which made the
+  VPIP/PFR **ratio** and the LAG/TAG **PFR** unreachable by knobs alone; that gate is fixed
+  (RFI **raise** ← `openWiden`, **limp/call** ← `defendVsOpen`) and the table re-scaled, so
+  production-iteration calibration now passes **16/19** joint checks with the assigned→measured
+  classification **5/5** correct. Two *semantic* gaps remain: Fish `WTSD ≤ 30` (contradicts its
+  loose-passive semantics) and Fish/CS `AF < 1.5` (no knob left to move). See
+  `docs/BOT_PERSONALITY_PLAN.md` §17.1 and §17.3.
 
 ---
 

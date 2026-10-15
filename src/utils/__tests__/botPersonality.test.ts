@@ -237,19 +237,23 @@ describe('botPersonality：参数表（方案 §7.1）', () => {
     expect(tag.threeBetFreq).not.toBe(1);
   });
 
-  it('逐值对齐 P9-4 校准表（§7.1 初值经闭环实测调整）', () => {
+  it('逐值对齐缺口①修复后的重标表（§7.1 初值 → P9-4 → 两旋钮重标）', () => {
+    // ⚠️ 这批值在「加注 / 跟注两旋钮」修复后**整体重标过**：旧表的 `openWiden` 是
+    // 「跟注宽度」时代标定的（Fish/CS 2.6–2.8 最高），修复后它乘在**加注**概率上，
+    // 于是 Fish/CS 的 `openWiden` 必须**低于** TAG/LAG（旧值恰好相反），`defendVsOpen`
+    // 反过来承担「松被动的高入池」。实测见 `scripts/reports/gap1-probe-e.md`。
     expect(PERSONALITY_PARAMS.Nit).toEqual({
-      openWiden: 0.5,
-      defendVsOpen: 0.5,
-      threeBetFreq: 0.5,
+      openWiden: 0.12,
+      defendVsOpen: 0.11,
+      threeBetFreq: 0.25,
       valueShift: 0.05,
       aggressionMult: 0.7,
       callBias: 0.8,
       sizingMult: 0.9,
     });
     expect(PERSONALITY_PARAMS.TAG).toEqual({
-      openWiden: 1.1,
-      defendVsOpen: 0.18,
+      openWiden: 0.36,
+      defendVsOpen: 0.25,
       threeBetFreq: 6.0,
       valueShift: 0,
       aggressionMult: 1.0,
@@ -257,8 +261,8 @@ describe('botPersonality：参数表（方案 §7.1）', () => {
       sizingMult: 1.0,
     });
     expect(PERSONALITY_PARAMS.LAG).toEqual({
-      openWiden: 1.7,
-      defendVsOpen: 0.5,
+      openWiden: 1.25,
+      defendVsOpen: 0.45,
       threeBetFreq: 6.0,
       valueShift: -0.05,
       aggressionMult: 1.4,
@@ -266,8 +270,8 @@ describe('botPersonality：参数表（方案 §7.1）', () => {
       sizingMult: 1.1,
     });
     expect(PERSONALITY_PARAMS.Fish).toEqual({
-      openWiden: 2.8,
-      defendVsOpen: 6.0,
+      openWiden: 0.34,
+      defendVsOpen: 1.25,
       threeBetFreq: 0.3,
       valueShift: -0.1,
       aggressionMult: 0.05,
@@ -275,8 +279,8 @@ describe('botPersonality：参数表（方案 §7.1）', () => {
       sizingMult: 1.2,
     });
     expect(PERSONALITY_PARAMS['Calling Station']).toEqual({
-      openWiden: 2.6,
-      defendVsOpen: 5.5,
+      openWiden: 0.19,
+      defendVsOpen: 1.35,
       threeBetFreq: 1.5,
       valueShift: -0.12,
       aggressionMult: 0.05,
@@ -292,6 +296,21 @@ describe('botPersonality：参数表（方案 §7.1）', () => {
       callBias: 0.3,
       sizingMult: 1.6,
     });
+  });
+
+  it('加注宽度（openWiden）的排序：松凶 > 紧凶 > 松被动（重标后才成立）', () => {
+    // 这是缺口①修复的**语义约束**：`openWiden` 现在乘在**加注**概率上，所以
+    // 「谁更爱加注」必须与 §4 的 PFR 目标一致 —— LAG > TAG > Fish/CS > Nit。
+    const w = (t: BotPersonality) => PERSONALITY_PARAMS[t].openWiden;
+    expect(w('LAG')).toBeGreaterThan(w('TAG'));
+    expect(w('TAG')).toBeGreaterThan(w('Fish'));
+    expect(w('Fish')).toBeGreaterThan(w('Calling Station'));
+    expect(w('Calling Station')).toBeGreaterThan(w('Nit'));
+    // 而「继续入池宽度」反向：松被动最宽、紧凶最窄。
+    const d = (t: BotPersonality) => PERSONALITY_PARAMS[t].defendVsOpen;
+    expect(d('Fish')).toBeGreaterThan(d('TAG'));
+    expect(d('Calling Station')).toBeGreaterThan(d('TAG'));
+    expect(d('TAG')).toBeGreaterThan(d('Nit'));
   });
 });
 
@@ -458,32 +477,27 @@ describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
     expect(preflopWidths(undefined).open).toBe(1);
   });
 
-  it('preflopWidths：三档各自映射到正确的旋钮（P9-4 校准值）', () => {
-    expect(preflopWidths(PERSONALITY_PARAMS.LAG)).toEqual({
-      open: 1.7,
-      defend: 0.5,
-      threeBet: 6.0,
-    });
-    expect(preflopWidths(PERSONALITY_PARAMS.Nit)).toEqual({
-      open: 0.5,
-      defend: 0.5,
-      threeBet: 0.5,
-    });
-    expect(preflopWidths(PERSONALITY_PARAMS.Maniac)).toEqual({
-      open: 2.2,
-      defend: 1.4,
-      threeBet: 2.0,
-    });
+  it('preflopWidths：三档各自映射到正确的旋钮（六类全查）', () => {
+    // 期望值**由参数表推出来**，不写死数值 —— 参数表会随校准漂移（P9-4 → 缺口①重标），
+    // 而「哪一档取哪个旋钮」是接线契约，不该跟着漂移。
+    for (const t of BOT_PERSONALITY_TYPES) {
+      const p = PERSONALITY_PARAMS[t];
+      expect({ t, ...preflopWidths(p) }).toEqual({
+        t,
+        open: p.openWiden,
+        defend: p.defendVsOpen,
+        threeBet: p.threeBetFreq,
+      });
+    }
   });
 
-  it('preflopWidths：TAG 已随 P9-4 漂移，不再恰好是恒等', () => {
-    // 方案 §7.1：TAG 初值恰好恒等只是巧合；P9-4 校准后 openWiden/defendVsOpen/
-    // threeBetFreq 都变了。恒等只属于 `undefined`（见上一条）。
-    expect(preflopWidths(PERSONALITY_PARAMS.TAG)).toEqual({
-      open: 1.1,
-      defend: 0.18,
-      threeBet: 6.0,
-    });
+  it('preflopWidths：TAG 已随校准漂移，不再恰好是恒等', () => {
+    // 方案 §7.1：TAG 初值恰好恒等只是巧合；P9-4 校准与缺口①重标后其翻前三参都已漂移。
+    // 恒等只属于 `undefined`（见上一条）。这里只钉「已漂移」，具体值由逐值表覆盖。
+    const w = preflopWidths(PERSONALITY_PARAMS.TAG);
+    expect(w.open).not.toBe(1);
+    expect(w.defend).not.toBe(1);
+    expect(w.threeBet).not.toBe(1);
   });
 
   it('preflopWidths：非法倍率（NaN / 负 / Infinity）一律退回 1', () => {
@@ -498,11 +512,13 @@ describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
   });
 
   it('preflopWidths：返回新对象，改它不会污染参数表', () => {
+    // 不写死具体数值（参数表会随校准漂移）—— 只钉「改返回值不动原表」。
+    const before = { ...PERSONALITY_PARAMS.LAG };
     const w = preflopWidths(PERSONALITY_PARAMS.LAG);
     w.open = 99;
     w.defend = 99;
-    expect(PERSONALITY_PARAMS.LAG.openWiden).toBe(1.7);
-    expect(PERSONALITY_PARAMS.LAG.defendVsOpen).toBe(0.5);
+    expect(PERSONALITY_PARAMS.LAG.openWiden).toBe(before.openWiden);
+    expect(PERSONALITY_PARAMS.LAG.defendVsOpen).toBe(before.defendVsOpen);
   });
 
   it('preflopWidths：persona 只读三档，不泄漏翻后参数', () => {

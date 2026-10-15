@@ -53,7 +53,7 @@ Six types — `Nit` / `TAG` / `LAG` / `Fish` / `Calling Station` / `Maniac` — 
 
 **Two identities must never be conflated.** The **assigned** type (`Player.botType`, written once at new-game init by `allocateBotTypes` from `botTypeQuota` — the A′ multiset, `MAX_BOTS_FOR_NEW_GAME = 6`) *drives decisions*. The **measured** type is classified from real VPIP/PFR in the stats panel. An unassigned seat must stay identity: `preflopWidths(undefined) === {1,1,1}` is hardcoded — do **not** fold `undefined` into `PERSONALITY_PARAMS.TAG` (TAG is no longer the identity transform after P9-4 calibration).
 
-Parameters were fitted by `npm run calibrate` (closed-loop, reuses the production `gameReducer`). The §4 target ranges are *working targets*: several (the VPIP/PFR ratio, the LAG/TAG PFR, Fish `WTSD`) are **not reachable** by tuning the knobs alone — root cause and follow-up in `docs/BOT_PERSONALITY_PLAN.md` §17.1.
+Parameters were fitted by `npm run calibrate` (closed-loop, reuses the production `gameReducer`). The §4 target ranges are *working targets*. The preflop raise branch used to be gated by `isFacingRaise` (true for every non-blind seat), which made the VPIP/PFR **ratio** and the LAG/TAG **PFR** unreachable by tuning the knobs alone; that gate is fixed (RFI **raise** ← `openWiden`, **limp/call** ← `defendVsOpen`) and the table re-scaled, so production-iteration calibration now passes **16/19** joint checks with the assigned→measured classification **5/5** correct. Two *semantic* gaps remain: Fish `WTSD ≤ 30` (contradicts its loose-passive semantics) and Fish/CS `AF < 1.5` (no knob left to move). See `docs/BOT_PERSONALITY_PLAN.md` §17.1 and §17.3.
 
 ### Strategy configuration — two orthogonal axes (`gtoConfig.ts`)
 
