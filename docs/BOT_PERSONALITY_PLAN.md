@@ -914,6 +914,14 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 > ⚠️ 这两批与 P8a 那批（同为 `GameBoard` 族）**部分重叠**，通过数不可直接比较；
 > 且 P8a 那批是 P8b-3 **之前**跑的，覆盖不到面板改动 —— 所以这次必须重跑。
 > P8b 也**没有**跑全量 `npm test` —— 全量按 §12.3 只在 PR 关口跑。
+>
+> **P9 + P10 全量回归（PR 关口，`npm test`）**：**91 套件 1698 通过 / 2 跳过 / 0 失败
+> / 1700 总 / 3208.5s**（含 `src/e2eTests`）—— 这是本计划第一次跑全量 `npm test`
+> （P6b/P6c/P7/P8a/P8b 各关口都只跑聚焦批，全量按 §12.3 留到 PR 关口）。覆盖全部
+> persona 套件、P1 golden `botAI.decisionBaseline`、`StartPage.personality`、
+> `HandAnalysis.botAction`、`PlayerStatsTable`、`longOpponentModel.typeStats`、
+> `botAI.shadowRows` 与脚本层 `scripts/__tests__/calibrationCore`。README 的测试数字
+> 已同步为 **1700 / 91**（原 1111 / 62）。
 
 ### 16.1 P0g 复核结论（决策 41，先复核后修）
 
@@ -1250,8 +1258,14 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   每步回归中都全绿 —— 含 `flop-heuristic-tptk-rake`、`flop-gto-flushdraw`、
   `river-heuristic-bluffcatch-rake`、`river-gto-hu-exact`、
   `preflop-heuristic-short-bb-push`、`flop-heuristic-deep-400bb` 六条正好覆盖本轮改动的路径）。
-  下一轮从 **P9（闭环 runner 与参数校准）** 开始，按 P9→P10 顺序继续
-  （P9 闭环 runner 与参数校准 → P10 文档与发布门）。
+  **P9 闭环 runner 与参数校准**已全部落地（`b014a45` 抽 `gameReducer` →
+  `89e3705` 抽 `computeSettlementSnapshot` → `24d52aa` 抽 `buildActionEvent` →
+  `d25b915` 闭环 runner 与 `npm run calibrate` → runner 暴露的两处既有缺陷
+  `162aa66` / `5843e1f` → `6930042` 参数定稿「最佳可达」表 + 断言同步）：runner
+  复用**生产** reducer/动作接受/计数逻辑，5 seed × 600 手生产迭代实测（报告
+  `scripts/reports/p9-4-final.md`），结论「最佳可达 + 记录缺口」见 §17.1。
+  **下一轮从 P10（文档与发布门）开始** —— README 中英 / TODO / 本节验收状态，
+  随后走发布门（全量 Unit+e2e、build、dev、PR）。
   P8a 之后「本手结束」的座位标签已按 §11.1 落地（下注阶段不出现、关闭/未分配不虚构、
   下一手自动隐藏）；P8b 之后面板的「Bot Action」已是 §11.2 的固定两行
   （TAG/LAG 假设，与当盘分配无关，不可行动时显示占位符、两行不消失）。
