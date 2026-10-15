@@ -45,7 +45,15 @@ Total chips must always equal initial chips; tests enforce this. Rules that prot
 
 `ctx.potOdds` is the **call price**, not the raw pot odds: `getBotAction` computes it once via `rake.callThresholdWithRake(toCall, totalPot, BB)` and every downstream engine reads that field. Never recompute raw odds downstream (that is how the river threshold silently lost rake).
 
-`getShadowBotAction(player, state)` runs the same decision path for a seat that is **not** bot-controlled — the analysis panel asks "what would the bot do in this real player's spot?". It swaps in a PRNG seeded from a hash of the state, then restores the previous source in a `finally`, so a panel render never advances the real bots' mixed-frequency stream (which would both desync the display and break `setRandomSeed` reproducibility). Use it instead of `getBotAction` for anything that runs during render.
+`getShadowBotAction(player, state, assumedType?)` runs the same decision path for a seat that is **not** bot-controlled — the analysis panel asks "what would the bot do in this real player's spot?". It swaps in a PRNG seeded from a hash of the state, then restores the previous source in a `finally`, so a panel render never advances the real bots' mixed-frequency stream (which would both desync the display and break `setRandomSeed` reproducibility). Use it instead of `getBotAction` for anything that runs during render. The panel itself renders **two fixed rows** via `getShadowBotActions` (hypothetical TAG / LAG — see the persona section below).
+
+### Bot personality (persona) (`botPersonality.ts`)
+
+Six types — `Nit` / `TAG` / `LAG` / `Fish` / `Calling Station` / `Maniac` — each a row of `PERSONALITY_PARAMS` with seven knobs (`openWiden`, `defendVsOpen`, `threeBetFreq`, `valueShift`, `aggressionMult`, `callBias`, `sizingMult`). They reshape the bot's preflop widths (`preflopWidths`), postflop thresholds / aggression (`postflopParams`, `callShift`, `renormalizeAggression`) and bet sizing (`scaleBetAmount`, applied once at the end of `getBotAction`).
+
+**Two identities must never be conflated.** The **assigned** type (`Player.botType`, written once at new-game init by `allocateBotTypes` from `botTypeQuota` — the A′ multiset, `MAX_BOTS_FOR_NEW_GAME = 6`) *drives decisions*. The **measured** type is classified from real VPIP/PFR in the stats panel. An unassigned seat must stay identity: `preflopWidths(undefined) === {1,1,1}` is hardcoded — do **not** fold `undefined` into `PERSONALITY_PARAMS.TAG` (TAG is no longer the identity transform after P9-4 calibration).
+
+Parameters were fitted by `npm run calibrate` (closed-loop, reuses the production `gameReducer`). The §4 target ranges are *working targets*: several (the VPIP/PFR ratio, the LAG/TAG PFR, Fish `WTSD`) are **not reachable** by tuning the knobs alone — root cause and follow-up in `docs/BOT_PERSONALITY_PLAN.md` §17.1.
 
 ### Strategy configuration — two orthogonal axes (`gtoConfig.ts`)
 

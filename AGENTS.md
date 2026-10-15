@@ -286,6 +286,33 @@ leaf module with no business imports, so React components, bot code and tests ca
 depend on them without cycles. When a value is computed in more than one place, extract the
 leaf rather than synchronising the copies.
 
+### Bot personality (persona) (`src/utils/botPersonality.ts`)
+
+Six types — `Nit` / `TAG` / `LAG` / `Fish` / `Calling Station` / `Maniac` — each a row of
+`PERSONALITY_PARAMS` with seven knobs (`openWiden`, `defendVsOpen`, `threeBetFreq`,
+`valueShift`, `aggressionMult`, `callBias`, `sizingMult`) that reshape the bot's preflop
+widths (`preflopWidths`), postflop thresholds / aggression (`postflopParams`, `callShift`,
+`renormalizeAggression`) and bet sizing (`scaleBetAmount`, applied once at the end of
+`getBotAction`).
+
+- **Assigned ≠ measured.** `Player.botType` is the *assigned* type, written once at new-game
+  init by `allocateBotTypes` from `botTypeQuota` (the A′ multiset, `MAX_BOTS_FOR_NEW_GAME = 6`);
+  it *drives decisions*. The stats panel's type is *measured* from real VPIP/PFR. Both are
+  shown side by side in the stats popover — a seat assigned TAG but playing like a Nit
+  displays both, and neither is a bug.
+- **Unassigned stays identity.** `preflopWidths(undefined)` returns a hardcoded `{1,1,1}`
+  (bit-exact with the pre-persona expression, so the P1 golden is untouched). Never fold
+  `undefined` into `PERSONALITY_PARAMS.TAG` — TAG stopped being the identity transform after
+  the P9-4 calibration.
+- **Panel shadow rows.** The analysis panel's "Bot Action" is **two fixed rows**
+  (`getShadowBotActions`, hypothetical TAG / LAG, independent of the table's assignment),
+  sharing one `withSharedEquity` scope; the per-row `getShadowBotAction` is the seed-swapping
+  primitive used for anything that runs during render.
+- **Calibration is partial.** Parameters were fitted by `npm run calibrate` (closed-loop over
+  the production `gameReducer`). The §4 target ranges are *working targets* — the VPIP/PFR
+  ratio, the LAG/TAG PFR and Fish `WTSD` are **not reachable** by knobs alone. See
+  `docs/BOT_PERSONALITY_PLAN.md` §17.1.
+
 ---
 
 ## 4. Code Style and Formatting Rules
