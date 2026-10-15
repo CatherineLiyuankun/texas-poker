@@ -845,6 +845,14 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
 | P8b-2 | `f30e044` | **两行影子决策 API**（§11.2 / §7.2 第 12 行）：`getBotAction` / `getShadowBotAction` 新增可选尾参 `assumedType`（覆盖 `player.botType` —— 真人座位恒无 botType，要问「这个座位**如果**是 TAG/LAG 会怎么打」只能从外面注入；不传时行为与加参数前逐位相同）；`shadowSeed` 签名**条件追加** `assumedType`（只在显式假设时才入签名 ⇒ 两行走不同子流、默认路径种子不变 —— ⚠️ 无条件追加常量会改掉默认种子，**实测已把 `botAI.test.ts` 的「局面变化会换抽样」用例翻红**，当场发现并修掉）；新增 `SHADOW_ASSUMED_TYPES`（固定 TAG/LAG，与当盘分配无关）、`ShadowActionRow`、`hasNoActionableDecision`（showdown/ended、已 fold、all-in、筹码 ≤0、底牌 <2 张 ⇒ 不强算动作）、`getShadowBotActions`（两行包在 `withSharedEquity` 里共享一次权益，策略随机各自独立且不碰全局流）。**本步只做数据层，渲染留 P8b-3** | 新建 `botAI.shadowRows.test.ts` **14 通过 / 0 失败**：固定两行、关闭性格也两行、**共享权益（`separate === shared × 2`，含防空断言 `shared > 0`）**、两行独立子流（与单独按该性格调用逐位一致）、不消耗全局流、还原调用前的源、重复调用稳定、不传/传 `undefined` 等价、可行动局面才算权益、5 个不可行动占位符（**权益调用为 0**）；`npx jest --runInBand 'botAI'` **8 套件 124 通过 / 0 失败 / 258.0s**；`tsc -b` 通过；eslint 0 problem |
 | P8b-3 | `99b2f0e` | **面板两行渲染**（§11.2，**行为变更**）：`HandAnalysis` 的单行 `shadowBotAction` useMemo → `shadowBotActions`（`getShadowBotActions`；无 hero/gameState 时退到 `placeholderShadowRows()`），渲染改成**固定两行**（`SHADOW_ROW_LABELS` 把 TAG/LAG 映射到固定文案、复用 `Row` + `getBotActionColor`，占位符用 `text-white/40`）；两行**恒在**，不可行动时值 = `— / 无可行动作`；沿用既有面板语义（**不要求**「非得轮到 hero 才允许假设」，§11.2 末句）；`botAI` 导出 `placeholderShadowRows()` 让渲染层兜底与 `getShadowBotActions` 共用同一份占位形态（单一来源）；`translations.handAnalysis` 删掉已无引用的 `botAction: 'Bot Action'`、新增 `botActionTAG` / `botActionLAG` / `botActionUnavailable` | 重写 `HandAnalysis.botAction.test.tsx`（5 → **11 通过 / 0 失败**）：固定两行与行名写死、与当盘分配无关（hero 无 botType 也两行且都算出动作）、两行都排在 GTO Math 之前、翻前也显示、**两行允许给出同一个动作**（§11.2 明示不要求不同）、5 个不可行动场景两行都在且值为占位符、渲染是只读的（不改动对局状态）；§12.3 的 P8b 关口 `npx jest --runInBand 'HandAnalysis\|botAI'` **13 套件 208 通过 / 0 失败 / 403.1s**；`tsc -b` 通过；eslint 0 problem |
 
+| P9-1 | `b014a45` | **抽出 `gameReducer` 供 headless 校准 runner 复用**（方案 §10.4「闭环 runner 走生产 reducer/动作接受/计数逻辑，不手写第二套扑克引擎」）：`useGameState` 里的内联 reducer 提到顶层 `export function gameReducer(state, action)`，`useGameState()` 改 `useReducer(gameReducer, createInitialState(2, 0))`；导出 `createInitialState` / `GameAction`；三处加「改这里等于改生产行为」警示注释。**纯重构、行为逐位不变**（884 行函数体一字未改，diff 15 增 / 6 删） | `npx jest --runInBand 'useGameState\|sidePot'` **8 套件 118 通过 / 0 失败 / 293.1s**（这些套件用 `renderHook` 驱动真实 reducer，等价行为回归）；`tsc -b` 通过（证明 reducer 体内确实没有捕获 hook 作用域）；eslint 0 problem |
+| P9-2 | `89e3705` | **抽出 `computeSettlementSnapshot` 供 runner 共用**（§10.4 / §9.3「统计数字与面板显示必须同源」）：新建 `src/utils/handSettlementSnapshot.ts`（`SettlementSnapshot` + `computeSettlementSnapshot(state, events)`），内容与 `GameBoard` 结算 effect 里的内联逻辑**逐字等价**（含两处易错点：翻前弃牌名单从 `events` 读而非 `p.folded`；`potDistribution[].winnings` 按**座位下标**而非 `playerId` 对齐）；`GameBoard` 结算 effect 改调该纯函数、依赖数组不变；`opponentModel.sessionHandRecords` 改为导出。**纯重构、行为逐位等价**（`GameBoard` 侧净减 39 行内联逻辑） | `npx jest --runInBand GameBoard` **8 套件 31 通过 / 2 跳过 / 0 失败 / 277.2s**（`GameBoard.showdown.settlement` 直接断言这三份快照）；`tsc -b` 通过；eslint 0 error（新增 1 条同型 hook 依赖 warning） |
+| P9-3a | `24d52aa` | **抽出 `buildActionEvent` 供 runner 共用**（§9.3）：`ActionEvent` 形状原先只写在 `GameBoard` 的 `createActionEvent` 闭包里，runner 必须产出**同一形状**事件（否则 runner 报出的 VPIP/AF 与面板显示对不上、而两边都「看起来对」）。新建 `src/utils/actionEvent.ts`（`buildActionEvent(state, handId, playerId, action, amount?, phaseOverride?)`，`toCall`/`currentBet`/`potSize`/`position`/`isFacingRaise`/`timestamp` 全取**动作前**快照）；`GameBoard` 的闭包改为一行转发，参数类型 `number` 收紧到 `PlayerId`。**纯重构、行为逐位等价** | `npx jest --runInBand GameBoard` **8 套件 31 通过 / 2 跳过 / 0 失败 / 327.9s**；`tsc -b` 通过；eslint 0 error（3 条 hook 依赖 warning 均既有） |
+| P9-3b | `d25b915` | **闭环校准 runner 与显式校准命令**（§10.4 / §12.3）：新增 `scripts/calibrationCore.ts`（纯逻辑层：配置解析、Wilson 区间、§4 目标区间判定、公开记录的真人代理策略、固定格式报告）、`scripts/calibrationRunner.ts`（驱动生产 reducer 的闭环循环，逐句复刻 `GameBoard` effect 时序，两处刻意不复刻并注明理由）、`scripts/calibrate.mjs`（本仓库无 `tsx`/`ts-node`，用已有 `esbuild` 把 runner 打成单文件 CJS 再跑，产物落 `scripts/.out/`，已忽略）、`scripts/__tests__/calibrationCore.test.ts`（41 例）。**全部复用生产内核**：`gameReducer`(P9-1) / `isActionAccepted` / `bettingComplete` / `getBotAction` / `buildActionEvent`(P9-3a) / `computeSettlementSnapshot`(P9-2) / `opponentModel` 容器 / `getTypeLongStats` —— 统计口径与面板不可能分叉。关键设计：**随机源三分**（`Math.random` 洗牌+蒙特卡洛+dealer / `random.ts` 策略混合频率 / runner 代理随机，各用不同派生 seed 的 `mulberry32` 钉住、`finally` 全部还原）；会话边界是 runner 参数（`handsPerSession` 默认 200，报告注明它**必须远大于 6**，否则放大生产里「每盘第一手 dealer ∈ {1,2}」的偏置）；**停止规则按机会数**（每类 player-hand / 看翻牌 / AF 跟注三条硬下限，未达标即「样本不充分 → 追加样本，不改阈值」决策 43）；`--equityIterations=N` 临时改写 `EQUITY_ITERATIONS` 常量（生产侧无注入点，`finally` 还原）；**故障不改分类树**（被拒即计数 + 兜底动作，不掩盖不中断，报告单列） | `npx jest --runInBand scripts/__tests__/calibrationCore.test.ts` **1 套件 41 通过 / 0 失败 / 84.5s**（配置解析 / Wilson / 目标区间开闭 / 代理策略 / 报告格式）；`tsc -b` 通过（含新增 `tsconfig.scripts.json` 项目）；`npx eslint .` **0 error / 3 warning**（3 条均既有）；`npm run calibrate` 冒烟跑通（5/20/40 手），实测吞吐 **~335 ms/手**（0.90 CPU），默认 5×600 手 ≈ 16–17 分钟。runner 与参数行为**分开提交**（本步只落 runner） |
+| P9-fix-1 | `162aa66` | **修 `gtoDeepStack` 偷盲后处理漏 `amount`（行为变更）** —— P9-3b runner 暴露的**既有生产缺陷**（早于性格系统，`3107e15` 2026-07-05 引入）：`getDeepStackRecommendation` 末尾「对手弃牌率高 → 把 check 翻成 raise 偷盲」只给了 `sizing`、**漏了 `amount`**，而深筹码调用点映射的是 `deepStackRec.amount`（不像短筹码/ICM 映射 `.sizing`）⇒ `amount===undefined` ⇒ 缩放点原样返回 ⇒ `legalizeRaise` 拒绝 ⇒ `GameBoard` 机器人 effect 只 `return`（依赖 `state` 未变 ⇒ 不重跑）⇒ **机器人卡住**。runner 在 200 手 / 1968 次决策中统计到 **57 次（≈2.9%）**拒绝，归类后 100% 落本分支。修法：按同文件其它 6 处口径补 `amount: calculateRaiseAmount(player, state, Math.floor(ctx.totalPot * 0.33))` | `npx jest --runInBand gtoDeepStack botAI` **10 套件 149 通过 / 0 失败 / 6m54s**（含 P1 golden 与 8 个 botAI persona/spr/shadowRows 套件）；新增回归用例断言金额已定义、≥ 最小全额加注，并用**与 reducer 同一判据** `isActionAccepted` 交叉验证，**已做负向验证**（stash 修复后必红）；`tsc -b` 通过；eslint 0 problem；另全仓扫描其余 `action:'raise'` 分支确认无同类漏 `amount` |
+| P9-fix-2 | `5843e1f` | **修 `gtoDeepStack` 把诈唬加注压成非法过牌（行为变更）** —— 同类的**既有生产缺陷**（不同分支，同样早于性格系统）：`getDeepStackRecommendation` 的「对手跟注率高 → 压掉诈唬加注」把 `handleDeepStackFacingBet` 的 `raise` 压成 **`check`**，但该段只在 `ctx.toCall>0`（面对下注）时执行 —— 面对下注无法过牌（`isActionAccepted` 的 `case 'check'` 要求 `toCall===0`）⇒ 被拒 ⇒ 机器人卡住。P9-4 低迭代初筛（3000 手 / 29682 次决策）统计到 **1 次**。修法：压成**跟注**（面对下注时「不诈唬加注」的合法替代），并显式清掉 `...result` 带过来的加注 `amount`（免得陈旧金额被 `createActionEvent` 记进统计事件） | `npx jest --runInBand gtoDeepStack` **2 套件 27 通过 / 0 失败**；新增回归用例（权益钉 0.46 触发压制、断言压后动作**不是 `check`** 且被 `isActionAccepted` 接受），**已做负向验证**（stash 修复后 `Expected: not "check"` 必红）；回归 `npx jest --runInBand botAI GameBoard` **16 套件 155 通过 / 2 跳过 / 0 失败**（含 P1 golden）；`tsc -b` 通过；eslint 0 problem |
+| P9-4 | `6930042` | **参数校准定稿「最佳可达」表（行为变更）**（方案 §10.4 / §17.1）：用 P9-3b 的 runner 在**生产迭代**下实测（5 seed × 600 手 = 3000 手，各类机会数达标）定稿 `PERSONALITY_PARAMS`，并同步全部钉住旧 §7.1 初值的断言。实测 **Nit 2/2、CS 5/5 全达标；TAG 1/3、LAG 2/4、Fish 3/5**；§4 的 ratio/PFR 目标被证明**参数不可达**（加注分支被 `!isFacingRaise` 门控、入池几乎全走 `entryOdds` 跟注），Fish 的 WTSD≤30 与「松被动」语义相悖 —— 三条结构性缺口与 P10 待办记入 §17.1，本轮按「最佳可达 + 记录缺口」处理，**不改分类树 / 不改 §4 / 不改引擎**。TAG 不再恒等（翻前三参漂移）；「无 persona 恒等」改由 `preflopWidths(undefined)` 写死、不读本表。Maniac 未进 runner 采样 ⇒ 保持 §7.1 初值 | `npx jest` 10 套件 **221 通过 / 0 失败**（含 P1 golden `botAI.decisionBaseline`）；把「undefined 与 TAG 逐位相等」的恒等代理断言换成**变异断言**（六参改极端值后 undefined 决策不变）；`tsc -b` 通过；eslint 0 problem |
+
 > **P6b 完整回归（P6b-1…P6b-4 全落地后跑一次，作为 P6b 的关口证据）**：21 套件
 > **538 通过 / 0 失败 / 915.5s** —— `botAI.decisionBaseline`（P1 golden）、
 > `botAI.personaPreflop`、`botAI.personaPostflop`、`botAI`、`botAI.spr`、`botPersonality`、
@@ -1247,3 +1255,61 @@ A>0,C=0 -> state=no-calls, af=null，并保留aggressiveCount/callCount
   P8a 之后「本手结束」的座位标签已按 §11.1 落地（下注阶段不出现、关闭/未分配不虚构、
   下一手自动隐藏）；P8b 之后面板的「Bot Action」已是 §11.2 的固定两行
   （TAG/LAG 假设，与当盘分配无关，不可行动时显示占位符、两行不消失）。
+
+### 17.1 P9-4 参数校准结论：最佳可达 + 结构性缺口（2026-10-15）
+
+P9-4 用 P9-3b 的闭环 runner 在**生产迭代**下实测（5 seed × 600 手 = 3000 手；每类
+≥2000 player-hand、看翻牌 ≥400、AF 跟注 ≥100，机会数**全部达标**），得到一张
+「最佳可达」参数表（`src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS`，逐值断言见
+`botPersonality.test.ts`）。**§4 的目标区间是工作目标**，本轮实测确认其中若干维度在
+当前引擎下**参数不可达** —— 按决策「最佳可达 + 记录缺口」处理：**不改分类树、不改
+§4、不改引擎**。
+
+**实测（`scripts/reports/p9-4-final.md`；3000 手 / 33321 次决策 / 生产迭代 / 被拒 0）**：
+
+| 类型 | VPIP%（目标） | PFR%（目标） | ratio（目标） | AF（目标） | WTSD%（目标） | 达标 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Nit | 11.1（10–13）✓ | 7.7（7–11）✓ | — | — | — | **2/2** |
+| TAG | 23.6（20–25）✓ | 14.8（16–20）✗ | 0.627（≥0.78）✗ | — | — | 1/3 |
+| LAG | 32.1（28–36）✓ | 14.8（24–30）✗ | 0.460（≥0.80）✗ | 4.047（≥2）✓ | — | 2/4 |
+| Fish | 41.0（38–45）✓ | 12.8（12–17）✓ | 0.313（≤0.45）✓ | 1.979（<1.5）✗ | 50.2（≤30）✗ | 3/5 |
+| CS | 39.2（38–45）✓ | 12.7（12–17）✓ | 0.325（≤0.45）✓ | 1.474（<1.5）✓ | 48.6（≥36）✓ | **5/5** |
+
+分类回归（分配 → 实测）：TAG→TAG ✓、Nit→Nit ✓、CS→CS ✓、**LAG→CS ✗、Fish→CS ✗**
+（后两类被压进 CS 的低 ratio 区间；但 LAG 的 AF 4.05 与 Fish 的 AF 1.98 都还带不出
+「松凶」与「松被动」的分野）。
+
+⚠️ **低迭代初筛不可用于验收（本轮再次验证 §10.4）**：同一张参数表在 40 次迭代 /
+1000 手下的 AF 与生产迭代差很多（Fish AF 低迭代 3.35 → 生产 1.98），所以低迭代只用于
+找方向，结论一律以生产迭代为准。
+
+**三条结构性缺口（本轮确认，未修）**：
+
+1. **ratio 维度整体高于引擎可达上限**。§4 要 TAG ≥0.78 / LAG ≥0.80，§3.1 分类器主规则
+   也要 `ratio > 0.7`；但实测 ratio 上限约 **0.63–0.69**（Nit 0.693 / TAG 0.627），且与
+   VPIP **负相关**（低迭代探针里 TAG VPIP 压到 18.9 时 ratio 才 0.640，代价是 VPIP 掉出
+   区间）。根因是**翻前加注分支被 `!isFacingRaise` 门控**：`isFacingRaise = ctx.toCall > 0`
+   对非盲位恒真（要补大盲注）⇒ RFI 的 `ctx.isXxx && !isFacingRaise` 开池树**对所有座位
+   不可达**（§16.3 早已记录），入池几乎全走 `entryOdds` 跟注 ⇒ 「加注/跟注」比例由硬编码
+   字面量（最大 `0.22 × raiseWidth`）锁死，参数改不动它。**推论**：TAG/LAG/Maniac 的 ratio
+   目标、以及 LAG(24–30) / Maniac(32–45) 的 PFR 目标在当前引擎下**参数不可达**。另：
+   `threeBetFreq` 确实是 PFR 杠杆（TAG 7.9 → 14.8），但它在 ~5 就饱和，且它把 `R` 从 `C`
+   搬走、在抬 PFR 的同时压 ratio —— 两个目标共用同一旋钮且方向相反，无法同时满足。
+2. **Fish 的 `WTSD ≤ 30` 与「松被动」语义相悖**。VPIP 38–45 的玩家看翻牌多、跟注多，
+   WTSD 必然偏高（实测 50.2）；同一份 §4 给 CS 的目标却是 `WTSD ≥ 36`（高）。两条目标
+   语义方向相反，Fish 的 ≤30 在「高 VPIP + 多跟注」下不可达 —— 这不是旋钮量程问题。
+3. **Maniac 未被 runner 覆盖**。runner 的固定桌型（R1/B5，6 人）按 §5 的 A′ 配额只分到
+   TAG/LAG/Fish/Nit/CS 五类，Maniac 未进入采样 ⇒ **无实测数据**，其参数保持 §7.1 初值
+   （未校准）。同理 `sizingMult` 的量级也只经过间接验证（`botAI.personaSizing` 的穷举
+   安全性测试，不是闭环实测）。
+
+**P10 待办（要让上述目标可达，须先动引擎；本轮按「失败不得改分类树」未做）**：
+
+- **翻前加注作用点（唯一能让 ratio/PFR 目标可达的修法）**：让非盲位在 RFI 能真正选到
+  开池树（用 `detectPreflopScenario` 选树，而不是复用 `isFacingRaise`），使 `openWiden`
+  能分别表达「加注宽度」与「跟注宽度」。这是**引擎行为变更**，须独立提交 + P1 golden
+  复核 + 全量回归；影响面覆盖所有非盲位的翻前决策，风险最高。
+- 若确认 ratio 维度不可修，则需重估 §4 的 ratio 目标**与** §3.1 的 `ratio > 0.7` 主规则
+  阈值（二者同源）—— 属验收口径变更，须先拍板。
+- **Maniac 采样**：把 runner 的桌型扩到能覆盖 Maniac（或单开 Maniac 专用跑法）后再校准。
+- Fish 的 `WTSD ≤ 30`：若确认为语义错误，应改成与 CS 同向的高 WTSD 目标（口径变更）。
