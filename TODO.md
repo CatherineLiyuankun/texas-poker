@@ -69,24 +69,20 @@
   **注意**：同段 :397 的 `random() >= defendTighten` 是**正确的**（`defendTighten`
   ∈ {0, 0.05}，非零时确实有 5% 收紧），别顺手改。
 
-### 3. 翻前加注分支被门控 ⇒ ratio / PFR 目标「参数不可达」
+### 3. 参数表须按「加注 / 跟注两旋钮」新语义重标（缺口①结构修复的收尾）
 
-- **位置**：`src/utils/botAI.ts` 的 `decidePreflop` 翻前加注分支门控
-  （`!isFacingRaise`，而 `isFacingRaise = ctx.toCall > 0` 对非盲位恒真 —— 非盲位要补大盲注）；
-  `src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS`。
-- **现象/证据**：P9-4 生产迭代实测（3000 手，报告 `scripts/reports/p9-4-final.md`）：
-  ratio 上限约 **0.63–0.69**（Nit 0.693 / TAG 0.627），而 §4 要 TAG ≥0.78 / LAG ≥0.80、
-  §3.1 分类器主规则也要 `ratio > 0.7`；TAG/LAG/Maniac 的 **PFR** 目标同样达不到
-  （TAG 实测 14.8 vs 目标 16–20）。根因：RFI 的 `ctx.isXxx && !isFacingRaise` 开池树
-  **对所有座位不可达**（§16.3 早已记录），入池几乎全走 `entryOdds` 跟注 ⇒ 「加注/跟注」比
-  由硬编码字面量（最大 `0.22 × raiseWidth`）锁死，旋钮改不动它。`threeBetFreq` 确实是 PFR
-  杠杆（TAG 7.9→14.8），但在 ~5 饱和，且它把 `R` 从 `C` 搬走、**抬 PFR 的同时压 ratio**。
-- **影响**：性格的「松凶 / 紧凶」区分度不足 —— 实测 LAG 与 Fish 都被压进 CS 的低 ratio 区间，
-  分类回归出现 LAG→CS、Fish→CS。
-- **修法方向**：让非盲位在 RFI 能真正选到开池树（用 `detectPreflopScenario` 选树，而不是复用
-  `isFacingRaise`），使 `openWiden` 能分别表达「加注宽度」与「跟注宽度」。**属引擎行为变更**，
-  须独立提交 + P1 golden 复核 + 全量回归；影响面覆盖所有非盲位的翻前决策，**风险最高**。
-  若确认不可修，则须重估 §4 的 ratio 目标**与** §3.1 的 `ratio > 0.7` 阈值（二者同源）。
+- **位置**：`src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS`。
+- **背景**：缺口①（原「翻前加注分支被 `!isFacingRaise` 门控 ⇒ ratio/PFR 目标参数不可达」）的
+  **结构性修复已完成** —— `decidePreflop` 的开池树改用 `openSpot`（`detectPreflopScenario ===
+  'rfi'`）门控，且 RFI 的**加注** ← `openWiden`、**跛入/跟注** ← `defendVsOpen` 拆成两个旋钮。
+  详见方案 §17.2。**ratio 目标已不再不可达**：低迭代实测五类的 ratio 全部从不达标变为达标。
+- **现象/证据**：现有 `openWiden` 是「跟注宽度」时代标定的（Fish/CS 2.6–2.8 **最高**），
+  而现在它乘在**加注**概率上 ⇒ 量级整体偏松。低迭代实测（报告 `scripts/reports/gap1-probe-b.md`）：
+  Fish VPIP 77.5 / CS 72.4（目标 38–45）、TAG PFR 27.6（目标 16–20）、Nit VPIP 23.6（目标 10–13）。
+- **影响**：重标完成前，机器人整体**偏松**，不宜发布。
+- **修法方向**：用 P9 的闭环 runner 重标 `openWiden` / `defendVsOpen`。关键约束：
+  **Fish/CS 的 `openWiden` 必须低于 TAG/LAG**（旧值恰好相反），`defendVsOpen` 反过来
+  （Fish/CS 高、TAG/Nit 低）。低迭代找方向、生产迭代验收（§10.4）。
 
 ### 4. Fish 的 `WTSD ≤ 30` 目标与「松被动」语义冲突
 
