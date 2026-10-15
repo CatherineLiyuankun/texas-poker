@@ -69,20 +69,25 @@
   **注意**：同段 :397 的 `random() >= defendTighten` 是**正确的**（`defendTighten`
   ∈ {0, 0.05}，非零时确实有 5% 收紧），别顺手改。
 
-### 3. 参数表须按「加注 / 跟注两旋钮」新语义重标（缺口①结构修复的收尾）
+### 3. 同一张参数表同时喂启发式引擎与 GTO 引擎的范围派生（重标后暴露）
 
-- **位置**：`src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS`。
-- **背景**：缺口①（原「翻前加注分支被 `!isFacingRaise` 门控 ⇒ ratio/PFR 目标参数不可达」）的
-  **结构性修复已完成** —— `decidePreflop` 的开池树改用 `openSpot`（`detectPreflopScenario ===
-  'rfi'`）门控，且 RFI 的**加注** ← `openWiden`、**跛入/跟注** ← `defendVsOpen` 拆成两个旋钮。
-  详见方案 §17.2。**ratio 目标已不再不可达**：低迭代实测五类的 ratio 全部从不达标变为达标。
-- **现象/证据**：现有 `openWiden` 是「跟注宽度」时代标定的（Fish/CS 2.6–2.8 **最高**），
-  而现在它乘在**加注**概率上 ⇒ 量级整体偏松。低迭代实测（报告 `scripts/reports/gap1-probe-b.md`）：
-  Fish VPIP 77.5 / CS 72.4（目标 38–45）、TAG PFR 27.6（目标 16–20）、Nit VPIP 23.6（目标 10–13）。
-- **影响**：重标完成前，机器人整体**偏松**，不宜发布。
-- **修法方向**：用 P9 的闭环 runner 重标 `openWiden` / `defendVsOpen`。关键约束：
-  **Fish/CS 的 `openWiden` 必须低于 TAG/LAG**（旧值恰好相反），`defendVsOpen` 反过来
-  （Fish/CS 高、TAG/Nit 低）。低迭代找方向、生产迭代验收（§10.4）。
+- **位置**：`src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS` —— 有两个消费者：
+  - **启发式引擎** `botAI.decidePreflop`（经 `preflopWidths`）；
+  - **GTO 引擎**的范围派生 `gtoPreflop.derivePreflopRangeTable` —— 那里 `openWiden` 是
+    **整个 RFI 范围的倍率**、`defendVsOpen` 是 `C` 的倍率、`threeBetFreq` 是 `R` 的倍率。
+- **现象/证据**：两侧对 `openWiden` 的**语义不同** —— 启发式侧它只缩放 tier3–4 的**边缘
+  开池**（tier1–2 有恒定加注打底），GTO 侧它是**整表倍率**且**按对子 6 / 同花 4 / 非同花 12
+  组合量化**。缺口①重标后（方案 §17.3），GTO 面板里 Fish/CS 在 UTG@10 的推注范围从
+  123 / 114 格**缩到 16 / 10 格**（`gtoShortDeep.persona.test.ts` 的 `RFI_COUNTS`）。
+- **影响**：① 为启发式标定出的参数会在 GTO 面板里产生**非预期的极端范围** —— 重标前是反向
+  极端（Fish/CS 2.6–2.8 → 169 格打满），重标后是缩到 AA 量级。② **Nit 的 `openWiden`
+  不能低于约 0.10**：否则 UTG 推注范围只剩 AA+KK = 12 组合，`gtoPreflop.persona.test.ts` 的
+  「锦标赛 ⊂ 现金局」断言退化（本轮实测：0.04 时 cash/tournament 都是 12 格、测试失败；
+  抬到 0.12 才恢复区分度）。这把「为启发式调参」的自由度**反过来绑在 GTO 面板的可读性上**。
+- **修法方向**：两条路，须先拍板 —— (a) **拆表**：给 GTO 侧单独的宽度（如按场景的
+  `gtoWidths`），启发式参数只喂启发式；(b) **保留共享但改语义**：把 GTO 侧的 `openWiden`
+  解释成「tier 阈值偏移」而非「整表倍率」，与启发式侧对齐。在此之前，**任何 `openWiden`
+  校准都必须同时跑 `gtoShortDeep` / `gtoPreflop` 的 persona 套件**（本轮已按此验证）。
 
 ### 4. Fish 的 `WTSD ≤ 30` 目标与「松被动」语义冲突
 
