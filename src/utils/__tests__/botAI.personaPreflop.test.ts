@@ -228,13 +228,17 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
       }
     };
 
-    it('开池树可达：非盲位在 RFI 真的会走到加注 / 跛入（修复前随机消费恒为 0）', () => {
+    it('开池树可达：非盲位在 RFI 真的会走到加注（修复前对所有座位都不可达）', () => {
       // tier 5 的 UTG 分支（`ctx.isMiddlePosition && openSpot`）：
-      //   pRaise = 0.25 × 1.10(A) × openWiden
-      //   跛入条件概率 = adjCall / (1 − 0.25 − adjCall)，adjCall = 0.13 × 1.40(A) × defendVsOpen
-      expect(decideAt(0.1, 'TAG')).toBe('raise'); // pRaise 0.3025 > 0.1
-      expect(decideAt(0.9, 'Fish')).toBe('call'); // pRaise 0.77 ≤ 0.9，但跛入门槛被 defendVsOpen 6.0 放大
-      expect(decideAt(0.99, 'TAG')).toBe('fold'); // 两项都不中，且 defendVsOpen 0.18 连兜底门槛都够不到
+      //   pRaise = 0.25 × 1.10(A) × openWiden = 0.275 × W
+      // 用 `withWidths` 钉死宽度，断言**不依赖**当前校准表的具体数值（表会随校准漂移）。
+      // 这一条就是缺口①的验收：修复前该分支被 `!isFacingRaise` 门控（非盲位恒真），
+      // 非盲位拿 tier 5 的牌时策略随机消费恒为 0，永远到不了这里。
+      expect(withWidths('TAG', 1.0, 0.2, () => decideAt(0.1, 'TAG'))).toBe('raise'); // pRaise 0.275 > 0.1
+      // 同一座位、同一手牌，只把加注宽度收到「pRaise 低于 v」⇒ 加注不再可达；
+      // 且 D = 0.2 时跛入门槛 0.051、两处 `entryOdds` 兜底 0.06 / 0.036 都够不到
+      // 跟注价格 0.4 ⇒ 全部落到弃牌。
+      expect(withWidths('TAG', 0.1, 0.2, () => decideAt(0.1, 'TAG'))).toBe('fold'); // pRaise 0.0275 ≤ 0.1
     });
 
     it('加注概率只由 openWiden 决定：固定 defendVsOpen，抬高 openWiden 由 fold 翻成 raise', () => {
@@ -254,19 +258,21 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
     });
 
     it('面对开池场景：开池树整棵不可达，跟注仍取 defendVsOpen', () => {
-      // 同座位、同手牌、同跟注价格，**只**把链改成「有人真实加注过」⇒ 场景变
+      // 同座位、同手牌、同跟注价格 0.4，**只**把链改成「有人真实加注过」⇒ 场景变
       // `facing_open`、`openSpot` 为假 ⇒ 开池树不可达，落到 `entryOdds` 门槛
-      // （call ⟺ 0.4 < 0.30 × defendVsOpen）。
+      // （call ⟺ 0.4 < 0.30 × defendVsOpen ⟺ defendVsOpen > 4/3）。
+      //
+      // ⚠️ 期望值**由参数表推出来**，不写死：参数重标后这条仍然成立。它仍然能抓住
+      // 「接错旋钮」—— 若这里误用 `openWiden`，CS（openWiden 0.19 → 0.057）会判 fold，
+      // 而它实际应 call（defendVsOpen 1.35 → 0.405）。
       const chain = [{ playerId: 6 as PlayerId, kind: 'raise' as const, fullRaise: true }];
       const of = (botType?: BotPersonality) =>
         decide(preflopState({ seat, hand, botType, chain }), seat).action;
-      expect(of(undefined)).toBe('fold'); // 0.30 < 0.4
-      expect(of('TAG')).toBe('fold'); // 0.18 → 0.054
-      expect(of('Nit')).toBe('fold'); // 0.5 → 0.15
-      expect(of('LAG')).toBe('fold'); // 0.5 → 0.15（P9-4 后 LAG 收紧了面对加注的防守）
-      expect(of('Maniac')).toBe('call'); // 1.4 → 0.42 > 0.4
-      expect(of('Calling Station')).toBe('call'); // 5.5 → 1.65
-      expect(of('Fish')).toBe('call'); // 6.0 → 1.8
+      expect(of(undefined)).toBe('fold'); // 无 persona ⇒ 门槛 0.30 < 0.4
+      for (const t of BOT_PERSONALITY_TYPES) {
+        const expected = 0.4 < 0.3 * PERSONALITY_PARAMS[t].defendVsOpen ? 'call' : 'fold';
+        expect({ t, got: of(t) }).toEqual({ t, got: expected });
+      }
     });
 
     it('盲位（小盲）也按同一套场景派生（tier 5 的盲位防守分支）', () => {
