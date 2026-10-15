@@ -1,0 +1,422 @@
+# 校准仪器：发牌流与蒙特卡洛权益共用 `Math.random`
+
+> **状态：设计已定稿，代码未改**（本轮只做研究 + 本文档；用户明确「先不动代码」）。
+> **基线**：`ced460b`（分支 `workbuddy/main-30908a87`，PR #19 已开、**未合并**）。本文所有行号以该提交为准。
+> **最后更新**：2026-10-16
+> **关联**：`docs/BOT_PERSONALITY_PLAN.md` §17.3（发现现场）、`TODO.md` 第 6 条（待办原文）、`docs/BOT_PERSONALITY_PLAN.md` §10.4（低迭代 vs 生产迭代口径）。
+
+---
+
+## 1. 背景与目标
+
+### 1.1 是怎么发现的
+
+缺口①收尾（方案 §17.3）里，为了修 `gtoPreflop.persona.test.ts` 的「锦标赛 ⊂ 现金局」断言，把 **Nit 的 `openWiden` 从 0.04 抬到 0.12**（只动了这一个数），然后重跑生产口径校准。结果是：
+
+| 类型 | `gap1-probe-e.md`（Nit 0.04） | `gap1-probe-g.md`（Nit 0.12） | 变化 | 该类型的参数动了吗 |
+| --- | --- | --- | --- | --- |
+| TAG | VPIP 21.6 / PFR 18.4 | VPIP 22.8 / PFR **20.2** | PFR **+1.8** | **没动** |
+| LAG | VPIP **33.8** / PFR 29.9 | VPIP **31.7** / PFR 28.1 | VPIP **−2.1** | **没动** |
+| Nit | 12.4 / 10.1 | 12.2 / 10.3 | ≈0 | 动了 |
+
+**参数没动的 TAG / LAG，指标也动了，而且动得比 Nit 自己还大。** 这直接否定了「用两次跑的数字差来证明某个旋钮的作用方向」这种用法 —— 而它正是本轮调参一直在用的方法。
+
+（连带影响：本轮上一度把 probe-f 的「TAG PFR 18.4→22.0」归因成 `opponentModel → stealBoost` 的跨性格耦合。**那个归因是过度解读** —— 本文档要说明的机制已经足以解释，不需要那条通路。§17.3 已更正。）
+
+### 1.2 目标
+
+1. **量化**这个问题：噪声底有多大？哪些差异是噪声、哪些是真信号？
+2. **定位**根因（到具体行）。
+3. 给出**可实施的修法选项**与取舍，并**推荐一条分阶段路线**。
+4. 明确**验收口径的变更**与**既有报告的可比性影响**（这决定要不要重跑历史结论）。
+
+### 1.3 非目标
+
+- 不改 §4 目标、不改 §3.1 分类树、不改任何**引擎策略**（`botAI` / `gto*` 的决策逻辑）。
+- 不在本批里重新校准参数。仪器修好之前调参是白费。
+
+---
+
+## 2. 现状：随机源接线（逐字）
+
+### 2.1 runner 的四个流
+
+`scripts/calibrationRunner.ts:390-399`：
+
+```ts
+function runSeed(cfg: CalibrationConfig, seed: number, counters: RunCounters): void {
+  const dealRng    = mulberry32(seed);                 // ① 发牌 + 蒙特卡洛  ← 关键
+  const sessionRng = mulberry32(seed ^ 0x5bf03635);    // ② 每盘的性格分配
+  const proxyRng   = mulberry32(seed ^ 0x1b56c4e9);    // ③ 真人代理策略
+
+  // 发牌 + 蒙特卡洛走 `Math.random`（与生产一致：那是「发牌/模拟」随机）。
+  // 策略混合频率走 `random.ts`（生产里唯一受 `setRandomSeed` 控制的那条）。
+  const originalMathRandom = Math.random;
+  Math.random = dealRng;                                // ← 一次设定、全程共用（line 398）
+  setRandomSeed(seed ^ 0x9e3779b9);                     // ← 策略流（line 399）
+  try { /* 整个 seed 的手牌循环 */ } finally { Math.random = originalMathRandom; }  // 475-477
+}
+```
+
+**声明了四个流，但 ① 被两个语义不同的消费者共用** —— 这就是问题本身。
+
+### 2.2 谁在消费 `Math.random`（即流 ①）
+
+| 消费者 | 位置 | 每次消耗量 | 语义 |
+| --- | --- | --- | --- |
+| 洗牌 | `src/hooks/useGameState.ts:61-74`（`Math.random` 在 `:69`） | **51** 次/手（52 张牌的 Fisher-Yates） | **发牌** |
+| dealer 抽取 | `useGameState.ts:110`（`createInitialState`）、`:497`（新一手） | 1 次/手（或每次 `START_GAME`） | **发牌** |
+| 蒙特卡洛权益 | `src/utils/equityCalculator.ts:78-93`（`Math.random` 在 `:81`、`:83`）、`:125`（内部洗牌） | **每次调用 数百~数千次** | **模拟** |
+| 性格分配（默认参数） | `src/utils/botPersonality.ts:442` `random: RandomSource = Math.random` | 每次分配 | 分配（runner 显式传 `sessionRng`，**不**走这条） |
+
+消费方还有一条间接路径：真人代理的权益也走同一个 `equityCalculator` —— `calibrationRunner.ts:191` `proxyEquityOf` → `:199` `equityIterations(state.phase)`。
+
+### 2.3 量级对比（为什么「洗牌被冲掉」）
+
+- 实测规模：`250 手 / 2562 次决策` ⇒ **约 10.2 次决策/手**（`/tmp/tp-det2-a.md` 的「实际」行）。
+- 翻前决策**不**调权益（走 tier 逻辑）；翻后每个 Bot 决策、以及真人代理的翻后决策，各调一次 `calculateEquity`。
+- 每次调用的迭代数 = `EQUITY_ITERATIONS`（生产：`preflop400 / flop350 / turn300 / river300`，见 `src/utils/equityIterations.ts:59-69`）；每次迭代至少 1 次对手抽样 + 内部洗牌若干次 ⇒ **单次调用约 10²~10³ 次 `Math.random()`**。
+- 于是每手：**约 6~8 次权益调用 × 10²~10³ ≈ 10³~10⁴ 次**，而洗牌只有 **51 次**。
+
+> **结论（量级，非精确值）**：权益抽样消耗的随机数比洗牌多 **约两个数量级**，且**交错在洗牌之间**。
+> ⇒ 任何改变「权益调用次数」的东西（= 任何改变决策的东西），都会把**后续每一次洗牌**整体错位。
+> ⚠️ 上面 10³~10⁴ 是推算（依赖街、对手数、迭代数），**未实测**；若需要精确值，应在 `equityCalculator` 里临时加计数器跑一次（属「改代码」，本轮未做）。
+
+### 2.4 关键：**同配置是完全确定的**（实测）
+
+同一份配置、同一组种子连跑两次（`--handsPerSession=50 --handsPerSeed=50 --equityIterations=40`，5 seed）：
+
+```
+run a exit=0 ; run b exit=0
+★ 正文逐字节相同（diff 为空）
+- 实际：250 手 / 2562 次决策 / 耗时 29.1s / 116ms 每手
+```
+
+⇒ **不是「不可复现」，是「不可比」。** 这个区分很重要：不能靠「多跑几次取平均」来绕过，只能靠**改变随机源的分工**或**改变验收口径**。
+
+### 2.5 与既有设计意图的偏差（`random.ts` 的注释已经写明了意图）
+
+`src/utils/random.ts:8-11` 原文：
+
+> **只管策略决策随机**（下注 / 诈唬 / 偷盲这类混合频率）。**发牌洗牌**（`useGameState`）与**蒙特卡洛采样**（`equityCalculator`）仍用 `Math.random()`：那是「发牌 / 模拟」随机，与「混合频率」语义不同。把它们并进来会让同一个种子既决定决策又决定发牌，将来想「只固定发牌、不固定决策」就做不到。
+
+| 原文主张 | 本仓库现状 | 后果 |
+| --- | --- | --- |
+| 「发牌」与「混合频率」要分开 | 已分开（`Math.random` vs `random.ts`） | ✅ 这条做到了 |
+| 「发牌」与「模拟」是**同一类**（都走 `Math.random`） | 已合并成一条流 | ❌ **这两者语义不同却共用一条流** —— 「模拟」的次数由决策决定，于是决策的变化反向污染了「发牌」 |
+
+**所以本问题不是「设计没做」，而是「分类分错了一层」**：`发牌` 与 `模拟` 应当各自一条流。原文把两者当成一类，是这次问题的根源。
+
+---
+
+## 3. 实测事实：噪声底有多大
+
+### 3.1 用**既有报告**的分 seed 数据算（无需新跑）
+
+三份报告的「分 seed VPIP%」行共 **3 配置 × 5 seed × 5 类型 = 75 个观测**（每 seed = 600 手）。对每个类型池化 15 个观测估 SD：
+
+| 类型 | 每 seed（600 手）SD | 池化（3000 手）SE = SD/√5 | 95% 半宽（1.96·SE） |
+| --- | --- | --- | --- |
+| TAG | 2.22 | 0.99 | **±1.95** |
+| LAG | 2.47 | 1.11 | **±2.17** |
+| Fish | 2.37 | 1.06 | **±2.08** |
+| Nit | 1.70 | 0.76 | **±1.49** |
+| CS | 2.50 | 1.12 | **±2.19** |
+
+（数据源：`scripts/reports/gap1-probe-e.md`、`gap1-probe-g.md`、`p9-4-final.md` 的「分 seed VPIP%」行。）
+
+### 3.2 把 §1.1 的「异常」放进噪声带里检验
+
+对 probe-e vs probe-g 的同类型均值做双样本检验（`z = |Δ| / (√2·SE)`，|z| < 1.96 即不显著）：
+
+| 类型 | probe-e | probe-g | Δ | \|z\| | 判定 |
+| --- | --- | --- | --- | --- | --- |
+| TAG | 21.58 | 22.84 | +1.26 | 0.90 | **噪声** |
+| LAG | 33.80 | 31.74 | −2.06 | 1.32 | **噪声** |
+| Fish | 41.26 | 42.00 | +0.74 | 0.49 | **噪声** |
+| Nit | 12.44 | 12.24 | −0.20 | 0.19 | **噪声** |
+| CS | 41.82 | 41.84 | +0.02 | 0.01 | **噪声** |
+
+⇒ **五个类型全部不显著。** 「只动 Nit 却让 TAG/LAG 移动」在统计上**完全可以用抽样噪声解释**。
+所以之前的表述「跨配置差异 ≤~2pp 不可归因」是**对的，而且可以量化**：**池化 3000 手的噪声底是 ±1.5~2.2pp（95%）**；单次 600 手更差（SD 1.7~2.5pp）。
+
+### 3.3 另一个既有事实：两次跑都被 runner 自己判「样本不充分」
+
+probe-e 与 probe-g 的报告头都写着「机会数判定：**未达标**」，具体是：
+
+- **Nit 看翻牌 393 < 400**（`minFlopOpportunities`）
+- **TAG / Nit 的 AF 跟注 84 / 89 < 100**（`minAfCalls`）
+
+⇒ 按 `§10.4` / 决策 43 的口径，**这两次跑的样本本来就不足以验收**，只是当时没按这个判据停下来。这独立于本文档的随机源问题，但同一个「验收口径要更严」的方向。
+
+### 3.4 一个反例（防止把问题说小）：`p9-4-final` 的 LAG 内部种子方差其实很小
+
+`p9-4-final` 的 LAG 分 seed VPIP = 31.3 / 33.0 / 32.0 / 32.8 / 31.5（SD 仅 **0.66**），而同表 Fish 是 42.2 / 41.5 / 43.8 / 36.7 / 41.0（SD **2.66**）。
+
+⇒ **方差不是均匀的**：某些类型的某些指标（如 LAG 的 VPIP）种子间很稳，另一些（如 Fish 的 VPIP、以及各类的 WTSD/AF 这类小分母指标）方差大得多。**验收必须按指标分别看待，不能用一个统一阈值**（详见 §6 的 O4）。
+
+---
+
+## 4. 问题定义
+
+### 4.1 机制（一句话）
+
+> `Math.random` 是**一条**流，被「发牌」和「蒙特卡洛模拟」**共用**；模拟的消耗量由决策路径决定，所以**改任何一个参数 → 决策路径变 → 模拟消耗数变 → 后续洗牌整体错位 → 整个样本重抽**。
+
+### 4.2 四个具体危害
+
+| # | 危害 | 表现 | 证据 |
+| --- | --- | --- | --- |
+| H1 | **不可归因** | 改 A 的参数，B 的指标也动 | §1.1（TAG PFR +1.8、LAG VPIP −2.1） |
+| H2 | **验收是抽奖** | 目标边界附近的 pass/fail 会因重跑翻转 | §3.2（TAG PFR 20.2 vs 18.4，上界 20.0） |
+| H3 | **调参无梯度** | 「上一次改了 X 所以这次指标好了」这种推理无效 | §3.2 全部 Δ 不显著 |
+| H4 | **静默** | 不报错、不告警，报告看起来完全正常 | probe-e/g 报告无任何异常提示 |
+
+### 4.3 为什么「多跑几次」不能解决
+
+- 同配置是确定的（§2.4），所以「多跑」只能换种子 —— 那是**换样本**，不是**减小同一结论的方差**。
+- 换种子会同时换掉发牌流与策略流，因此**无法把「参数效应」从「样本效应」里分出来**（这正是 H1/H3 的本质）。
+- 要分离，必须有**共同随机数（CRN）**：让不同配置在**同一副牌、同一批骰子**上比较。这是本文档方案的核心。
+
+---
+
+## 5. 设计选项
+
+| 选项 | 做法 | 改动面 | 解决 H1/H2/H3 | 成本 | 既有测试影响 |
+| --- | --- | --- | --- | --- | --- |
+| **O0 现状 + 加报告口径** | 不动仪器；报告池化 CI + 分 seed 极差；验收要求「CI 整体落在区间内」 | 无（只改报告与验收流程） | ❌ 只缓解 H2 | 极低 | 无 |
+| **O1 每手重播种发牌流** | 每手开始 `Math.random = mulberry32(hash(seed, handIndex))` | `scripts/` 内（runner） | ⚠️ 部分：**发牌**变成配置无关，但**策略骰子**仍被污染 | 低 | 无 |
+| **O2 权益流解耦** | `equityCalculator` 用可替换随机源（**调用时**读 `Math.random` 作默认）；runner 给它一条独立流 | `src/utils/equityCalculator.ts` + runner | ⚠️ 部分：权益不再吃发牌流 ⇒ 发牌**严格**配置无关 | 中 | **零**（见 §5.1） |
+| **O3 每决策重播种策略流** | 每个 Bot 决策前 `setRandomSource(mulberry32(hash(seed, handIndex, playerId, ordinal)))` | `scripts/` 内（runner 的决策循环） | ✅ 大幅改善：同一局面下不同配置抽到**同一批骰子** | 中 | 无 |
+| **O4 提高样本量 + 分指标口径** | 更多 seed / 更多手；按指标分别定噪声底与所需边际 | 无（跑法 + 验收流程） | ❌ 不解决 H1/H3，但让 H2 可控 | 低（只花时间） | 无 |
+
+### 5.1 为什么 O2 能做到「零测试影响」（关键设计约束）
+
+全仓有 **~30 处 `jest.spyOn(Math, 'random')`**（15 个测试文件），其中相当一部分是**为了钉住蒙特卡洛抽样**（`src/utils/__tests__/helpers/botDecisionBaseline.ts:22` 的注释明说：「发牌 / 蒙特卡洛采样 → `jest.spyOn(Math, 'random')` 换成 `mulberry32(seeds.mathRandom)`」）。
+
+**如果**把 `equityCalculator` 改成读一条新流（默认指向别的），这些用例会**全部翻红**（它们钉的 `Math.random` 不再被读）。
+
+**所以默认值必须是「调用时读 `Math.random`」**，而不是模块加载时捕获函数引用。`src/utils/random.ts:20-28` 已经把这个坑和做法写清楚了：
+
+```ts
+const defaultSource: RandomSource = () => Math.random();   // 调用时读，不是加载时捕获
+```
+
+同理 `botPersonality.ts:442` 用的是默认参数 `random: RandomSource = Math.random`（调用时求值）。
+
+⇒ **O2 的接口照抄这个模式**：`let equitySource = () => Math.random();` + `set/get/resetEquityRandomSource()`。
+效果：**测试钉 `Math.random` ⇒ 权益抽样照样被钉住 ⇒ 逐位不变**；runner 显式换成独立流 ⇒ 解耦。**两边都满足。**
+
+### 5.2 为什么 O1 单独不够（重要，别被「每手重播种」迷惑）
+
+O1 只让**发牌**配置无关。但**策略流 `random.ts` 是每个 seed 只播种一次**（`calibrationRunner.ts:399`，在手的循环之外），而且它是**全桌共用**的一条流。于是：
+
+- A 的性格改了 → A 多消耗（或少消耗）一次策略骰子 → **同一手内** B 的骰子就错位；
+- 而且这条错位会**持续到本 seed 结束**（因为流只在 seed 开头播种）。
+
+⇒ **O1 必须与 O3（把策略流按「手 / 玩家 / 决策序」重播种）配对**，才能把 H1 真正压下去。
+
+### 5.3 O3 的两种种子取法（含一个必须避开的坑）
+
+| 取法 | 说明 | 风险 |
+| --- | --- | --- |
+| **(a) 单调序号**：`hash(seed, handIndex, playerId, decisionOrdinal)` | runner 维护「本手内该玩家第几次决策」计数器 | 无环风险；序号由**决策序列**决定 ⇒ 若 A 的改变让某手多/少一次决策，之后的序号会平移（残留污染，但**远小于**现状） |
+| **(b) 状态哈希**：复用 `botAI.shadowSeed(state, playerId)`（`src/utils/botAI.ts:1475-1505`，FNV-1a，已存在） | 同一**局面** ⇒ 同一批骰子 | ⚠️ **有环风险**：同一局面重复出现（例如 check-raise 来回）会抽到同一批骰子 ⇒ 可能复现同一动作 ⇒ 状态循环（虽有 `MAX_STEPS_PER_HAND` 兜底，但会变成「假死循环」而不是正常牌局） |
+
+⇒ **推荐 (a)**；`shadowSeed` 可作为「口径 (b)」的现成实现留档，但不建议直接用。
+
+### 5.4 方案的天花板（必须诚实说明）
+
+即使 O1+O2+O3 全上，也**做不到完美 CRN**：只要 A 的参数改变了**动作序列**（例如从 fold 变成 call，牌局继续），后续**局面**就不同，后面的骰子自然不同。CRN 只能保证「**两边都到达同一局面时**，抽到同一批骰子」。
+
+这已经足够：H1 的表现形式是「**参数没动的类型**指标乱动」—— 修好后，参数没动的类型在**相同局面**上行为一致，其指标差异会收敛到「由真正的策略交互引起」而不是「整副牌重发」。
+
+---
+
+## 6. 建议方案（分阶段）
+
+**路线：O1 → O2 → O3，每步独立提交、独立验证；O4 作为配套的验收口径。** 先做 O1（最便宜、立刻止血），再做 O2（把「严格配置无关的发牌」钉死），最后做 O3（把策略骰子也钉死）。O0/O4 不是替代方案，而是**必须同时改的验收流程**。
+
+**为什么这个顺序**：O1 一步就把「跨手传播」切断（今天最刺眼的症状消失）；O2 让发牌**严格**与决策无关（可写成断言）；O3 才解决「同手内别人消耗骰子」的残留。每步之后都跑 §11 的**同一套验收实验**，用数据决定下一步是否必要。
+
+---
+
+## 7. 决策清单
+
+| # | 决策 | 值 | 理由 |
+| --- | --- | --- | --- |
+| D1 | 修仪器还是只改验收口径 | **修仪器**（O1→O2→O3） | 「多跑几次」在数学上无法分离参数效应（§4.3） |
+| D2 | 是否改生产代码 | **只改 `equityCalculator` 的随机源接口**（O2），且**默认行为逐位不变** | 生产里 `Math.random` 仍是唯一实际来源；只有 runner 显式替换 |
+| D3 | O2 的默认值取法 | **调用时读 `Math.random`**（不是加载时捕获） | 否则 ~30 处 `spyOn(Math,'random')` 全红（§5.1） |
+| D4 | O3 的种子取法 | **单调序号** `hash(seed, handIndex, playerId, ordinal)` | 避开状态哈希的环风险（§5.3） |
+| D5 | 是否保留「低迭代初筛」 | **保留**，但只用于找方向；验收一律生产迭代 | §10.4 已定，本轮再次验证 |
+| D6 | 改仪器后旧报告怎么办 | **全部标注为「仪器 v1，不可与新报告横向比较」**，不追溯重跑历史结论 | 仪器换了 ⇒ 数字不可比；重跑 10+ 份报告成本高、收益低 |
+| D7 | 验收是否需要「边际」 | **需要**：目标区间判定从「点估计落在区间内」改为「**CI 整体落在区间内**」 | §3.2 的噪声底 ±1.5~2.2pp 与部分区间宽度同量级 |
+| D8 | 报告是否加「分 seed 极差」与「CI」 | **加**（CI 已有 Wilson 列；补分 seed 极差与所需样本量） | 让 H2 在报告里**可见**，而不是靠人记得 |
+
+---
+
+## 8. 待确认问题（含我的建议）
+
+| # | 问题 | 我的建议 | 影响 |
+| --- | --- | --- | --- |
+| Q1 | 仪器修好后，§4 验收要不要**重新跑一遍**（而不是沿用 15/19 / 16/19）？ | **要**。仪器换了 ⇒ 旧数字作废，必须重新基线 | 决定「当前到底几分」这个对外结论 |
+| Q2 | 要不要把 O2 的 `setEquityRandomSource` 做成**生产可用**（例如将来给面板用）？ | **不要**，先只服务 runner。生产里保持 `Math.random` 单一来源，避免多一条流带来新的耦合 | 控制风险面 |
+| Q3 | O3 的「决策序号」计数器放在哪层？ | 放 **runner 的 `playHand` 循环**（`scripts/calibrationRunner.ts:249-345`），不动 `botAI` | 保证生产代码零改动 |
+| Q4 | 验收的「CI 整体落在区间内」会不会太严（区间本身很窄）？ | 先按 D7 实现并**实测**：若某类型因区间过窄永远不达标，则改为「点估计落在区间内 **且** CI 与区间重叠 ≥X%」——**用数据定 X，不拍脑袋** | 决定 D7 的具体形式 |
+| Q5 | 要不要顺手把「机会数判定未达标」从「只报告」改成「硬拦停」？ | **改**（至少对 `minFlopOpportunities` / `minAfCalls`）—— 现在的 3000 手在 Nit 上就不达标（§3.3），却照样出了结论 | 决定验收是否需要更多手数 |
+| Q6 | 要不要顺带修「每盘第一手 dealer 只在 {1,2}」的生产偏置（`createInitialState(2, 0)`）？ | **不在本批**。它是**生产**行为，runner 只是如实复刻；改它属生产行为变更，另立一项 | 避免把仪器问题与生产问题混在一起 |
+
+---
+
+## 9. 分阶段实施计划（一阶段一提交）
+
+> 每阶段都遵守 `incremental-change-discipline`：**一个原子改动 → 跑相关测试 → 单独提交 → 再下一步**。
+> 每阶段结束后跑 **§11.1 的「三步验收实验」**，用结果决定是否继续下一阶段。
+
+### 阶段 0（本批，已完成）：研究与本文档
+
+- 产出：本文件 + `TODO.md` 第 6 条的指向。
+- **不改任何代码。**
+
+### 阶段 1（O1）：每手重播种发牌流
+
+- **文件**：`scripts/calibrationRunner.ts`（`runSeed` 的手循环，`:432-473`）。
+- **改动**：进入每一手时 `Math.random = mulberry32(hashSeed(seed, handsDone))`；`hashSeed` 用 FNV-1a（与 `shadowSeed` 同族，可直接内联一个 5 行实现或抽到 `calibrationCore.ts` 便于单测）。
+- **测试**：`scripts/__tests__/calibrationCore.test.ts`（已存在，测纯逻辑）—— 新增 `hashSeed` 的**稳定性/分布/不同输入不同输出**单测。
+- **验证**：`npm run e2eTests` 无关；跑 §11.1 实验；`npx tsc -b` + `eslint`。
+- **风险**：**低**。仅 `scripts/`。唯一影响是报告数字全变（需重跑基线）。
+- **回滚**：还原 `runSeed` 的手循环。
+
+### 阶段 2（O2）：权益流解耦
+
+- **文件**：`src/utils/equityCalculator.ts`（新增 `equitySource` + `set/get/resetEquityRandomSource`；把 `:81`、`:83`、`:125` 的 `Math.random()` 换成 `equityRandom()`）、`scripts/calibrationRunner.ts`（给它一条独立流，并纳入每手重播种）。
+- **测试**：新增 `src/utils/__tests__/equityCalculator.randomSource.test.ts`：① 默认**调用时**读 `Math.random`（改 `Math.random` 后结果随之变 ⇒ 证明 spy 仍有效）；② `setEquityRandomSource` 后不再读 `Math.random`；③ `reset` 后回到 `Math.random`；④ 同一源同一序列 ⇒ 逐位相同。
+- **验证**：**必须逐位不变**跑通 `botAI.decisionBaseline`（P1 golden）+ 全部 `gtoRiver/gtoPostflop/botAI.*` 套件（~30 处 spy 用例）。
+- **风险**：**中** —— 触及生产文件，但默认路径逐位不变；风险点是「哪里读了 `Math.random`」漏掉一处（`equityCalculator` 内共 4 处文本提及，其中 `:125` 是内部洗牌，容易漏）。
+- **回滚**：还原 `equityCalculator.ts` 与 runner 的一行设置。
+
+### 阶段 3（O3）：每决策重播种策略流
+
+- **文件**：`scripts/calibrationRunner.ts`（`playHand` 的决策点，`:287-305`）。
+- **改动**：维护 `Map<PlayerId, number>`（本手内该玩家决策次数），决策前 `setRandomSource(mulberry32(hashSeed(seed, handsDone, actor.id, ordinal)))`；决策后**不必**还原（下一个决策会重设），但需在 `playHand` 出口**复位**以免污染其他 seed（或由 `runSeed` 每手重设）。
+- **测试**：`calibrationCore` 的单测覆盖 `hashSeed` 的四元输入；runner 层面靠 §11.1 实验验收。
+- **验证**：§11.1 实验应显示「参数没动的类型**逐位不变**」。
+- **风险**：**中**。改的是 runner 的决策循环，可能影响 `opponentModel` 的会话累积顺序（须确认只换随机源、不改调用顺序）。
+- **回滚**：还原 `playHand`。
+
+### 阶段 4（O4 / D7 / D8）：验收口径与报告
+
+- **文件**：`scripts/calibrationCore.ts`（目标区间判定 → 用 Wilson 区间；报告补分 seed 极差与所需样本量）、`scripts/calibrationRunner.ts`（报告格式化）、`docs/BOT_PERSONALITY_PLAN.md`（§10.4 口径更新 + 新一节记录仪器 v2）。
+- **测试**：`calibrationCore` 的判定单测（构造 CI 与区间的关系用例）。
+- **验证**：重跑一次生产口径基线，把结果写进方案文档；旧报告加「仪器 v1」标注。
+- **风险**：**低**（报告层）。
+- **回滚**：还原判定函数与报告模板。
+
+---
+
+## 10. 风险与回滚
+
+| 风险 | 概率 | 影响 | 缓解 / 回滚 |
+| --- | --- | --- | --- |
+| 阶段 2 漏改一处 `Math.random` ⇒ 解耦不完整 | 中 | 中（症状减轻但不彻底，且**难发现**） | 加「解耦完整性」单测：`setEquityRandomSource` 后把 `Math.random` 换成会**抛异常**的函数，跑一次权益 —— 抛异常即说明还有地方在读 `Math.random` |
+| 阶段 3 的决策计数器与 `playHand` 的 `step` 语义不一致 | 中 | 中 | 计数器**只**在「非真人且动作被接受」时自增；单测钉住 |
+| 改仪器后所有历史报告不可比 ⇒ 需要重跑 | **高** | 中（时间） | 按 D6：**不**追溯重跑，只标注；重跑**一份**新基线即可 |
+| 新基线数字比旧基线「更差」（例如某些类型跌出区间） | 中 | 中 | 这是**预期**：旧数字含「样本运气」。按 D7 用 CI 判定，并在方案文档里如实记录 |
+| 每决策重播种让运行**变慢**（哈希 + 新建闭包） | 低 | 低 | 实测耗时（当前 416ms/手）；若变慢 >20% 则改为「每手每玩家播种一次」 |
+| 把「仪器问题」误当成「生产问题」去改生产代码 | 低 | 高 | 本文档 §1.3 明确非目标；`equityCalculator` 只加**可选**接口，默认逐位不变 |
+
+---
+
+## 11. 验证与测试清单
+
+### 11.1 「三步验收实验」（每阶段后必跑，全自动可判）
+
+低成本配置：`--handsPerSession=50 --handsPerSeed=50 --equityIterations=40`（约 30s/次，5 seed 强制）。
+
+1. **确定性**：同配置连跑两次 ⇒ 正文 `diff` 必须为**空**。
+2. **配置无关性（核心）**：只改 **Nit 的 `openWiden`**（0.04 ↔ 0.12），重跑 ⇒ **TAG / LAG / Fish / CS 的指标必须逐位不变**（阶段 1 之后：至少「每 seed 的牌局结果」不变；阶段 3 之后：**全部指标**逐位不变）。
+3. **敏感性（防「修过头」）**：确认 Nit 自己的指标**确实变了**（否则说明把随机源换成了常数，参数失效）。
+
+> 实验 2 是本方案真正的验收标准，**它把「不可归因」变成一个可断言的性质**。
+> 建议把它固化成 `scripts/__tests__/` 下的一条**慢速**用例（默认**不**收集进 `npm test`，与 §10.4「不新增自动收集的 30 分钟用例」的口径一致），通过 `npm run calibrate:attribution` 之类的脚本显式调用。
+
+### 11.2 常规门
+
+| 项目 | 命令 | 期望 |
+| --- | --- | --- |
+| 类型/静态 | `NODE_OPTIONS=--max-old-space-size=2560 npx tsc -b` | 0 |
+| Lint | `npx eslint .` | 0 problem |
+| 相关套件 | `npx jest --runInBand scripts/__tests__ src/utils/__tests__/equityCalculator*.test.ts src/utils/__tests__/botAI.decisionBaseline.test.ts` | 全绿，**P1 golden 逐位不变** |
+| 全量（仅 PR 门） | `NODE_OPTIONS=--max-old-space-size=2048 npx jest --runInBand` | 91 套 / 1701 通过 / 2 跳过（基线值） |
+| 生产口径基线 | `npm run calibrate -- --handsPerSeed=600` | 新基线报告（仪器 v2） |
+
+### 11.3 需要新增/扩展的测试
+
+- **新增** `src/utils/__tests__/equityCalculator.randomSource.test.ts`（阶段 2，§9 列了 4 条）。
+- **扩展** `scripts/__tests__/calibrationCore.test.ts`：`hashSeed` 稳定性、目标区间判定改用 CI。
+- **新增**（可选）归因验收脚本 + 其慢速用例（阶段 3 之后）。
+
+---
+
+## 12. 源码索引（基线 `ced460b`）
+
+| 文件 | 行 | 内容 |
+| --- | --- | --- |
+| `scripts/calibrationRunner.ts` | **390-399** | `runSeed` 的随机源设置（**问题现场**：`:398` `Math.random = dealRng`、`:399` `setRandomSeed`） |
+| | 401-478 | `try/finally` + 手循环（`:405` while、`:432` for h、`:438` 开手键、`:456` `playHand`、`:462-472` `RESET_ROUND`+`START_GAME`、`:475-477` 还原） |
+| | 249-345 | `playHand`（决策循环；O3 的落点 `:287-305`） |
+| | 174-208 | `proxyContextOf` / `proxyEquityOf`（`:199` 调 `equityIterations`） |
+| | 571-579 | `gitSha()`（报告头用） |
+| | 581-... | `runCalibration` |
+| | 598-600 | 低迭代时**改写** `EQUITY_ITERATIONS`（共享常量对象） |
+| `scripts/calibrationCore.ts` | 59-78 | `DEFAULT_CALIBRATION_CONFIG`（seeds `[101,211,307,401,503]`、`handsPerSeed 600`、`handsPerSession 200`、`equityIterations null`） |
+| | 98-165 | `parseCalibrationArgs`（`:113-120` seeds、`:121-132` equityIterations、`:162` **≥5 seed 强制**） |
+| | 20-28 | `PROXY_POLICY`（公开记录的代理策略常数） |
+| `src/utils/random.ts` | 8-11 | **设计意图原文**（发牌/模拟 vs 混合频率） |
+| | 20-28 | `defaultSource = () => Math.random()`（**调用时读**，O2 要照抄的模式） |
+| | 38-68 | `random` / `setRandomSource` / `getRandomSource` / `resetRandomSource` |
+| | 81-95 | `mulberry32` / `setRandomSeed` |
+| `src/hooks/useGameState.ts` | 61-74 | `shuffleDeck`（`:69` `Math.random`，51 次/手） |
+| | 110 / 497 | dealer 抽取（`Math.random`） |
+| `src/utils/equityCalculator.ts` | 34-40 | `EquityOptions` |
+| | 42-93 | `ComboSampler` / `buildSampler` / `pickFromSampler`（`:81`、`:83` `Math.random`） |
+| | 125 | 内部洗牌（`Math.random`） |
+| `src/utils/equityIterations.ts` | 59-74 | `EQUITY_ITERATIONS`（preflop400/flop350/turn300/river300）+ `equityIterations()` |
+| `src/utils/botPersonality.ts` | 430-450 | `allocateBotTypes`（`:442` `random: RandomSource = Math.random`） |
+| `src/utils/botAI.ts` | 1475-1505 | `shadowSeed`（FNV-1a 状态哈希；O3 的口径 (b) 现成实现） |
+| | 1526-1540 | `getShadowBotAction`（换源 + `finally` 还原的既有范式） |
+| | 1590-1605 | `withSharedEquity` 用法（两行共享一次权益） |
+| `src/utils/rangeEquity.ts` | 489-520 | `withSharedEquity` 实现（按作用域缓存） |
+| `src/utils/__tests__/helpers/botDecisionBaseline.ts` | 15-30 | P1 golden 的随机源说明（**发牌/蒙特卡洛走 `Math.random`**） |
+| 报告 | — | `scripts/reports/gap1-probe-{e,g}.md`（问题现场证据）、`p9-4-final.md`、`/tmp/tp-det2-{a,b}.md`（确定性实验） |
+
+---
+
+## 13. 明确不做
+
+| 不做 | 理由 |
+| --- | --- |
+| 改任何**策略**逻辑（`botAI` / `gto*` 的决策） | 本批只动**仪器**。策略改动属行为变更，须独立立项 + P1 golden 复核 |
+| 把「发牌」并进 `random.ts` | 会破坏「只固定发牌、不固定决策」的能力（`random.ts:8-11` 的意图），且 ~30 处 spy 用例会红 |
+| 修「每盘第一手 dealer 只在 {1,2}」的生产偏置 | 那是**生产**行为；runner 只是如实复刻（见 Q6） |
+| 追溯重跑所有历史报告 | 成本高、收益低；按 D6 标注「仪器 v1」即可 |
+| 在本批里重新校准 `PERSONALITY_PARAMS` | 仪器修好前调参无意义（H3） |
+| 改 §4 目标或 §3.1 分类树 | 属验收口径/产品语义变更，须用户拍板 |
+
+---
+
+## 附：本文档用到的实测命令（可复现）
+
+```bash
+# 确定性实验（§2.4）：同配置连跑两次，正文应逐字节相同
+for i in a b; do npm run calibrate -- --handsPerSession=50 --handsPerSeed=50 \
+  --equityIterations=40 --out=/tmp/tp-det2-$i.md; done
+diff <(sed -n '/^## 每类型结果/,$p' /tmp/tp-det2-a.md) \
+     <(sed -n '/^## 每类型结果/,$p' /tmp/tp-det2-b.md)
+
+# 生产口径基线（慢，~21 min）
+npm run calibrate -- --handsPerSeed=600 --out=scripts/reports/gap1-probe-<label>.md
+```
+
+> ⚠️ runner 强制 **≥5 seed**（`calibrationCore.ts:162`）—— 用少于 5 个种子会**直接报错退出**并写出**空报告**（实测踩过：两次「成功」的空文件 diff 相等，会误判成「确定性通过」）。
