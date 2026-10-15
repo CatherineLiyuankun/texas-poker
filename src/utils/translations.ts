@@ -29,6 +29,14 @@ export const translations = {
       bb: (bb: number) => `每手抽 ${bb}BB`,
       tournamentNote: '锦标赛不抽水（改按 ICM 风险溢价收紧）',
     },
+    // Bot 性格（persona）：新盘开关，只在**新盘**设置、盘内只读（决策 35）。
+    personality: {
+      label: 'Bot 性格 Bot Personality',
+      on: '开 On',
+      off: '关 Off',
+      hint: '按 A′ 配额随机分配六类性格（TAG/LAG/Fish/Nit/CS/Maniac）',
+      noBots: '当前无 Bot，开关暂不生效',
+    },
   },
   actionButtons: {
     botThinking: '电脑玩家思考中... Bot Thinking...',
@@ -54,6 +62,9 @@ export const translations = {
     allIn: 'All In', // 全押
     thisRoundBet: 'Bet:', // 此轮下注:
     totalBet: 'All bet:', // 本局下注:
+    // 本手结束后的座位性格标签（方案 §11.1，P8a）—— 只作 `title`（悬停说明），
+    // 标签正文用 `playerStats.types` 的档位文案（与统计表同一个来源，不写第二份）。
+    personality: '性格 Personality',
   },
   potDisplay: {
     totalPot: '总奖池 Pot',
@@ -140,9 +151,14 @@ export const translations = {
       + '不打折扣也不折抽水（不再假设「把对手剩余筹码全赢过来」—— 深筹码下那个口径会给出荒谬的比价）。'
       + '只在「我还能变强」时显示这一行：有听牌 / 后门同花听 / 三条（翻前为口袋对）；'
       + '顶对、两对、顺子这类不会再变强的牌不显示。',
-    // 「这个座位交给机器人会怎么打」——与机器人真实动作（座位气泡）同一条决策路径，
-    // 差别只在混合频率的随机抽样（见 botAI.getShadowBotAction）。
-    botAction: 'Bot Action',
+    // 「这个座位交给机器人会怎么打」的**固定两行**（方案 §11.2，P8b）。
+    // 标签固定为假设 TAG / LAG 两种性格 —— 与当盘实际分配无关（当盘没有这两类
+    // Bot、甚至整盘关闭性格，两行都在）。决策路径与机器人真实动作（座位气泡）
+    // 完全相同，差别只在混合频率的随机抽样（见 botAI.getShadowBotActions）。
+    botActionTAG: 'Bot 紧凶Action',
+    botActionLAG: 'Bot 松凶Action',
+    // 没有可行动作时的占位符（§11.2：行不消失，只是值退化成占位符）。
+    botActionUnavailable: '— / 无可行动作',
     // 加注框有值时单独显示的「我方下注所需弃牌率」——与跟注赔率是两个不同的量
     betRequiredFold: '所需弃牌率 Req. Fold',
     gto: 'GTO preflop(位置+SPR 查表)', // GTO建议
@@ -292,6 +308,7 @@ export const translations = {
     savedAt: (time: string) => `保存于 Saved: ${time}`,
     playerChips: (name: string, chips: number) => `${name}: $${chips}`,
     confirmClear: '确认清除存档？ Clear saved game progress?',
+    unsupportedRoster: '存档名单布局不受支持，无法恢复（请清除后重新开局）',
   },
   playerStats: {
     title: '玩家数据 Player Stats',
@@ -315,6 +332,15 @@ export const translations = {
     exportStats: 'Export', // 导出玩家数据
     importStats: 'Import', // 导入玩家数据
     insufficientData: '--', // 数据不足
+    // ── 按分配类型聚合的行（方案 §8.1/§8.3，P7）──
+    typeGroupHeader: '按性格分组 By Type', // 类型组小节标题
+    assignedType: '分配', // 开手时的分配身份（groupType）
+    observedType: '实测', // 用统计实测出的分类（observedPlayerType）
+    unassignedGroup: '未分配 Unassigned', // Bot Unknown 组：关闭性格 / 旧记录无分配
+    legacyNote: '含旧数据（身份未标注）', // §8.3 决策 38：旧记录无 roles/type 一律归此组
+    // ⚠️ 刻意不写具体手数：门槛的单一来源是 `MIN_HANDS_FOR_CLASSIFICATION`，
+    // 写死数字会在门槛调整时让 UI 文案撒谎。
+    typeGroupHint: '组标签始终显示；实测列样本不足时显示占位符。', // §8.1
     importSuccess: 'Import Success', // 导入成功
     importSuccessWithProgress: 'Import Success (game progress restored)', // 导入成功（已恢复游戏进度）
     importFailed: 'Import Failed', // 导入失败
@@ -322,7 +348,8 @@ export const translations = {
       Nit: 'Nit 紧弱',
       TAG: 'TAG 紧凶',
       LAG: 'LAG 松凶',
-      'Calling Station': 'CS 松弱',
+      Fish: 'Fish 松被动', // Fish（决策 9）
+      'Calling Station': 'CS 站桩', // Calling Station（决策 9）
       Maniac: 'Maniac 疯子',
       Others: '其他', // Others
       Unknown: '未知', // Unknown

@@ -40,6 +40,14 @@ interface PlayerAreaProps {
   gameState?: GameState;
   /** 赛制（现金局 / 锦标赛），透传给 HandAnalysis 用于口径标注 */
   scenario?: GameScenario;
+  /**
+   * 本手结束后的座位性格标签（方案 §11.1，P8a）。
+   *
+   * **只在已结算时由 `GameBoard` 传入** —— 下注阶段不出现性格文案；关闭性格 /
+   * 未分配 / 真人座位都为 `undefined`（决策 29：不虚构标签）。
+   * 文案是 `playerStats.types` 的档位名（`TAG 紧凶` 等），与统计表同一来源。
+   */
+  personalityLabel?: string;
 }
 
 export const PlayerArea: React.FC<PlayerAreaProps> = ({
@@ -66,6 +74,7 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
   adminRevealAll = false,
   gameState,
   scenario,
+  personalityLabel,
 }) => {
   const [isViewing, setIsViewing] = useState(false);
   const handleToggleView = () => {
@@ -109,6 +118,17 @@ export const PlayerArea: React.FC<PlayerAreaProps> = ({
             <span className="text-lg font-bold text-white">
               {displayName || translations.gameBoard.player(player.id)}
             </span>
+            {/* 本手结束标签（§11.1，P8a）。`GameBoard` 只在**已结算**后传入，
+                所以下注阶段这一块根本不存在 —— 不是隐藏，而是没进 DOM。
+                `title` 兼作悬停说明与测试锚点。 */}
+            {personalityLabel && (
+              <span
+                title={translations.playerArea.personality}
+                className="text-xs px-1.5 py-0.5 rounded font-medium whitespace-nowrap bg-white/10 text-white/80 border border-white/15"
+              >
+                {personalityLabel}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {positionLabel && (

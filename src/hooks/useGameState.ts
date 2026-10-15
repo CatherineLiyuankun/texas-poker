@@ -10,11 +10,12 @@ import type {
   Player,
   PotDistribution,
   HandRank,
+  PreflopEntry,
 } from '../types/poker';
 import { evaluateHand, compareHands } from '../utils/handEvaluator';
 import { INITIAL_CHIPS, SMALL_BLIND, BIG_BLIND } from '../utils/constant';
 import { calculatePots, computeContributions } from '../utils/potCalculator';
-import { resetOpponentStats } from '../utils/opponentModel';
+import type { BotPersonality, BotTypeMap } from '../utils/botPersonality';
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣'];
 const RANKS: Rank[] = [
@@ -75,6 +76,7 @@ function createPlayer(
   id: PlayerId,
   isRealPlayer: boolean,
   initialChips: number = INITIAL_CHIPS,
+  botType?: BotPersonality,
 ): Player {
   return {
     id,
@@ -89,10 +91,17 @@ function createPlayer(
     lastAction: undefined,
     buyInCount: 0,
     allIn: false,
+    botType,
   };
 }
 
-function createInitialState(
+/**
+ * reducer 的初始状态（**未开局**）。导出给 `scripts/` 下的 headless 校准 runner 用 ——
+ * 它必须从与生产完全相同的冷启动状态出发，否则「跑的是生产状态机」就不成立。
+ *
+ * 注意 `dealer` 走 `Math.random()`：runner 要可复现就得自己钉住 `Math.random`。
+ */
+export function createInitialState(
   realPlayerCount: number,
   botPlayerCount: number,
   smallBlind: number = SMALL_BLIND,
@@ -121,6 +130,7 @@ function createInitialState(
     lastBet: 0,
     lastRaiseBet: bigBlind - smallBlind,
     raiseRightsOpened: true,
+    preflopChain: [],
     winner: null,
     handRank: null,
     winningCards: [],
@@ -130,10 +140,17 @@ function createInitialState(
     chipsAtRoundStart: [],
     chipsBeforeSettlement: [],
     potDistribution: [],
+    // 未开局：关闭性格、空 map（真正的新盘分配由 START_GAME 写入）
+    botPersonalityEnabled: false,
+    botTypes: {},
   };
 }
 
-type GameAction =
+/**
+ * 状态机接受的**全部**动作。导出给 `scripts/` 下的 headless 校准 runner ——
+ * 它必须通过这个 reducer 派发动作，不能自己写一套推进逻辑（方案 §10.4）。
+ */
+export type GameAction =
   | {
       type: 'START_GAME';
       realPlayerCount: number;
@@ -141,6 +158,10 @@ type GameAction =
       smallBlind: number;
       playerChips?: number[];
       playerBuyInCounts?: number[];
+      /** 本盘是否启用 Bot 性格（新盘配置 / 恢复时确定）。 */
+      botPersonalityEnabled?: boolean;
+      /** 有效分配 map；关闭或缺省时视为空。 */
+      botTypes?: BotTypeMap;
     }
   | { type: 'PLAYER_ACTION'; player: PlayerId; action: Action; amount?: number }
   | { type: 'REVEAL_HAND'; player: PlayerId }
@@ -183,6 +204,103 @@ export function canFold(lastBet: number, playerBet: number): boolean {
 
 export function canAllIn(chips: number): boolean {
   return chips > 0;
+}
+
+/** 加注候选（**本次追加筹码**，不是 raise-to）的合法化输入。 */
+export interface RaiseLegalizationInput {
+  /** 原始候选追加额，可能来自缩放/外部输入，允许非整数或非法值。 */
+  rawAdditional: number;
+  /** 玩家本轮已投入的筹码。 */
+  playerBet: number;
+  /** 玩家剩余筹码。 */
+  playerChips: number;
+  /** 本轮当前最高投入。 */
+  lastBet: number;
+  /** 上一次完整加注的增量，用于判定最小全额加注。 */
+  lastRaiseBet: number;
+  /** 本轮加注权是否开放（未重开时不得再加注）。 */
+  raiseRightsOpened: boolean;
+  /** 是否还有能继续下注的对手（无人可应时不得加注）。 */
+  hasLiveOpponent: boolean;
+}
+
+export type RaiseLegalization =
+  | { kind: 'reject' }
+  | {
+      kind: 'raise';
+      /** 合法化后的整数追加筹码（已按筹码上限截断）。 */
+      additional: number;
+      /** 是否把全部剩余筹码打光。 */
+      allIn: boolean;
+      /** 是否构成一次完整加注（增量 ≥ 上一次加注增量）。 */
+      fullRaise: boolean;
+    };
+
+/**
+ * 加注金额的**最终合法化层**：把「本次追加筹码」候选收敛成合法动作或拒绝。
+ *
+ * 规则（对应方案 §7.4）：
+ * - 候选必须有限且为正 —— `NaN` / `Infinity` / `0` / 负数一律拒绝；
+ * - 加注权未开放、或无人可应（对手全弃/全下/无筹码）时不得加注；
+ * - 取整数筹码单位（向下取整）；超过剩余筹码则按**合法全下**截断；
+ * - 加注必须超过跟注额；增量不足最小全额加注时，只有「打光筹码」才合法（短全下）。
+ *
+ * 返回 `{ kind: 'reject' }` 时调用方必须拒绝该动作，且**不得记录统计事件**。
+ */
+export function legalizeRaise(
+  input: RaiseLegalizationInput,
+): RaiseLegalization {
+  const {
+    rawAdditional,
+    playerBet,
+    playerChips,
+    lastBet,
+    lastRaiseBet,
+    raiseRightsOpened,
+    hasLiveOpponent: liveOpponent,
+  } = input;
+
+  if (!Number.isFinite(rawAdditional) || rawAdditional <= 0) {
+    return { kind: 'reject' };
+  }
+  if (!raiseRightsOpened || !liveOpponent) {
+    return { kind: 'reject' };
+  }
+
+  const toCall = Math.max(0, lastBet - playerBet);
+  let additional = Math.floor(rawAdditional);
+  let allIn = false;
+
+  // 超筹码候选按合法全下处理（截断到剩余筹码）。
+  if (additional >= playerChips) {
+    additional = Math.max(0, playerChips);
+    allIn = true;
+  }
+
+  // 连跟注都补不上 → 不是加注（调用方应改走 call / allin）。
+  if (additional <= toCall) {
+    return { kind: 'reject' };
+  }
+
+  const raiseIncrement = additional - toCall;
+  const fullRaise = raiseIncrement >= lastRaiseBet;
+  // 增量不足最小全额加注，且不是全下 → 非法欠注加注。
+  if (!fullRaise && !allIn) {
+    return { kind: 'reject' };
+  }
+
+  return { kind: 'raise', additional, allIn, fullRaise };
+}
+
+/**
+ * 是否还有「能继续下注」的对手 —— 已弃牌 / 已全下 / 没筹码的对手都下不了注，
+ * 对他们加注**无人可应**（多下的筹码只会原样退回）。
+ * `canPlayerAct` / `legalizeRaise` / `isActionAccepted` 共用同一口径。
+ */
+function hasLiveOpponent(state: GameState, playerId: PlayerId): boolean {
+  return state.players.some(
+    (p) => p.id !== playerId && !p.folded && !p.allIn && p.chips > 0,
+  );
 }
 
 function getNextActivePlayer(
@@ -266,6 +384,55 @@ export function bettingComplete(state: GameState): boolean {
   return allPlayersActed(state) && allBetsEqual(state);
 }
 
+/**
+ * 一次玩家动作在当前状态是否会被 reducer 接受 —— **唯一**的接受口径。
+ *
+ * reducer 用它决定收不收，`GameBoard` 用它决定记不记统计事件，保证
+ * 「被接受的动作」与「记录的事件」一一对应（方案 §7.4：reducer 拒绝动作时
+ * 不能仍记一条统计事件）。任何一处放宽/收紧都必须同时改这里，避免口径漂移。
+ */
+export function isActionAccepted(
+  state: GameState,
+  player: PlayerId,
+  action: Action,
+  amount?: number,
+): boolean {
+  const idx = getPlayerIndex(player);
+  if (idx < 0 || idx >= state.players.length) return false;
+  const p = state.players[idx];
+  if (p.folded || p.allIn) return false;
+
+  const toCall = Math.max(0, state.lastBet - p.bet);
+
+  switch (action) {
+    case 'check':
+      // 面对下注不能过牌。
+      return toCall === 0;
+    case 'call':
+      // 跟注都不够时只能弃牌或全押（`toCall === 0` 等价于过牌，沿用旧语义放行）。
+      return toCall <= p.chips;
+    case 'fold':
+      return true;
+    case 'allin':
+      return p.chips > 0;
+    case 'raise':
+      if (bettingComplete(state)) return false;
+      return (
+        legalizeRaise({
+          rawAdditional: amount ?? 0,
+          playerBet: p.bet,
+          playerChips: p.chips,
+          lastBet: state.lastBet,
+          lastRaiseBet: state.lastRaiseBet,
+          raiseRightsOpened: state.raiseRightsOpened,
+          hasLiveOpponent: hasLiveOpponent(state, player),
+        }).kind === 'raise'
+      );
+    default:
+      return false;
+  }
+}
+
 function getBlindIndices(
   dealer: PlayerId,
   totalPlayers: number,
@@ -276,9 +443,17 @@ function getBlindIndices(
   return { smallBlind: smallBlindIdx, bigBlind: bigBlindIdx };
 }
 
-export function useGameState() {
-  const [state, dispatch] = useReducer(
-    (state: GameState, action: GameAction): GameState => {
+/**
+ * 生产状态机 reducer —— **从 `useGameState` 内联箭头函数原样抽出**，行为逐位不变。
+ *
+ * 抽出的唯一目的是让 `scripts/` 下的 headless 校准 runner 能驱动**同一套**
+ * 状态机（方案 §10.4：「闭环 runner 走生产 reducer/动作接受/计数逻辑，
+ * 不手写第二套扑克引擎」）。`useGameState()` 仍然用它，没有任何分叉。
+ *
+ * ⚠️ 改这里等于改生产行为 —— 任何改动都要靠 `useGameState.*` 套件与 P1 golden
+ * （`botAI.decisionBaseline`）守住，别把它当成「只是给 runner 用的副本」。
+ */
+export function gameReducer(state: GameState, action: GameAction): GameState {
       switch (action.type) {
         case 'START_GAME': {
           const deck = shuffleDeck();
@@ -298,8 +473,13 @@ export function useGameState() {
             // 本局统一在开局前自动补码，避免带 0 筹码入局，
             // 同时兜住 resetRound 中 setTimeout 读到旧 state 的竞态。
             const needsRebuy = carriedChips <= 0;
+            // `Player.botType` 是有效 map 的派生视图：真人绝不赋；关闭性格时为 undefined。
+            const botType =
+              isReal || action.botPersonalityEnabled !== true
+                ? undefined
+                : action.botTypes?.[playerId];
             newPlayers.push({
-              ...createPlayer(playerId, isReal, initialChips),
+              ...createPlayer(playerId, isReal, initialChips, botType),
               hand: [deck[i * 2], deck[i * 2 + 1]],
               chips: needsRebuy ? initialChips : carriedChips,
               buyInCount: needsRebuy
@@ -369,6 +549,8 @@ export function useGameState() {
             lastBet: bigBlind,
             lastRaiseBet,
             raiseRightsOpened,
+            // 盲注不入链：链里只有「已被接受的自愿加注/跟注」。
+            preflopChain: [],
             winner: null,
             handRank: null,
             winningCards: [],
@@ -378,6 +560,10 @@ export function useGameState() {
             chipsAtRoundStart: chipsAtRoundStartSnapshot,
             chipsBeforeSettlement: [],
             potDistribution: [],
+            // 有效开关 / map 显式写入 state（盘内只读，见决策 35）；**关闭时 map 必为空**，
+            // 不保留任何残留类型（方案 §6.1「关闭时有效 map 为空」/ §6.2「不能偷偷传 persona」）。
+            botPersonalityEnabled: action.botPersonalityEnabled === true,
+            botTypes: action.botPersonalityEnabled === true ? (action.botTypes ?? {}) : {},
           } as GameState;
           logStateChange('START_GAME', newState);
           return newState;
@@ -397,7 +583,9 @@ export function useGameState() {
           if (playerIdx < 0 || playerIdx >= state.players.length) return state;
 
           const player = state.players[playerIdx];
-          if (player.folded) return state;
+          // 已弃牌 / 已全下的玩家不能再行动（全下玩家的行动机会本就被
+          // `getNextActivePlayer` 排除，这里兜底防止外部误派发污染状态）。
+          if (player.folded || player.allIn) return state;
 
           const newPlayers = state.players.map((p) => ({ ...p }));
           let newPot = state.mainPot;
@@ -406,17 +594,31 @@ export function useGameState() {
           let newRaiseRightsOpened = state.raiseRightsOpened;
           const newSidePots = [...state.sidePots];
 
+          // 翻前自愿投入链：只记**已被接受**的自愿加注/跟注（盲注不入链、
+          // 跟注式全下按跟注记）。场景判定只读这条链，见 `PreflopEntry`。
+          let newPreflopChain = state.preflopChain;
+          const pushPreflopEntry = (entry: PreflopEntry) => {
+            if (state.phase !== 'preflop') return;
+            newPreflopChain = [...(newPreflopChain ?? []), entry];
+          };
+
           const actingPlayer = { ...newPlayers[playerIdx] };
 
           switch (action.action) {
-            case 'check':
+            case 'check': {
+              // 面对下注不能过牌（非法动作直接拒绝，且不记事件）。
+              const checkToCall = Math.max(0, state.lastBet - player.bet);
+              if (checkToCall > 0) return state;
               actingPlayer.hasActed = true;
               if (actingPlayer.chips === 0) {
                 actingPlayer.allIn = true;
               }
               break;
+            }
             case 'call': {
-              const toCall = state.lastBet - player.bet;
+              const toCall = Math.max(0, state.lastBet - player.bet);
+              // 跟注都不够时不能跟（只能弃牌或全押），否则筹码会被扣成负数。
+              if (toCall > player.chips) return state;
               actingPlayer.bet += toCall;
               actingPlayer.totalBet += toCall;
               actingPlayer.chips -= toCall;
@@ -425,40 +627,80 @@ export function useGameState() {
               if (actingPlayer.chips === 0) {
                 actingPlayer.allIn = true;
               }
+              // 自愿跟注/跛入（toCall === 0 是过牌，不算入池）
+              if (toCall > 0) {
+                pushPreflopEntry({ playerId: action.player, kind: 'call' });
+              }
               break;
             }
             case 'raise': {
-              const additional = action.amount ?? 0;
-              const toCall = state.lastBet - player.bet;
+              // 金额的最终合法化：finite / 整数 / 非负 / 筹码上限 / 最小全额加注 /
+              // 加注权 / 无人可应，全部在这里一次性校验（方案 §7.4）。
+              const legal = legalizeRaise({
+                rawAdditional: action.amount ?? 0,
+                playerBet: player.bet,
+                playerChips: player.chips,
+                lastBet: state.lastBet,
+                lastRaiseBet: state.lastRaiseBet,
+                raiseRightsOpened: state.raiseRightsOpened,
+                hasLiveOpponent: hasLiveOpponent(state, action.player),
+              });
+              if (legal.kind === 'reject') return state;
+
+              const { additional, allIn, fullRaise } = legal;
+              const toCall = Math.max(0, state.lastBet - player.bet);
               const newBet = player.bet + additional;
 
-              if (additional <= toCall || newBet <= state.lastBet) {
-                return state;
-              }
+              // 增量是否达到完整加注（≥ 上一加注增量）决定是否重开加注权
+              pushPreflopEntry({
+                playerId: action.player,
+                kind: 'raise',
+                fullRaise,
+              });
 
               actingPlayer.bet += additional;
               actingPlayer.totalBet += additional;
               actingPlayer.chips -= additional;
-              if (actingPlayer.chips === 0) {
+              if (allIn || actingPlayer.chips === 0) {
                 actingPlayer.allIn = true;
               }
               actingPlayer.hasActed = true;
 
-              if (state.lastRaiseBet === 0 && state.lastBet === 0) {
-                newLastRaiseBet = newBet;
+              if (fullRaise) {
+                if (state.lastRaiseBet === 0 && state.lastBet === 0) {
+                  newLastRaiseBet = newBet;
+                } else {
+                  newLastRaiseBet = additional - toCall;
+                }
+                newRaiseRightsOpened = true;
               } else {
-                newLastRaiseBet = additional - toCall;
+                // 短全下（打光筹码但增量不足）：不构成完整加注，不重开加注权。
+                newLastRaiseBet = state.lastRaiseBet;
+                newRaiseRightsOpened = false;
               }
 
               newLastBet = Math.max(newLastBet, newBet);
-              newRaiseRightsOpened = true;
               newPot += additional;
               break;
             }
             case 'allin': {
               const allInAmount = actingPlayer.chips;
-              const toCall = state.lastBet - player.bet;
+              // 没有筹码不能全押（正常不会被派发到，兜底防污染）。
+              if (allInAmount <= 0) return state;
+              const toCall = Math.max(0, state.lastBet - player.bet);
               const extraAmount = allInAmount - toCall;
+
+              // 加注式全下（增量 > 0）是 raise（短全下 `fullRaise=false`，不重开）；
+              // 跟注式全下按 call 记 —— 与 `isPreflopRaise` / AF 的 all-in 口径一致。
+              pushPreflopEntry(
+                extraAmount > 0
+                  ? {
+                      playerId: action.player,
+                      kind: 'raise',
+                      fullRaise: extraAmount >= state.lastRaiseBet,
+                    }
+                  : { playerId: action.player, kind: 'call' },
+              );
 
               actingPlayer.bet += allInAmount;
               actingPlayer.totalBet += allInAmount;
@@ -583,6 +825,7 @@ export function useGameState() {
                 lastBet: newLastBet,
                 lastRaiseBet: newLastRaiseBet,
                 raiseRightsOpened: newRaiseRightsOpened,
+                preflopChain: newPreflopChain,
                 currentPlayer: activePlayers[0].id,
               };
               logStateChange('PLAYER_ACTION', newState);
@@ -599,6 +842,7 @@ export function useGameState() {
             lastBet: newLastBet,
             lastRaiseBet: newLastRaiseBet,
             raiseRightsOpened: newRaiseRightsOpened,
+            preflopChain: newPreflopChain,
             currentPlayer: nextPlayer,
           };
           logStateChange('PLAYER_ACTION', newState);
@@ -1040,19 +1284,28 @@ export function useGameState() {
           const newDealer = ((state.dealer % state.players.length) +
             1) as PlayerId;
           const resetInitialChips = (state.smallBlind || SMALL_BLIND) * 200;
-          const newPlayers = state.players.map((p, index) => ({
-            ...p,
-            chips: p.chips > 0 ? p.chips : p.chips + resetInitialChips,
-            buyInCount: p.chips > 0 ? p.buyInCount : p.buyInCount + 1,
-            bet: 0,
-            totalBet: 0,
-            hand: [],
-            hasActed: false,
-            folded: false,
-            revealed: false,
-            lastAction: undefined,
-            isRealPlayer: index < state.realPlayerCount,
-          }));
+          const newPlayers = state.players.map((p, index) => {
+            const isRealPlayer = index < state.realPlayerCount;
+            return {
+              ...p,
+              chips: p.chips > 0 ? p.chips : p.chips + resetInitialChips,
+              buyInCount: p.chips > 0 ? p.buyInCount : p.buyInCount + 1,
+              bet: 0,
+              totalBet: 0,
+              hand: [],
+              hasActed: false,
+              folded: false,
+              revealed: false,
+              lastAction: undefined,
+              isRealPlayer,
+              // 下一手**完整继承**本盘分配（决策 35：盘内只读），重新派生视图；
+              // 与 `START_GAME` 同口径：真人**绝不**赋 `botType`（方案 §6.1）。
+              botType:
+                state.botPersonalityEnabled && !isRealPlayer
+                  ? state.botTypes?.[p.id]
+                  : undefined,
+            };
+          });
           const newState = {
             phase: 'preflop',
             mainPot: 0,
@@ -1064,6 +1317,7 @@ export function useGameState() {
             lastBet: 0,
             lastRaiseBet: 0,
             raiseRightsOpened: true,
+            preflopChain: [],
             winner: null,
             handRank: null,
             winningCards: [],
@@ -1073,6 +1327,9 @@ export function useGameState() {
             chipsAtRoundStart: [],
             chipsBeforeSettlement: [],
             potDistribution: [],
+            // 下一手继承有效开关 / map（不得先丢 map 再指望 START 从旧 state 取回）
+            botPersonalityEnabled: state.botPersonalityEnabled,
+            botTypes: state.botTypes,
           } as GameState;
           logStateChange('RESET_ROUND', newState);
           return newState;
@@ -1081,9 +1338,10 @@ export function useGameState() {
         default:
           return state;
       }
-    },
-    createInitialState(2, 0),
-  );
+}
+
+export function useGameState() {
+  const [state, dispatch] = useReducer(gameReducer, createInitialState(2, 0));
 
   const stateRef = useRef(state);
   useEffect(() => {
@@ -1097,6 +1355,8 @@ export function useGameState() {
       smallBlind: number,
       playerChips?: number[],
       playerBuyInCounts?: number[],
+      botPersonalityEnabled?: boolean,
+      botTypes?: BotTypeMap,
     ) => {
       dispatch({
         type: 'START_GAME',
@@ -1105,6 +1365,8 @@ export function useGameState() {
         smallBlind,
         playerChips,
         playerBuyInCounts,
+        botPersonalityEnabled,
+        botTypes,
       });
     },
     [],
@@ -1134,7 +1396,9 @@ export function useGameState() {
   }, []);
 
   const resetRound = useCallback(() => {
-    resetOpponentStats();
+    // 会话画像按**盘**累积（决策 40）：开下一手时**不再**清空统计，
+    // 由 GameBoard 的 `startNewHand` 把上一手归档进 `sessionHands` 再开新的一手。
+    // 清空只发生在「开新盘」（GameBoard 初始挂载 / 牌桌内开新局按钮）。
     dispatch({ type: 'RESET_ROUND' });
     setTimeout(() => {
       const latest = stateRef.current;
@@ -1145,6 +1409,9 @@ export function useGameState() {
         smallBlind: latest.smallBlind || SMALL_BLIND,
         playerChips: latest.players.map(p => p.chips),
         playerBuyInCounts: latest.players.map(p => p.buyInCount),
+        // 下一手继承本盘的有效开关 / map（重新派生 Player.botType，不重抽）
+        botPersonalityEnabled: latest.botPersonalityEnabled,
+        botTypes: latest.botTypes,
       });
     }, 0);
   }, []);
@@ -1160,9 +1427,7 @@ export function useGameState() {
 
       // 还有没有「能继续下注」的对手。已弃牌 / 已全下 / 没筹码的对手都下不了注，
       // 对他们加注**无人可应**（多下的筹码只会原样退回），所以不该亮加注/全押按钮。
-      const hasLiveOpponent = state.players.some(
-        (p) => p.id !== playerId && !p.folded && !p.allIn && p.chips > 0,
-      );
+      const liveOpponent = hasLiveOpponent(state, playerId);
       const toCall = state.lastBet - player.bet;
 
       switch (action) {
@@ -1171,7 +1436,7 @@ export function useGameState() {
         case 'call':
           return canCall(state.lastBet, player.bet, player.chips);
         case 'raise':
-          return hasLiveOpponent && canRaise(
+          return liveOpponent && canRaise(
             state.lastBet,
             player.bet,
             player.chips,
@@ -1185,12 +1450,12 @@ export function useGameState() {
           // 否则它等同于一次没人跟得起的加注。注意 `canCall` 要求
           // `toCall <= chips`，所以这条例外不能删 —— 删了筹码不够跟注的玩家
           // 将既不能跟注也不能全押，只能弃牌。
-          return canAllIn(player.chips) && (hasLiveOpponent || toCall > player.chips);
+          return canAllIn(player.chips) && (liveOpponent || toCall > player.chips);
         default:
           return false;
       }
     },
-    [state.lastBet, state.lastRaiseBet, state.raiseRightsOpened, state.players],
+    [state],
   );
 
   const isBettingComplete = useCallback((): boolean => {

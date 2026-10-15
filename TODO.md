@@ -68,3 +68,44 @@
   直接删掉 `stealBoost` 与这两处 `random()`。
   **注意**：同段 :397 的 `random() >= defendTighten` 是**正确的**（`defendTighten`
   ∈ {0, 0.05}，非零时确实有 5% 收紧），别顺手改。
+
+### 3. 翻前加注分支被门控 ⇒ ratio / PFR 目标「参数不可达」
+
+- **位置**：`src/utils/botAI.ts` 的 `decidePreflop` 翻前加注分支门控
+  （`!isFacingRaise`，而 `isFacingRaise = ctx.toCall > 0` 对非盲位恒真 —— 非盲位要补大盲注）；
+  `src/utils/botPersonality.ts` 的 `PERSONALITY_PARAMS`。
+- **现象/证据**：P9-4 生产迭代实测（3000 手，报告 `scripts/reports/p9-4-final.md`）：
+  ratio 上限约 **0.63–0.69**（Nit 0.693 / TAG 0.627），而 §4 要 TAG ≥0.78 / LAG ≥0.80、
+  §3.1 分类器主规则也要 `ratio > 0.7`；TAG/LAG/Maniac 的 **PFR** 目标同样达不到
+  （TAG 实测 14.8 vs 目标 16–20）。根因：RFI 的 `ctx.isXxx && !isFacingRaise` 开池树
+  **对所有座位不可达**（§16.3 早已记录），入池几乎全走 `entryOdds` 跟注 ⇒ 「加注/跟注」比
+  由硬编码字面量（最大 `0.22 × raiseWidth`）锁死，旋钮改不动它。`threeBetFreq` 确实是 PFR
+  杠杆（TAG 7.9→14.8），但在 ~5 饱和，且它把 `R` 从 `C` 搬走、**抬 PFR 的同时压 ratio**。
+- **影响**：性格的「松凶 / 紧凶」区分度不足 —— 实测 LAG 与 Fish 都被压进 CS 的低 ratio 区间，
+  分类回归出现 LAG→CS、Fish→CS。
+- **修法方向**：让非盲位在 RFI 能真正选到开池树（用 `detectPreflopScenario` 选树，而不是复用
+  `isFacingRaise`），使 `openWiden` 能分别表达「加注宽度」与「跟注宽度」。**属引擎行为变更**，
+  须独立提交 + P1 golden 复核 + 全量回归；影响面覆盖所有非盲位的翻前决策，**风险最高**。
+  若确认不可修，则须重估 §4 的 ratio 目标**与** §3.1 的 `ratio > 0.7` 阈值（二者同源）。
+
+### 4. Fish 的 `WTSD ≤ 30` 目标与「松被动」语义冲突
+
+- **位置**：`docs/BOT_PERSONALITY_PLAN.md` §4 的 Fish 目标 `WTSD ≤ 30`。
+- **现象/证据**：P9-4 实测 Fish `WTSD = 50.2`（同盘 VPIP 41.0、多跟注）；而**同一份 §4**
+  给 CS 的目标却是 `WTSD ≥ 36`（高）。两条目标语义方向相反。
+- **影响**：Fish 的 ≤30 在「高 VPIP + 多跟注」下**不可达** —— 这不是旋钮量程问题，
+  是目标本身与「松被动」语义相悖。
+- **修法方向**：若确认为语义错误，应改成与 CS 同向的**高** WTSD 目标（属验收口径变更，
+  须先拍板）。注意这不是改代码能解决的。
+
+### 5. Maniac 未被校准 runner 采样
+
+- **位置**：`scripts/calibrationRunner.ts` 的固定桌型（R1/B5，6 人）与 §5 的 A′ 配额。
+- **现象/证据**：按 §5 配额，B=5 的多重集只含 TAG/LAG/Fish/Nit/CS **五类**，
+  Maniac 只在 B=6 才出现 ⇒ runner 的 6 人桌（1 真人 + 5 Bot）**采样不到 Maniac**
+  （§17.1 实测表里没有 Maniac 行）。
+- **影响**：Maniac 的 `PERSONALITY_PARAMS` 保持 §7.1 初值、**未经校准**；
+  同理 `sizingMult` 的量级也只经过间接验证（`botAI.personaSizing` 的穷举安全性测试，
+  不是闭环实测）。
+- **修法方向**：把 runner 的桌型扩到能覆盖 Maniac（或单开 Maniac 专用跑法）后再校准。
+  对应 §13 决策 34 的「七人 R1/B6 追加 Maniac 真实对局专项」。

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useGameState, bettingComplete } from '../hooks/useGameState';
+import { useGameState, bettingComplete, isActionAccepted } from '../hooks/useGameState';
 import { PlayerArea } from './PlayerArea';
 import { CommunityCards } from './CommunityCards';
 import { PotDisplay } from './PotDisplay';
@@ -8,7 +8,7 @@ import { PokerTable } from './PokerTable';
 import { HandRankingGuide } from './HandRankingGuide';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { calculatePlayerPositions, getPositionLabel } from '../utils/tablePositions';
-import { getBotAction } from '../utils/botAI';
+import { getBotAction, computePositionFlags } from '../utils/botAI';
 import { setGtoConfig, type GameScenario } from '../utils/gtoConfig';
 // SPR / 有效筹码的唯一来源：面板 SPR 行不再自己内联 `min(hero, 各活跃对手) / pot`。
 import { sprFromState } from '../utils/spr';
@@ -22,14 +22,18 @@ import {
 } from '../utils/gtoPreflop';
 import { computePotOddsFor } from '../utils/potOdds';
 import { evaluateHand } from '../utils/handEvaluator';
-import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers } from '../utils/opponentModel';
+import { calculateOpponentProfile, resetOpponentStats, startNewHand, recordAction, getCurrentHand, setCurrentHandShowdownPlayers, setCurrentHandFlopSeenPlayers, setCurrentHandShowdownWinners, beginSession, getSessionId, makeHandId } from '../utils/opponentModel';
 import {
   saveHand,
   getAllPlayerLongStats,
+  getTypeLongStats,
 } from '../utils/longOpponentModel';
 import { saveGameProgress } from '../utils/gamePersistence';
-import { HAND_RANK_NAMES, type Action, type GamePhase } from '../types/poker';
-import type { ActionEvent } from '../types/stats';
+import { computeSettlementSnapshot } from '../utils/handSettlementSnapshot';
+import { buildActionEvent } from '../utils/actionEvent';
+import type { BotTypeMap } from '../utils/botPersonality';
+import { HAND_RANK_NAMES, type Action, type GamePhase, type PlayerId } from '../types/poker';
+import type { ActionEvent, PlayerRole } from '../types/stats';
 import { translations } from '../utils/translations';
 
 interface PlayerConfig {
@@ -51,6 +55,12 @@ interface GameBoardProps {
   savedGtoEnabled?: boolean;
   savedScenario?: GameScenario;
   savedRake?: RakeConfig;
+  /**
+   * 本盘是否启用 Bot 性格，以及有效分配 map。由 `App` 在**新盘边界分配一次**后
+   * 透传下来（方案 §6.3）；本组件只透传、**不重抽**。缺省视为关闭 + 空 map。
+   */
+  botPersonalityEnabled?: boolean;
+  botTypes?: BotTypeMap;
   onBackToMenu: () => void;
 }
 
@@ -61,6 +71,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   savedGtoEnabled,
   savedScenario,
   savedRake,
+  botPersonalityEnabled = false,
+  botTypes = {},
   onBackToMenu,
 }) => {
   const {
@@ -79,6 +91,14 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const wasBettingCompleteRef = useRef(false);
   const handCounterRef = useRef(0);
   const handKeyRef = useRef<string>('');
+  /**
+   * 当前这一手的**稳定身份**（`sessionId + 盘内手序`，方案 §8.2）。
+   *
+   * `createActionEvent` 与开手记录共用它，不再各拼一遍字符串 —— 旧实现两处
+   * 各自拼 `${handCounter}-${dealer}-${底牌}`，任一处改动就会让「事件的 handId」
+   * 与「容器的 handId」分叉。
+   */
+  const handIdRef = useRef<string>('');
   const [gtoEnabled, setGtoEnabled] = useState(savedGtoEnabled ?? false);
   const [scenario, setScenario] = useState<GameScenario>(savedScenario ?? 'cash');
   const [playerRaiseAmounts, setPlayerRaiseAmounts] = useState<Record<number, number | null>>({});
@@ -133,35 +153,26 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     };
   }, []);
 
+  /**
+   * 事件构造收敛到 `utils/actionEvent.buildActionEvent` 一处（方案 §9.3）——
+   * `scripts/` 下的 headless 校准 runner 用**同一个**函数产出统计事件，两边形状不可能分叉。
+   * 本手身份在开手时算好放进 `handIdRef`（见下面的手牌检测 effect，它声明在机器人
+   * effect 之前，所以任何动作事件派发时它已经就位）。
+   */
   const createActionEvent = (
-    playerId: number,
+    playerId: PlayerId,
     action: Action,
     amount?: number,
     phaseOverride?: GamePhase,
-  ): ActionEvent => {
-    const player = state.players.find((p) => p.id === playerId);
-    const toCall = state.lastBet - (player?.bet || 0);
-    const position = (playerId - state.dealer + state.players.length) % state.players.length;
-    const phase = phaseOverride ?? state.phase;
-    const timestamp = Date.now();
-    
-    return {
-      handId: `${handCounterRef.current}-${state.dealer}-${state.players[0]?.hand[0]?.rank}-${state.players[0]?.hand[1]?.rank}`,
-      playerId: playerId as ActionEvent['playerId'],
-      phase,
+  ): ActionEvent =>
+    buildActionEvent(
+      state,
+      handIdRef.current,
+      playerId,
       action,
       amount,
-      toCall,
-      currentBet: state.lastBet,
-      potSize: state.mainPot + (state.sidePots?.reduce((sum, pot) => sum + pot.amount, 0) || 0),
-      position,
-      // "面对下注/加注" 的语义就是「有需要跟注的金额」，全街道通用。
-      // 原来写成 `state.lastBet > 0 && phase === 'preflop'`，翻后恒为 false，
-      // 且翻前连大盲免费过牌也被判成 facing（lastBet 初始就是大盲）。
-      isFacingRaise: toCall > 0,
-      timestamp: timestamp,
-    };
-  };
+      phaseOverride,
+    );
 
   const handleRaiseAmountChange = (playerId: number, amount: number | null) => {
     setPlayerRaiseAmounts(prev => ({
@@ -178,15 +189,29 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     ) {
       gameInitialized.current = true;
       resetOpponentStats();
+      // 新盘边界：换一个 sessionId 并清掉上一盘残留的手牌身份（方案 §8.2）。
+      beginSession();
+      handIdRef.current = '';
       startGame(
         playerConfig.realPlayers,
         playerConfig.botPlayers,
         playerConfig.smallBlind,
         savedChips,
         savedBuyInCounts,
+        botPersonalityEnabled,
+        botTypes,
       );
     }
-  }, [state.phase, state.players, startGame, playerConfig, savedChips, savedBuyInCounts]);
+  }, [
+    state.phase,
+    state.players,
+    startGame,
+    playerConfig,
+    savedChips,
+    savedBuyInCounts,
+    botPersonalityEnabled,
+    botTypes,
+  ]);
 
   const currentPlayer = state.players[state.currentPlayer - 1];
   const roundSettled =
@@ -214,6 +239,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         gtoEnabled,
         scenario,
         rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
+        // 有效开关 / map 随配置落盘（方案 §6.3）：以 state 为准（START_GAME 写入的
+        // 就是本盘真正生效的那份），关闭时写 false + 空 map。
+        botPersonalityEnabled: state.botPersonalityEnabled === true,
+        botTypes: state.botTypes ?? {},
       });
     }
   }, [
@@ -221,6 +250,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     state.players,
     state.smallBlind,
     state.dealer,
+    state.botPersonalityEnabled,
+    state.botTypes,
     gtoEnabled,
     scenario,
     rakeMode,
@@ -242,6 +273,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         gtoEnabled,
         scenario,
         rake: { mode: rakeMode, value: rakeValue, capBB: rakeCapBB },
+        botPersonalityEnabled: state.botPersonalityEnabled === true,
+        botTypes: state.botTypes ?? {},
       });
     }
     onBackToMenu();
@@ -254,44 +287,81 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     }
   }, [state.players, state.winner, state.mainPot, collectPot]);
 
-  // 检测新牌局开始，记录长期统计
+  // 检测新牌局开始，记录长期统计（含开手快照，方案 §8.2）
   useEffect(() => {
     if (state.phase === 'preflop' && state.players.length > 0 && state.players[0].hand.length > 0) {
-      const currentHandKey = `${state.dealer}-${state.players[0].hand[0]?.rank}-${state.players[0].hand[1]?.rank}`;
+      const hero = state.players[0];
+      // 手牌键必须带 `sessionId`：盘内以 (dealer, 底牌) 区分每一手，跨盘则天然不同。
+      // 旧实现没带，返回菜单再开新盘时 handCounter 归零，于是「同 dealer + 同底牌」
+      // 会被当成同一手（漏记）或撞上旧 id（长期库覆盖）。
+      const currentHandKey = `${getSessionId()}-${state.dealer}-${hero.hand[0]?.rank}-${hero.hand[1]?.rank}`;
       if (handKeyRef.current !== currentHandKey) {
         handKeyRef.current = currentHandKey;
         handCounterRef.current++;
-        const handId = `${handCounterRef.current}-${state.dealer}-${state.players[0]?.hand[0]?.rank}-${state.players[0]?.hand[1]?.rank}`;
+        const handId = makeHandId(handCounterRef.current);
+        handIdRef.current = handId;
         const allPlayerIds = state.players.map((p) => p.id);
-        startNewHand(handId, allPlayerIds);
+        // 开手快照（方案 §8.2）：在**开手这一刻**复制有效分配 map，不引用随后可变对象；
+        // 关闭性格时写**空 map**（而不是省略字段），聚合侧据此区分「新记录且关闭」与
+        // 「旧记录无字段」（方案 §8.3）。
+        const playerTypes: BotTypeMap =
+          state.botPersonalityEnabled === true ? { ...(state.botTypes ?? {}) } : {};
+        // 开手身份快照：每座位 human/bot，不能从「当前 roles」反推 ——
+        // 中途换人 / 换盘会把历史身份改错（方案 §8.2）。
+        const playerRoles: Partial<Record<PlayerId, PlayerRole>> = {};
+        for (const p of state.players) {
+          playerRoles[p.id] = p.isRealPlayer ? 'human' : 'bot';
+        }
+        startNewHand(handId, allPlayerIds, playerTypes, playerRoles);
       }
     }
-  }, [state.phase, state.players, state.dealer]);
+  }, [
+    state.phase,
+    state.players,
+    state.dealer,
+    state.botPersonalityEnabled,
+    state.botTypes,
+  ]);
 
   useEffect(() => {
     if (roundSettled) {
       const currentHand = getCurrentHand();
-      const showdownPlayers = state.phase === 'showdown'
-        ? state.players.filter(p => !p.folded).map(p => p.id)
-        : undefined;
+      // 三份快照 + 底池金额的计算收敛到 `computeSettlementSnapshot` 一处 ——
+      // `scripts/` 下的 headless 校准 runner 用**同一份**实现，避免两处口径漂移
+      // （方案 §9.3：统计数字与面板显示必须同源）。
+      const snapshot = computeSettlementSnapshot(state, currentHand?.events ?? []);
 
-      if (showdownPlayers) {
-        setCurrentHandShowdownPlayers(showdownPlayers);
+      if (snapshot.showdownPlayers) {
+        setCurrentHandShowdownPlayers(snapshot.showdownPlayers);
+      }
+      if (snapshot.flopSeenPlayers) {
+        setCurrentHandFlopSeenPlayers(snapshot.flopSeenPlayers);
+      }
+      if (snapshot.showdownWinners) {
+        setCurrentHandShowdownWinners(snapshot.showdownWinners);
       }
 
       if (currentHand) {
         const handWithResult: typeof currentHand = {
           ...currentHand,
-          showdownPlayers,
+          flopSeenPlayers: snapshot.flopSeenPlayers,
+          showdownPlayers: snapshot.showdownPlayers,
+          showdownWinners: snapshot.showdownWinners,
           result: {
             winner: state.winner,
-            potAmount: state.players.reduce((sum, p) => sum + p.totalBet, 0),
+            potAmount: snapshot.potAmount,
           },
         };
         saveHand(handWithResult);
       }
     }
-  }, [roundSettled, state.winner, state.players]);
+  }, [
+    roundSettled,
+    state.winner,
+    state.players,
+    state.phase,
+    state.potDistribution,
+  ]);
 
   const noRealCanAct = !state.players.some(
     (p) => p.isRealPlayer && !p.folded && !p.allIn && p.chips > 0,
@@ -320,6 +390,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
       : (decision.action === 'check' ? 400 : 600);
 
     const timer = setTimeout(() => {
+      // 非法动作（金额越界 / 欠注 / 无权限等）会被 reducer 拒绝，此时**不得**
+      // 记录统计事件 —— 否则统计里会出现一条从未真正发生过的动作（方案 §7.4）。
+      if (!isActionAccepted(state, currentPlayer.id, decision.action, decision.amount)) {
+        return;
+      }
       playerAction(currentPlayer.id, decision.action, decision.amount);
       // Record action event for opponentModel
       const event = createActionEvent(
@@ -343,6 +418,8 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const handleAction = (action: Action, amount?: number) => {
     const playerId = state.currentPlayer;
     const currentPhase = state.phase;
+    // 与 reducer 共用同一接受口径：被拒绝的动作不派发、也不记统计事件。
+    if (!isActionAccepted(state, playerId, action, amount)) return;
     playerAction(playerId, action, amount);
     const player = state.players.find((p) => p.id === playerId);
     if (player) {
@@ -413,6 +490,21 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     return `${translations.playerArea.bot}${index + 1}`;
   };
 
+  /**
+   * 本手结束后的座位性格标签（方案 §11.1，P8a）。
+   *
+   * 来源是 `Player.botType` —— 它是**本盘分配身份**的派生视图（P4：只由
+   * `START_GAME` / `RESET_ROUND` 从 `botTypes` 派生），关闭性格 / 未分配 / 真人都
+   * 是 `undefined`，所以「不虚构标签」（决策 29）是**自然**满足的，不需要额外判断。
+   * 文案复用 `playerStats.types` 的档位名，与统计表同一来源，不写第二份。
+   */
+  const getPersonalityLabel = (
+    player: (typeof state.players)[0],
+  ): string | undefined => {
+    if (!player.botType) return undefined;
+    return translations.playerStats.types[player.botType] || player.botType;
+  };
+
   const getNextPhaseLabel = () => {
     switch (state.phase) {
       case 'preflop':
@@ -431,6 +523,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const longStats = realPlayerIds.length > 0 ? getAllPlayerLongStats(realPlayerIds) : undefined;
   // Bot 行和真人行同口径：都读长期库（跨会话），不再只算当前会话。
   const botLongStats = botPlayerIds.length > 0 ? getAllPlayerLongStats(botPlayerIds) : undefined;
+  // 按**分配类型**聚合的行（§8.1，P7）只在当前盘**开启性格**时展示 —— 关闭时传
+  // `undefined`，表格退回「按座位展示实测类型」的旧形态，不伪装分配（决策 29）。
+  // ⚠️ 长期库里可能混着历史上开启性格时的手（它们会按当时的快照分组），所以这里
+  // 的开关只决定**是否展示类型行**，不影响分组本身（分组永远按每手自己的快照）。
+  // ⚠️ 再叠一层 `playerStatsOpen`：这个值只被浮层内部的 `PlayerStatsTable` 消费，
+  // 而聚合要遍历整个长期库（用户真实库 1000+ 手时是实打实的开销），所以**收起时不算**。
+  // 只有展开的那几帧才付这份成本，收起状态下等于零成本。
+  const typeStats =
+    playerStatsOpen && state.botPersonalityEnabled === true ? getTypeLongStats() : undefined;
   // 「玩家数据 Player Stats」表原先挤在 AI 分析面板内部（13 列把面板撑到溢出边界，
   // 面板又被座位可用空间压到最窄，两边互相挤兑）。现在整块搬到右上角按钮的浮层里，
   // 口径统一为**所有玩家都读长期统计**（真人 + Bot 同源），不再有「自己看长期、
@@ -493,7 +594,11 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                 </button>
                 {playerStatsOpen && (
                   <div className="absolute right-0 top-full mt-1 z-[90] max-w-[calc(100vw-1rem)] overflow-x-auto bg-black/85 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                    <PlayerStatsTable longStats={longStats} botLongStats={botLongStats} />
+                    <PlayerStatsTable
+                      longStats={longStats}
+                      botLongStats={botLongStats}
+                      typeStats={typeStats}
+                    />
                   </div>
                 )}
               </div>
@@ -573,10 +678,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
             <button
               onClick={() => {
                 resetOpponentStats();
+                // 新盘边界：换 sessionId 并清掉残留手牌身份（方案 §8.2），
+                // 否则上一盘的手序会接着算下去。
+                beginSession();
+                handIdRef.current = '';
+                // 与初始化 effect 同一份新盘配置：性格沿用 App 已分配的那份，
+                // 本组件**不重抽**（方案 §5 / §6.3）。
                 startGame(
                   playerConfig.realPlayers,
                   playerConfig.botPlayers,
                   playerConfig.smallBlind,
+                  undefined,
+                  undefined,
+                  botPersonalityEnabled,
+                  botTypes,
                 );
               }}
               className="px-12 py-4 bg-yellow-500 hover:bg-yellow-600 text-black text-2xl font-bold rounded-xl transition-all hover:scale-105"
@@ -680,6 +795,15 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         )}
                         phase={state.phase}
                         lastAction={player.lastAction}
+                        // 本手结束标签（§11.1，P8a）：只在**本手已无可行动作**后出现。
+                        // `roundSettled` 覆盖三种终局 —— 全弃获胜（`winner !== null`，
+                        // 此时 `phase` 仍停在 preflop）、单人摊牌胜、平局
+                        // （`phase === 'showdown' && mainPot === 0`）。
+                        // ⚠️ 刻意**不**看 `adminRevealAll`：管理员提前亮牌不是结算。
+                        // 下一手 `winner`/`mainPot` 被 `START_GAME` 重置 ⇒ 标签自动消失。
+                        personalityLabel={
+                          roundSettled ? getPersonalityLabel(player) : undefined
+                        }
                         chipChange={
                           roundSettled && state.chipsAtRoundStart.length > 0
                             ? player.chips - state.chipsAtRoundStart[idx]
@@ -722,30 +846,25 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                               state.dealer +
                               state.players.length) %
                             state.players.length;
+                          // 位置标志与机器人 `ctx` 共用 `computePositionFlags`
+                          // （决策 41）：面板不再自己维护第二份公式。
+                          const {
+                            isButton,
+                            isCutoff,
+                            isHijack,
+                            isMiddlePosition,
+                            isEarlyPosition,
+                            isBlind,
+                          } = computePositionFlags(pos, state.players.length);
                           const ctxForGto = {
                             position: pos,
                             totalPlayers: state.players.length,
-                            isButton: pos === 0,
-                            isCutoff:
-                              pos === state.players.length - 1 &&
-                              pos > 2,
-                            isHijack:
-                              pos === state.players.length - 2 &&
-                              pos > 2,
-                            isMiddlePosition:
-                              pos >=
-                                Math.floor(
-                                  state.players.length * 0.3,
-                                ) &&
-                              pos < state.players.length - 2 &&
-                              pos > 2,
-                            isEarlyPosition:
-                              pos > 0 &&
-                              pos <
-                                Math.floor(
-                                  state.players.length * 0.3,
-                                ),
-                            isBlind: pos === 1 || pos === 2,
+                            isButton,
+                            isCutoff,
+                            isHijack,
+                            isMiddlePosition,
+                            isEarlyPosition,
+                            isBlind,
                           };
                           const rfiPos =
                             getRfiPositionForDisplay(ctxForGto);

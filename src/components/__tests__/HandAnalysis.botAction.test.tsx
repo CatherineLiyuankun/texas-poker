@@ -1,3 +1,17 @@
+/**
+ * HandAnalysis —— 「Bot Action」**固定两行**（方案 §11.2，P8b）。
+ *
+ * 契约（§11.2 逐条）：
+ *  1. 行名固定 `Bot 紧凶Action` / `Bot 松凶Action`（假设 TAG / LAG），
+ *     **与当盘分配无关** —— 当盘没有这两类 Bot、关闭性格也照样两行；
+ *  2. 无 hero / 缺完整手牌 / 已 fold / all-in / 筹码 0 / 已结算时**不强算动作**，
+ *     值退化成占位符 `— / 无可行动作`，但**两行不消失**；
+ *  3. 面板语义沿用既有行为：**不要求「非得轮到 hero 才允许假设」**；
+ *  4. ⚠️ **不测试两行动作必须不同** —— 混合频率下两行本来就允许给出同一个动作。
+ *
+ * 数据层（共享权益 / 随机隔离 / 子流）在 `botAI.shadowRows.test.ts` 里验；
+ * 这里只验渲染契约。
+ */
 import { render, screen, waitFor } from '@testing-library/react';
 import { HandAnalysis } from '../HandAnalysis';
 import { translations } from '../../utils/translations';
@@ -5,6 +19,13 @@ import { resetOpponentStats } from '../../utils/opponentModel';
 import { resetGtoConfig } from '../../utils/gtoConfig';
 import { resetRakeConfig } from '../../utils/rake';
 import type { Card, GamePhase, GameState, Player } from '../../types/poker';
+
+const TAG_LABEL = translations.handAnalysis.botActionTAG;
+const LAG_LABEL = translations.handAnalysis.botActionLAG;
+const PLACEHOLDER = translations.handAnalysis.botActionUnavailable;
+
+/** `formatActionLabel` 可能印出的动作词（两行都必须落在其中之一）。 */
+const ACTION_WORD = /^(Raise|Call|Check|Fold|All In)$/;
 
 function card(suit: string, rank: string): Card {
   return { suit, rank } as Card;
@@ -50,7 +71,10 @@ function mkState(players: Player[], phase: GamePhase, community: Card[] = []): G
   } as GameState;
 }
 
-function heroAndState(heroOverrides: Partial<Player> = {}) {
+function heroAndState(
+  heroOverrides: Partial<Player> = {},
+  phase: GamePhase = 'preflop',
+) {
   const hero = mkPlayer({
     id: 1,
     isRealPlayer: true,
@@ -64,7 +88,7 @@ function heroAndState(heroOverrides: Partial<Player> = {}) {
     bet: 20,
     totalBet: 20,
   });
-  return { hero, state: mkState([hero, villain], 'preflop') };
+  return { hero, state: mkState([hero, villain], phase) };
 }
 
 async function renderPanel(hero: Player, state: GameState) {
@@ -90,7 +114,17 @@ async function renderPanel(hero: Player, state: GameState) {
   );
 }
 
-describe('HandAnalysis — Bot Action 行', () => {
+/** 取某一行的标签元素（`Row` = 标签 span + 值 span，父节点是那一行）。 */
+function rowElement(label: string): HTMLElement {
+  return screen.getByText(label).parentElement as HTMLElement;
+}
+
+/** 取某一行「值」那一半的文本。 */
+function rowValue(label: string): string {
+  return (rowElement(label).textContent ?? '').slice(label.length);
+}
+
+describe('HandAnalysis — Bot Action 固定两行', () => {
   beforeEach(() => {
     resetOpponentStats();
   });
@@ -101,47 +135,88 @@ describe('HandAnalysis — Bot Action 行', () => {
     resetRakeConfig();
   });
 
-  it('渲染 Bot Action 行，值是一个行动词', async () => {
+  it('固定渲染 TAG / LAG 两行，行名写死', async () => {
     const { hero, state } = heroAndState();
     await renderPanel(hero, state);
 
-    const row = screen.getByText(translations.handAnalysis.botAction)
-      .parentElement as HTMLElement;
-    expect(row.textContent).toMatch(/Raise|Call|Check|Fold|All In/);
+    expect(screen.getByText(TAG_LABEL)).toBeInTheDocument();
+    expect(screen.getByText(LAG_LABEL)).toBeInTheDocument();
   });
 
-  it('排在 GTO Math 区块**之前**', async () => {
+  it('与当盘分配无关：hero 无 botType、整盘没有 Bot 性格，照样两行且都算出了动作', async () => {
+    const { hero, state } = heroAndState();
+    // 真人座位恒无 botType（P4），这一盘也完全没有 botTypes
+    expect(hero.botType).toBeUndefined();
+
+    await renderPanel(hero, state);
+
+    expect(rowValue(TAG_LABEL)).toMatch(ACTION_WORD);
+    expect(rowValue(LAG_LABEL)).toMatch(ACTION_WORD);
+  });
+
+  it('两行都排在 GTO Math 区块**之前**', async () => {
     const { hero, state } = heroAndState();
     await renderPanel(hero, state);
 
-    const botLabel = screen.getByText(translations.handAnalysis.botAction);
     const gtoMathTitle = screen.getByText(translations.gtoMath.title);
-    // compareDocumentPosition：gtoMathTitle 出现在 botLabel 之后
-    expect(
-      botLabel.compareDocumentPosition(gtoMathTitle) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    for (const label of [TAG_LABEL, LAG_LABEL]) {
+      expect(
+        screen.getByText(label).compareDocumentPosition(gtoMathTitle) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
   });
 
-  it('翻前也显示（README 里这条通道覆盖所有街）', async () => {
+  it('翻前也显示（这条通道覆盖所有街）', async () => {
     const { hero, state } = heroAndState();
     expect(state.phase).toBe('preflop');
     await renderPanel(hero, state);
 
-    expect(screen.getByText(translations.handAnalysis.botAction)).toBeInTheDocument();
+    expect(screen.getByText(TAG_LABEL)).toBeInTheDocument();
+    expect(screen.getByText(LAG_LABEL)).toBeInTheDocument();
   });
 
-  it('真人已弃牌时不显示（没有行动可做）', async () => {
-    const { hero, state } = heroAndState({ folded: true });
+  it('两行允许给出**同一个**动作 —— 刻意不要求它们不同（§11.2 明示）', async () => {
+    // 钉死随机源，两行的混合频率抽样落在同一处：这本身是合法结果。
+    jest.spyOn(Math, 'random').mockImplementation(() => 0.5);
+    const { hero, state } = heroAndState();
     await renderPanel(hero, state);
 
-    expect(screen.queryByText(translations.handAnalysis.botAction)).toBeNull();
+    const tag = rowValue(TAG_LABEL);
+    const lag = rowValue(LAG_LABEL);
+    // 只要求两行都是**合法动作词**；不比较它们是否相等。
+    expect(tag).toMatch(ACTION_WORD);
+    expect(lag).toMatch(ACTION_WORD);
   });
 
-  it('真人已全下时不显示', async () => {
-    const { hero, state } = heroAndState({ allIn: true });
+  describe('没有可行动作时：两行都在，值退化成占位符', () => {
+    const cases: Array<[string, () => { hero: Player; state: GameState }]> = [
+      ['真人已弃牌', () => heroAndState({ folded: true })],
+      ['真人已全下', () => heroAndState({ allIn: true })],
+      ['筹码为 0', () => heroAndState({ chips: 0 })],
+      ['底牌不完整', () => heroAndState({ hand: [card('♠', 'A')] })],
+      ['已结算（showdown）', () => heroAndState({}, 'showdown')],
+    ];
+
+    it.each(cases)('%s', async (_label, build) => {
+      const { hero, state } = build();
+      await renderPanel(hero, state);
+
+      // 两行不消失
+      expect(screen.getByText(TAG_LABEL)).toBeInTheDocument();
+      expect(screen.getByText(LAG_LABEL)).toBeInTheDocument();
+      // 值都是占位符
+      expect(rowValue(TAG_LABEL)).toBe(PLACEHOLDER);
+      expect(rowValue(LAG_LABEL)).toBe(PLACEHOLDER);
+    });
+  });
+
+  it('查询不改动对局状态（渲染是只读的，不推进任何状态）', async () => {
+    const { hero, state } = heroAndState();
+    const before = JSON.parse(JSON.stringify(state));
+
     await renderPanel(hero, state);
 
-    expect(screen.queryByText(translations.handAnalysis.botAction)).toBeNull();
+    expect(state).toEqual(before);
   });
 });

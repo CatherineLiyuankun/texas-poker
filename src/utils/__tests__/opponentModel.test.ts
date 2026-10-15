@@ -8,9 +8,14 @@ import {
   recordAction,
   getOpponentVpipPfr,
   getRealPlayerSessionStats,
+  getCurrentHand,
+  beginSession,
+  getSessionId,
+  makeHandId,
 } from '../opponentModel';
-import type { Player } from '../../types/poker';
-import type { ActionEvent } from '../../types/stats';
+import type { Player, PlayerId } from '../../types/poker';
+import type { ActionEvent, PlayerRole } from '../../types/stats';
+import type { BotTypeMap } from '../botPersonality';
 
 function createMockPlayer(
   id: number,
@@ -274,12 +279,21 @@ describe('per-hand VPIP/PFR tracking', () => {
     expect(stats.pfr).toBe(1);
   });
 
-  it('recordAction call 只计入 VPIP', () => {
+  it('recordAction call（面对下注）计入 VPIP', () => {
     currentHandId = 'hand-1';
     startNewHand('hand-1', [3]);
-    recordAction(createActionEvent(3, 'call'));
+    recordAction(createActionEvent(3, 'call', 'preflop', undefined, 20));
     const stats = getOpponentVpipPfr(3);
     expect(stats.vpip).toBe(1);
+    expect(stats.pfr).toBe(0);
+  });
+
+  it('call 但 toCall=0（等价过牌）不计入 VPIP', () => {
+    currentHandId = 'hand-1';
+    startNewHand('hand-1', [3]);
+    recordAction(createActionEvent(3, 'call')); // toCall 默认 0
+    const stats = getOpponentVpipPfr(3);
+    expect(stats.vpip).toBe(0);
     expect(stats.pfr).toBe(0);
   });
 
@@ -292,14 +306,14 @@ describe('per-hand VPIP/PFR tracking', () => {
     expect(stats.pfr).toBe(0);
   });
 
-  it('每手牌只记录首次翻牌前动作', () => {
+  it('整手任意翻前加注都计入 PFR（先 call 后 raise）', () => {
     currentHandId = 'hand-1';
     startNewHand('hand-1', [3]);
-    recordAction(createActionEvent(3, 'call'));
+    recordAction(createActionEvent(3, 'call', 'preflop', undefined, 20));
     recordAction(createActionEvent(3, 'raise'));
     const stats = getOpponentVpipPfr(3);
     expect(stats.vpip).toBe(1);
-    expect(stats.pfr).toBe(0);
+    expect(stats.pfr).toBe(1);
   });
 
   it('allin 金额 > 当前下注时计入 PFR', () => {
@@ -435,5 +449,104 @@ describe('需要对手上下文的统计量（3-bet / fold-to-c-bet）', () => {
     const [p1, p2] = getRealPlayerSessionStats([1, 2]);
     expect(p1.cbet).toBeNull();
     expect(p2.cbet).toBe(100);
+  });
+});
+
+/**
+ * P5（方案 §8.2）：开手快照。
+ *
+ * 开手那一刻冻结 `playerTypes`（分配）与 `playerRoles`（身份），之后不得再改 ——
+ * 这是长期聚合分组的唯一依据，也是「不能从当前 roles 反推历史身份」的实现。
+ */
+describe('P5 开手快照 playerTypes / playerRoles', () => {
+  beforeEach(() => resetOpponentStats());
+
+  it('startNewHand 把开手快照写进当前手', () => {
+    startNewHand('h1', [1, 2], { 2: 'TAG' }, { 1: 'human', 2: 'bot' });
+
+    expect(getCurrentHand()?.playerTypes).toEqual({ 2: 'TAG' });
+    expect(getCurrentHand()?.playerRoles).toEqual({ 1: 'human', 2: 'bot' });
+  });
+
+  it('快照是副本：外部 map 之后被改写不会污染已写记录', () => {
+    const types: BotTypeMap = { 2: 'TAG' };
+    const roles: Partial<Record<PlayerId, PlayerRole>> = { 1: 'human', 2: 'bot' };
+    startNewHand('h1', [1, 2], types, roles);
+
+    types[2] = 'Maniac';
+    delete roles[2];
+
+    expect(getCurrentHand()?.playerTypes).toEqual({ 2: 'TAG' });
+    expect(getCurrentHand()?.playerRoles).toEqual({ 1: 'human', 2: 'bot' });
+  });
+
+  it('players 也是副本：外部数组被改写不影响记录', () => {
+    const players: PlayerId[] = [1, 2];
+    startNewHand('h1', players);
+    players.push(3);
+
+    expect(getCurrentHand()?.players).toEqual([1, 2]);
+  });
+
+  it('关闭性格时写**空 map**（字段存在），便于与「旧记录无字段」区分', () => {
+    startNewHand('h1', [1, 2], {}, { 1: 'human', 2: 'bot' });
+
+    const hand = getCurrentHand();
+    expect(hand?.playerTypes).toEqual({});
+    expect(hand !== null && 'playerTypes' in hand).toBe(true);
+    // 身份与性格开关无关，仍然要记
+    expect(hand?.playerRoles).toEqual({ 1: 'human', 2: 'bot' });
+  });
+
+  it('旧调用（省略快照参数）向后兼容：快照落成空 map', () => {
+    startNewHand('h1', [1, 2]);
+
+    expect(getCurrentHand()?.playerTypes).toEqual({});
+    expect(getCurrentHand()?.playerRoles).toEqual({});
+  });
+
+  it('同一 handId 重复 startNewHand 幂等：不覆盖首次快照', () => {
+    startNewHand('h1', [1, 2], { 2: 'TAG' }, { 1: 'human', 2: 'bot' });
+    // 组件重挂载 / StrictMode 双调用会拿同一个 handId 再开一次
+    startNewHand('h1', [1, 2], { 2: 'Maniac' }, { 1: 'bot', 2: 'human' });
+
+    expect(getCurrentHand()?.playerTypes).toEqual({ 2: 'TAG' });
+    expect(getCurrentHand()?.playerRoles).toEqual({ 1: 'human', 2: 'bot' });
+  });
+});
+
+/**
+ * P5（方案 §8.2）：稳定手牌身份 `sessionId + handOrdinal`。
+ *
+ * 跨盘（重挂载后 `handCounter` 归零）即使 dealer 与 hero 底牌完全相同，
+ * 手牌 id 也必须不同 —— 否则长期库 `saveHand` 按 handId 覆盖，旧手牌被吃掉。
+ */
+describe('P5 稳定手牌身份 sessionId + handOrdinal', () => {
+  beforeEach(() => resetOpponentStats());
+
+  it('换盘后同一手序的手牌 id 不同（跨盘不碰撞）', () => {
+    const first = beginSession(() => 0.25);
+    const idA = makeHandId(1);
+    const second = beginSession(() => 0.25);
+    const idB = makeHandId(1);
+
+    // 即便随机数与毫秒都撞上，序列号也保证换盘必换 id
+    expect(first).not.toBe(second);
+    expect(idA).not.toBe(idB);
+    expect(idA.startsWith(`${first}-`)).toBe(true);
+    expect(idB.startsWith(`${second}-`)).toBe(true);
+  });
+
+  it('同盘内手序不同 → 身份不同；同序可复现', () => {
+    beginSession(() => 0.5);
+
+    expect(makeHandId(1)).not.toBe(makeHandId(2));
+    expect(makeHandId(1)).toBe(makeHandId(1));
+  });
+
+  it('getSessionId 反映最近一次 beginSession', () => {
+    const sid = beginSession(() => 0.75);
+
+    expect(getSessionId()).toBe(sid);
   });
 });

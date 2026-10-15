@@ -46,7 +46,12 @@ import {
   getCommunityByPhase,
   getStreetsLeft,
 } from '../utils/communityByPhase';
-import { getShadowBotAction } from '../utils/botAI';
+import {
+  getShadowBotActions,
+  placeholderShadowRows,
+  type ShadowActionRow,
+  type ShadowAssumedType,
+} from '../utils/botAI';
 import { formatActionLabel } from '../utils/actionLabel';
 import {
   formatOddsRatio,
@@ -168,6 +173,17 @@ function getBotActionColor(action: Action): string {
     case 'allin': return 'text-purple-400';
   }
 }
+
+/**
+ * 两行影子决策的**固定**标签（方案 §11.2，P8b）：假设 TAG / LAG 两种性格。
+ *
+ * 与当盘实际分配无关 —— 当盘没有这两类 Bot、甚至整盘关闭性格，两行都在；
+ * 面板回答的是「这个座位**如果**由紧凶 / 松凶机器人来打会怎么做」。
+ */
+const SHADOW_ROW_LABELS: Record<ShadowAssumedType, string> = {
+  TAG: translations.handAnalysis.botActionTAG,
+  LAG: translations.handAnalysis.botActionLAG,
+};
 
 function getOutsColor(outs: number): string {
   if (outs <= 4) return 'text-yellow-400';
@@ -874,21 +890,25 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return calculateRequiredFoldEquity(betSize, potBeforeHeroBet);
   }, [playerRaiseAmount, heroPlayer, currentPot]);
 
-  // 「Bot Action」：**这个真人座位如果交给机器人**会怎么打。
+  // 「Bot Action」固定两行（§11.2，P8b）：**这个真人座位如果交给紧凶 / 松凶机器人**
+  // 会怎么打。两行恒在 —— 没有可行动作时值退化成占位符，行本身不消失。
   //
-  // 跑的是与机器人真实决策完全同一条路径（`botAI.getShadowBotAction` →
-  // `getBotAction`），只是随机源被隔离 —— 面板在渲染期调用，绝不能推进真机器人的
-  // 混合频率序列（原因与实现见 `getShadowBotAction` 的注释）。
+  // 跑的是与机器人真实决策完全同一条路径（`botAI.getShadowBotActions` →
+  // `getBotAction`），随机源被隔离 —— 面板在渲染期调用，绝不能推进真机器人的
+  // 混合频率序列；两行还**共享一次权益**，否则两行的差异里会掺进蒙特卡洛抽样噪声。
   //
   // 依赖整个 `gameState`：它每次行动都会换引用，正好等于「局面变了就重算一次」；
   // 面板因权益 effect 重渲染时 gameState 不变，memo 命中，不会重复跑蒙特卡洛。
-  const shadowBotAction = useMemo(() => {
-    if (!heroPlayer || !gameState) return null;
-    if (phase === 'showdown' || phase === 'ended') return null;
-    // 已弃牌 / 已全下的人没有行动可做，问了也是无意义
-    if (heroPlayer.folded || heroPlayer.allIn) return null;
-    return getShadowBotAction(heroPlayer, gameState);
-  }, [heroPlayer, gameState, phase]);
+  // （`phase` 不单独列依赖 —— 它就是 `gameState.phase`，同一来源。）
+  //
+  // 注：沿用既有面板语义 —— 不要求「非得轮到 hero 才允许假设」（§11.2 末句）。
+  const shadowBotActions = useMemo<ShadowActionRow[]>(
+    () =>
+      heroPlayer && gameState
+        ? getShadowBotActions(heroPlayer, gameState)
+        : placeholderShadowRows(),
+    [heroPlayer, gameState],
+  );
 
   // 赔率行的**比率形式**（底池 : 跟注）。与 `callPotOdds` 是同一件事：
   //   callPotOdds = toCall / (totalPot + toCall) = 1 / (ratio + 1)
@@ -1329,18 +1349,26 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* Bot Action：这个真人座位如果交给机器人会怎么打。
-          放在 GTO Math 之前 —— 用户最想先知道「AI 会怎么做」，再看拆解。
+      {/* Bot Action：固定两行 —— 这个真人座位如果交给紧凶 / 松凶机器人会怎么打
+          （§11.2，P8b）。放在 GTO Math 之前 —— 用户最想先知道「AI 会怎么做」，
+          再看拆解。两行恒在：没有可行动作时值退化成占位符，行本身不消失。
           与座位气泡里的「机器人真实动作」是同一条决策路径，差别只有混合频率抽样。 */}
-      {shadowBotAction && (
-        <div className="border-t border-white/10 pt-1 mt-1">
+      <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
+        {shadowBotActions.map((row) => (
           <Row
-            label={translations.handAnalysis.botAction}
-            value={formatActionLabel(shadowBotAction.action)}
-            color={getBotActionColor(shadowBotAction.action)}
+            key={row.assumedType}
+            label={SHADOW_ROW_LABELS[row.assumedType]}
+            value={
+              row.decision
+                ? formatActionLabel(row.decision.action)
+                : translations.handAnalysis.botActionUnavailable
+            }
+            color={
+              row.decision ? getBotActionColor(row.decision.action) : 'text-white/40'
+            }
           />
-        </div>
-      )}
+        ))}
+      </div>
 
       {/* GTO Math: 两列网格；标签长于半列的行（MDF / V:B / 牌力分类）走整行 */}
       <div className="border-t border-white/10 pt-1 mt-1">

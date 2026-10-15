@@ -2,6 +2,8 @@ import type { GameState, Player, Card, Rank, Suit } from '../../types/poker';
 import type { ActionFlags, ContextInfo } from '../botAI';
 import type { OpponentAdjustments } from '../opponentModel';
 import { getDeepStackRecommendation, getDeepStackAdjustments } from '../gtoDeepStack';
+import { isActionAccepted } from '../../hooks/useGameState';
+import * as rangeEquity from '../rangeEquity';
 
 function createCard(rank: Rank, suit: Suit): Card {
   return { rank, suit };
@@ -342,13 +344,17 @@ describe('gtoDeepStack', () => {
   });
 
   /**
-   * 「无人可应」（`flags.canRaiseResult === false`）时**不做无效加注**。
+   * `getDeepStackRecommendation` 末尾的「对手弃牌率高 → 把 check 翻成 raise 偷盲」后处理。
    *
-   * `getDeepStackRecommendation` 末尾有一条「对手弃牌率高 → 把 check 翻成 raise 偷盲」
-   * 的后处理。翻之前必须复核 `flags.canRaiseResult`：对手全下 / 弃牌后该位已被
-   * `getBotAction` 关掉，此时翻成加注就是一次没人跟得起的加注（多下的筹码原样退回）。
+   * 两条不变量：
+   * 1. **必须复核 `flags.canRaiseResult`**：对手全下 / 弃牌后该位已被 `getBotAction`
+   *    关掉，此时翻成加注就是一次没人跟得起的加注（多下的筹码原样退回）。
+   * 2. **产出的加注必须带合法 `amount`**：深筹码调用点映射的是 `deepStackRec.amount`
+   *    （不像短筹码 / ICM 映射 `.sizing`）。曾漏掉它 ⇒ `amount === undefined` ⇒
+   *    `isActionAccepted('raise', undefined)` 被拒 ⇒ `GameBoard` 机器人 effect 只 `return`、
+   *    不重跑 ⇒ **机器人卡住**（回归见下面第三条用例）。
    */
-  describe('无人可应（canRaiseResult=false）时不把 check 翻成加注', () => {
+  describe('偷盲后处理（stealBoost）', () => {
     // raiseBonus > 0 ⇒ stealBoost = 0.05，这条后处理才会被激活。
     const stealAdj = () => createMockOpponentAdjustments({ raiseBonus: 1 });
 
@@ -386,6 +392,29 @@ describe('gtoDeepStack', () => {
       expect(rec.reasoning).toContain('stealing');
     });
 
+    it('产出的偷盲加注带合法 `amount`，且被 reducer 接受（回归：曾漏 amount ⇒ 机器人卡住）', () => {
+      // 与上一条同一局面。缺陷根因：该分支只给了 `sizing: 0.33`、没给 `amount`，而深筹码
+      // 调用点映射的是 `deepStackRec.amount`（不是 `.sizing`）⇒ `amount === undefined`
+      // ⇒ `isActionAccepted('raise', undefined)` 被拒 ⇒ 机器人卡住。
+      const state = noBetState();
+      const rec = getDeepStackRecommendation(
+        weakHand(),
+        state,
+        createMockActionFlags(),
+        noBetCtx(),
+        stealAdj(),
+      );
+
+      expect(rec.action).toBe('raise');
+      expect(rec.amount).toBeDefined();
+      expect(Number.isFinite(rec.amount)).toBe(true);
+      expect(rec.amount as number).toBeGreaterThan(0);
+      // 至少达到「最小全额加注」：toCall(0) + lastRaiseBet(50)。
+      expect(rec.amount as number).toBeGreaterThanOrEqual(50);
+      // 与 reducer **同一判据**（`legalizeRaise`）：这条在修复前会失败（undefined 被拒）。
+      expect(isActionAccepted(state, 1, rec.action, rec.amount)).toBe(true);
+    });
+
     it('canRaiseResult=false 时同一局面停在 check，不做无效加注', () => {
       const rec = getDeepStackRecommendation(
         weakHand(),
@@ -396,6 +425,80 @@ describe('gtoDeepStack', () => {
       );
       expect(rec.action).not.toBe('raise');
       expect(rec.action).toBe('check');
+    });
+  });
+
+  /**
+   * 面对下注（`ctx.toCall > 0`）时**不得翻成 `check`**。
+   *
+   * `getDeepStackRecommendation` 末尾在「对手跟注率高」时会把 `handleDeepStackFacingBet`
+   * 的 `raise` 压下去。原实现压成 `check` —— 但面对下注无法过牌（`isActionAccepted('check')`
+   * 要求 `toCall === 0`），动作被拒 ⇒ `GameBoard` 机器人 effect 只 `return`、不重跑
+   * ⇒ **机器人卡住**。不诈唬加注的合法替代是**跟注**。
+   *
+   * 权益由 MC 计算，这里钉死为 **0.46**：既 `< 0.5`（触发压制），又 `≥`
+   * `MADE_HAND_FLOORS.threeOfKindStrongEquity`（0.45）使三条判 `strong`，于是
+   * `handleDeepStackFacingBet` 走 commit+strong 的 `raise` 出口。
+   */
+  describe('面对下注时压掉诈唬加注，但不得压成非法过牌', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    // callPenalty > 0 ⇒ callTighten = 0.03，这条后处理才会被激活。
+    const tightAdj = () => createMockOpponentAdjustments({ callPenalty: 1 });
+
+    // 三条（set）+ 低 SPR（chips 500 / pot 200 ⇒ SPR 2.5 ⇒ commit 档）+ 面对下注。
+    const setHand = () =>
+      createMockPlayer({
+        hand: [createCard('7', '♠'), createCard('7', '♦')],
+        chips: 500,
+        bet: 0,
+      });
+    const facingBetState = () =>
+      createMockGameState({
+        phase: 'flop',
+        communityCards: [
+          createCard('7', '♥'),
+          createCard('K', '♣'),
+          createCard('2', '♦'),
+        ],
+        lastBet: 100,
+        lastRaiseBet: 50,
+        mainPot: 200,
+        players: [
+          createMockPlayer({ id: 1, chips: 500, bet: 0 }),
+          createMockPlayer({ id: 2, isRealPlayer: false, chips: 500, bet: 100 }),
+        ],
+      });
+    const facingBetCtx = () => createMockContext({ toCall: 100, totalPot: 200 });
+
+    it('前置条件：对手不跟注过多时，该局面返回 raise', () => {
+      jest.spyOn(rangeEquity, 'calculateRangeAwareEquity').mockReturnValue(0.46);
+      const rec = getDeepStackRecommendation(
+        setHand(),
+        facingBetState(),
+        createMockActionFlags(),
+        facingBetCtx(),
+        createMockOpponentAdjustments(),
+      );
+      expect(rec.action).toBe('raise');
+      expect(rec.reasoning).toContain('strong hand with low SPR');
+    });
+
+    it('对手跟注过多时压成 call（回归：曾压成 check ⇒ 被拒、机器人卡住）', () => {
+      jest.spyOn(rangeEquity, 'calculateRangeAwareEquity').mockReturnValue(0.46);
+      const state = facingBetState();
+      const rec = getDeepStackRecommendation(
+        setHand(),
+        state,
+        createMockActionFlags(),
+        facingBetCtx(),
+        tightAdj(),
+      );
+      // 面对下注不得过牌（`toCall > 0` 时 `check` 非法）。
+      expect(rec.action).not.toBe('check');
+      expect(rec.action).toBe('call');
+      // 与 reducer 同一判据：该动作必须被接受（修复前 `check` 在这里为 false）。
+      expect(isActionAccepted(state, 1, rec.action, rec.amount)).toBe(true);
     });
   });
 });

@@ -16,6 +16,14 @@ import { sprBand, sprFromState } from './spr';
 import { sprDecisionOf } from './sprStrategy';
 // ICM 风险溢价（锦标赛）与「门槛 = 赔率 + 溢价」的唯一来源。现金局恒为 0。
 import { riskAdjustedThreshold, riskPremiumFor } from './gtoICM';
+// persona 派生量：`valueShift` 平移分档、`callShift`（来自 `callBias`）平移跟注门槛、
+// `aggressionMult` 缩放进取频率。`undefined` 时全部精确恒等。
+import {
+  postflopParams,
+  renormalizeAggression,
+  shiftThreshold,
+  type PersonalityParams,
+} from './botPersonality';
 
 export const HandStrength = {
   NUTS: 'nuts',
@@ -329,6 +337,15 @@ export interface RiverStrategyInput {
   riskPremium?: number;
   /** 对手画像调整；面板传 undefined 表示纯 GTO 基线 */
   adjustments?: OpponentAdjustments;
+  /**
+   * 性格参数（可选）。`undefined` 时三个派生量全部恒等（`valueShift`/`callShift` 为 0、
+   * `aggression` 为 1），于是本函数的返回值**逐字段**与接线前一致（见下方实现注释里的
+   * 三处恒等保证）。
+   *
+   * 面板（`getGtoRiverRecommendation`）当前**不传** —— 它只服务真人，给的是「真人基础
+   * 建议」；P8b 的两行影子决策需要展示某个 Bot 的建议时才传。
+   */
+  persona?: PersonalityParams;
 }
 
 /** 河牌的**期望策略**。`frequency` < 1 表示混合，由调用方负责采样。 */
@@ -366,16 +383,41 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
   const ip = input.isIP;
   const isMultiway = input.isMultiway;
   const potOdds = input.potOdds;
+  const pf = postflopParams(input.persona);
+  // persona：`frequency` 的三处混合（坚果面对下注 0.6、强牌无人下注 0.7、诈唬 bluffProb）
+  // 都是「进取 vs 保守」的二选一（未命中即走 `fallback`），所以保守侧权重就是 `1 − w`。
+  // `aggression === 1` 时 `w·1/((1−w)+w·1) === w` **逐位成立**（河牌用到的固定频率
+  // 0.6/0.7/1/0 与 bluffProb 的 0–1 全域均已穷举验证），故无 persona 时频率不变。
+  //
+  // ⚠️ 归一化只改**权重**，不解除任何门槛或权限：`equity >= …` 判据、`commitBand`
+  // 的诈唬归零、超池分支、以及调用方的 `flags` 降级都先于它生效
+  // （§7.2 第 4 行「persona 不绕过赔率/权限」、第 9 行「约束优先」）。
+  const aggressionProb = (w: number) => renormalizeAggression(w, 1 - w, pf.aggression);
   // 缺省最深：不传 SPR 的调用方（含既有单测）行为逐位不变。
   const spr = input.spr ?? Number.POSITIVE_INFINITY;
   // commit 档（SPR < 3）：筹码相对底池已经很浅，跟注更宽松、诈唬无效。
   const commitBand = sprDecisionOf(spr) === 'commit';
   // 跟注门槛 = 直接赔率 + ICM 风险溢价。现金局溢价恒为 0 → 与以前逐位一致。
-  const callBase = riskAdjustedThreshold(potOdds, input.riskPremium ?? 0);
+  // persona：`callShift` 叠在这一处即可 —— 下面**全部四条**跟注判据
+  // （超池的 medium/其余、STRONG、MEDIUM、default）都以 `callBase` 为基值派生。
+  // `callShift === 0` 时 `shiftThreshold` **原样返回**（连 clamp 都不做）。
+  const callBase = shiftThreshold(
+    riskAdjustedThreshold(potOdds, input.riskPremium ?? 0),
+    pf.callShift,
+  );
   // commit 档下筹码已经很浅，抓诈唬不再额外要求 0.05 的余量（顶对按直接赔率跟）。
   const strongMargin = commitBand ? 0 : 0.05;
 
-  const strength = classifyRiverStrength(input.equity, input.handRank);
+  // persona：`valueShift` 是**门槛**偏移（§7.3 第 5 条）。河牌的五档线全部长在
+  // `classifyRiverStrength` 内部（NUTS 0.85 / STRONG 0.75 / MEDIUM 0.50 / WEAK 0.30，
+  // 外加「两对及以上抬地板到 STRONG」），所以「门槛整体 +s」的等价写法是把权益
+  // **下移** s 再分档：`equity ≥ floor + s ⟺ equity − s ≥ floor`。一处改动即整条阶梯
+  // 同步平移，不会某一档被单独抬起而错位（与 gtoPostflop / gtoDeepStack 同手法）。
+  // `s === 0` 时 `equity − 0` 逐位不变。
+  const strength = classifyRiverStrength(input.equity - pf.valueShift, input.handRank);
+  // ⚠️ 价格比较用的 `equity` 保持**原始值**（只叠加对手画像，不叠 `valueShift`）：
+  // 门槛那侧已经吃了 `callShift`，权益这侧若再扣一次 `valueShift`，同一个偏移会被
+  // 算两遍。这条分离与 `gtoDeepStack` 的 `classifyEquity` / `equity` 之分完全一致。
   const equity = input.adjustments
     ? adjustEquity(input.equity, input.adjustments)
     : input.equity;
@@ -413,7 +455,8 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
     switch (strength) {
       case HandStrength.NUTS:
         return {
-          ...base, action: 'raise', sizing: 0.75, frequency: 0.6, fallback: 'call',
+          ...base, action: 'raise', sizing: 0.75,
+          frequency: aggressionProb(0.6), fallback: 'call',
           reasoning: `Raise for value with nuts: ${fmtEqOdds(equity, potOdds)}`,
         };
 
@@ -464,7 +507,8 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
 
   if (strength === HandStrength.STRONG) {
     return {
-      ...base, action: 'raise', sizing, frequency: 0.7, fallback: 'check',
+      ...base, action: 'raise', sizing,
+      frequency: aggressionProb(0.7), fallback: 'check',
       reasoning: `River value bet: ${fmtEqOdds(equity, potOdds)}`,
     };
   }
@@ -478,11 +522,20 @@ export function getRiverStrategy(input: RiverStrategyInput): RiverStrategy {
 
   // 低 SPR（commit 档）下诈唬无效：对手已被底池套牢，弃牌率趋近 0，
   // 白白把自己的筹码送进一个对手必跟的底池。
-  const bluffProb = commitBand
+  //
+  // persona：`bluffProb` 是**由阻断牌评分与赔率算出的 GTO 诈唬占比**（不是可调字面量），
+  // 所以按「进取 vs 保守」二元归一化缩放它 —— 保守侧就是 `1 − bluffProb`（未命中即过牌）。
+  // ⚠️ `commitBand ⇒ 0` 这条**约束优先于性格**：乘任何 `aggressionMult` 都是 0，
+  // Maniac 在 commit 档也照样不诈唬（§7.2 第 9 行）。
+  const rawBluffProb = commitBand
     ? 0
     : bluffProbability(
         hand, community, equity, totalPot * sizing, totalPot, ip, isMultiway,
       );
+  // 分支门改用**归一化后**的值：`renormalizeAggression(w, 1−w, g) === 0 ⟺ w·g === 0`，
+  // 对所有真实 persona（`aggressionMult ≥ 0.3 > 0`）与 `rawBluffProb > 0` 完全等价，
+  // 但 `g = 0` 时不会再产出「动作是 raise、频率却是 0」的自相矛盾展示。
+  const bluffProb = aggressionProb(rawBluffProb);
 
   if (bluffProb > 0) {
     return {
@@ -554,6 +607,20 @@ export function decideRiverGTO(
   flags: ActionFlags,
   ctx: ContextInfo,
   adj: OpponentAdjustments,
+  /**
+   * 性格参数（可选尾参）。`undefined` 时 `getRiverStrategy` 的三个派生量全部恒等，
+   * 于是**动作、金额、随机消费次数**三项都不变（方案 §7.1、P1 golden 的前提）。
+   *
+   * §7.2 第 6 行：「河牌 GTO 也是必接入口，HU exact 权益分支保留」。本文件里
+   * 权益一律来自 `calculateRangeAwareEquity`（单挑时其内部会走穷举/exact 路径），
+   * persona **只**在拿到权益之后平移门槛与缩放频率，不改权益估计本身、也不改
+   * 迭代次数 —— 所以 exact 分支逐位保留（`botAI.decisionBaseline` 的
+   * `river-gto-hu-exact` 一条钉住它）。
+   *
+   * 尺寸（`sizingMult`）属 **P6c-3**，本步不接（§7.2 第 10 行「先变换下注或加注增量，
+   * 再最终合法化；不能对已合法 amount 末尾裸乘」）。
+   */
+  persona?: PersonalityParams,
 ): BotDecision {
   const community = getCommunityByPhase(state);
   const texture = analyzeBoardWithEquity(community);
@@ -582,10 +649,12 @@ export function decideRiverGTO(
     spr,
     riskPremium,
     adjustments: adj,
+    persona,
   });
 
   // 混合策略：按期望频率采样一次，未命中则走替代动作。
   // 先判 `flags.canRaiseResult` 再掷骰子（短路求值），不可加注时不消耗随机数。
+  // persona 只改 `strategy.frequency` 的**取值**，掷骰次数不变（恒为 0 或 1 次）。
   if (
     strategy.action === 'raise' &&
     !strategy.isOverbet &&
@@ -643,6 +712,12 @@ export function getGtoRiverRecommendation(params: {
    * 与机器人 `decideRiverGTO` 传同一个数时两边结论一致。
    */
   spr?: number;
+  /**
+   * 展示对象的性格参数（可选尾参）。**当前渲染层不传** —— 面板只服务真人
+   * （`HandAnalysis` 的河牌分支），给的是「真人基础建议」，所以默认 `undefined`
+   * 走恒等路径。P8b（Bot Action 两行影子决策）需要展示某个 Bot 的建议时才传。
+   */
+  persona?: PersonalityParams;
 }): GtoRiverRecommendation {
   const community = params.communityCards;
   const texture = analyzeBoardWithEquity(community);
@@ -667,6 +742,7 @@ export function getGtoRiverRecommendation(params: {
     hand: params.hand,
     community,
     spr: params.spr,
+    persona: params.persona,
   });
 
   const sizingPercent =

@@ -89,4 +89,39 @@ describe('showdown结算', () => {
       spy.mockRestore();
     }
   });
+
+  it('结算写入手牌记录时生产 flopSeenPlayers / showdownWinners（P0b）', () => {
+    const spy = renderWithSeed(1);
+    try {
+      expect(playToSettlement()).toBe('win');
+
+      const raw = localStorage.getItem('texas-poker-long-stats');
+      expect(raw).not.toBeNull();
+      const data = JSON.parse(raw as string) as {
+        hands: Array<{
+          timestamp: number;
+          flopSeenPlayers?: number[];
+          showdownPlayers?: number[];
+          showdownWinners?: number[];
+        }>;
+      };
+      expect(data.hands.length).toBeGreaterThan(0);
+
+      // 取最新一手（跨用例累积，按 timestamp 取最大）
+      const hand = data.hands.reduce((a, b) =>
+        a.timestamp >= b.timestamp ? a : b,
+      );
+
+      // 两人都跟注到摊牌 → 翻牌发出时都未弃牌 → 都看到翻牌
+      expect(hand.flopSeenPlayers).toEqual(expect.arrayContaining([1, 2]));
+      // 摊牌参与者写入
+      expect(hand.showdownPlayers).toEqual(expect.arrayContaining([1, 2]));
+      // 获奖者来自 potDistribution（胜负分明时恰一人）
+      expect(hand.showdownWinners).toBeDefined();
+      expect(hand.showdownWinners).toHaveLength(1);
+      expect(hand.showdownPlayers).toContain(hand.showdownWinners![0]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

@@ -12,6 +12,8 @@ dist
 dist-ssr
 *.local
 coverage
+# vite 依赖预构建缓存（见 vite.config.ts 的 cacheDir）
+.vite-cache
 
 # Editor directories and files
 .vscode/*
@@ -26,3 +28,10 @@ coverage
 
 # AI assistant workspace (local notes / memory, never committed)
 .workbuddy-ai/
+
+# 本地方案预览产物（HTML 渲染 + 脚本）
+outputs/
+
+# 闭环校准 runner 的中间产物与报告（见 scripts/calibrate.mjs）
+scripts/.out/
+scripts/reports/

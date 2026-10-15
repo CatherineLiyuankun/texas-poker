@@ -2,8 +2,8 @@
  * `computePlayerStatsFromEvents` 的入参契约测试。
  *
  * 这个函数过去接受「按玩家过滤过」的手牌记录，导致需要对手上下文的
- * `3-bet` / `fold-to-c-bet` 静默恒为 `null`；而长期路径传的又是完整记录，
- * 于是 `c-bet` / `WTSD` / `WSD` 被算到了「最后一个翻前加注者」头上。
+ * `3-bet` / `fold-to-c-bet` / `check-raise` 静默恒为 `null`；而长期路径传的又是
+ * 完整记录，于是 `c-bet` / `WTSD` / `WSD` 被算到了「最后一个翻前加注者」头上。
  * 现在统一为「只接受完整记录，过滤自己做」。
  */
 import { computePlayerStatsFromEvents } from '../opponentModelUtil';
@@ -19,17 +19,18 @@ function ev(
   phase: GamePhase,
   action: Action,
   timestamp: number,
+  toCall: number = 0,
 ): ActionEvent {
   return {
     handId,
     playerId,
     phase,
     action,
-    toCall: 0,
-    currentBet: 0,
+    toCall,
+    currentBet: toCall,
     potSize: 0,
     position: 0,
-    isFacingRaise: false,
+    isFacingRaise: toCall > 0,
     timestamp,
   };
 }
@@ -41,7 +42,7 @@ const handA: HandRecord = {
   players: [P1, P2],
   events: [
     ev('A', P2, 'preflop', 'raise', 1),
-    ev('A', P1, 'preflop', 'call', 2),
+    ev('A', P1, 'preflop', 'call', 2, 2),
     ev('A', P2, 'flop', 'raise', 3),
     ev('A', P1, 'flop', 'fold', 4),
   ],
@@ -70,7 +71,7 @@ const handC: HandRecord = {
   players: [P1, P2],
   events: [
     ev('C', P2, 'preflop', 'raise', 1),
-    ev('C', P1, 'preflop', 'call', 2),
+    ev('C', P1, 'preflop', 'call', 2, 2),
     ev('C', P2, 'flop', 'check', 3),
     ev('C', P1, 'flop', 'check', 4),
     ev('C', P2, 'turn', 'check', 5),
@@ -87,7 +88,7 @@ const handD: HandRecord = {
   players: [P2, 3],
   events: [
     ev('D', P2, 'preflop', 'raise', 1),
-    ev('D', 3, 'preflop', 'call', 2),
+    ev('D', 3, 'preflop', 'call', 2, 2),
   ],
 };
 
@@ -123,7 +124,9 @@ describe('computePlayerStatsFromEvents（完整手牌记录口径）', () => {
     // 翻牌弃牌、转牌过牌 —— 没有跟注也没有加注
     expect(stats.af).toBeNull();
     expect(stats.afq).toBe(0);
-    expect(stats.checkRaise).toBe(0);
+    // check-raise 机会要求「先 check 后真实面对对手下注」；C 手两边互相 check
+    // 过牌没有下注可加注 → 零机会 → null（旧口径把「check 过牌」也算机会，得 0）
+    expect(stats.checkRaise).toBeNull();
   });
 
   it('handsDealt 只算该玩家参与过的手牌', () => {
