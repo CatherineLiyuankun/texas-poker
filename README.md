@@ -18,11 +18,17 @@ A React-based Texas Hold'em Poker game with intelligent bots, accurate pot calcu
   - **Postflop AI**: Monte Carlo equity simulation (200-500 iterations) + pot odds comparison
   - **Draw Detection**: Flush draw, open-ended straight, gutshot with outs-based probability
   - **Opponent Modeling**: Profiles opponents as aggressive/passive and adjusts thresholds dynamically
+- **Bot Personality (persona)**: each bot can be assigned one of six personalities that reshape its preflop/postflop thresholds and bet sizing; set on the start screen (**default on**, chosen when starting a new game, read-only mid-game)
+  - **Six types & the A′ quota**: for B bots the assignment is the multiset `TAG` (B=1), `TAG+Fish` (B=2), `TAG+LAG+Fish` (B=3), `TAG+LAG+Fish+Nit` (B=4), `TAG+LAG+Fish+Nit+CS` (B=5), `TAG+LAG+Fish+Nit+CS+Maniac` (B=6); normal new games cap at B≤6
+  - **Assigned ≠ measured**: the *assigned* type drives decisions through seven knobs (`openWiden` / `defendVsOpen` / `threeBetFreq` / `valueShift` / `aggressionMult` / `callBias` / `sizingMult`), while the *measured* type in the stats table is classified from the bot's real VPIP/PFR — the two may legitimately differ
+  - **Seat label**: once a hand is settled each bot seat shows its assigned personality (with a hover explanation); nothing is shown during betting, and disabled/unassigned seats never get a fabricated label
+  - **Stats by assigned type**: the stats popover groups bots by assigned personality, alongside the per-seat measured stats
+  - **Calibration**: parameters were fitted by a closed-loop runner (`npm run calibrate`, reusing the production reducer, 3000 hands) — see [Known Limits](#known-limits); several §4 target ranges are **not reachable** by tuning the knobs alone
 - **Hand Analysis Panel**: Real-time display of **random-hand equity** and **range-aware equity**, pot odds, implied odds, draw info, **Bot Action**, and action recommendations
   - **Random equity**: hero vs. N uniformly random hands (Monte Carlo; heads-up river uses exact enumeration) — its "vs random hands" caveat sits in that row's **hover tooltip**, not inline (an inline note would crowd the percentage out of the row)
   - **Range equity**: hero vs. an inferred opponent continuing range (preflop role + position tables + card removal + VPIP, then narrowed by the observed postflop action line)
   - Available from preflop onward; the recommendation and EV figures are driven by range equity, falling back to random equity when no range can be inferred
-  - **Bot Action** (above `GTO Math`): what the bot would do **if this real player's seat were bot-controlled** — the same decision path as the live bots (`getShadowBotAction` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below)
+  - **Bot Action** (above `GTO Math`): **two fixed rows** — `Bot 紧凶Action` / `Bot 松凶Action` — showing what the seat would do **if it were a TAG / a LAG**, independent of the table's actual assignment (both rows stay even when the table has no such bot or personality is off). Same decision path as the live bots (`getShadowBotActions` → `getBotAction`), with the strategy randomness swapped for a state-seeded PRNG so a panel render never advances the real bots' mixed-frequency stream; the two rows share one equity computation. It is a *hypothetical*, so it may legitimately differ from the bot's actual action (channel ④ below); when the seat has no actionable decision the value degrades to `—` while both rows stay
   - **Pot odds**: the percentage plus the same thing as a ratio (`pot : call`), e.g. `33.3% 2 : 1` — 1/4 pot `5 : 1`, 1/2 pot `3 : 1`, 3/4 pot `2.3 : 1`, full pot `2 : 1`, 2 pots `1.5 : 1`, matching the standard table
   - **Implied odds**: `(pot + future winnings) : (call + my future calls)` — the main figure is a **drawing plan** (what the opponent keeps paying once I improve), with the optimistic textbook read (`上界`) printed next to it. Shown only for a hand that can still improve — a draw, a backdoor flush draw, three of a kind or a preflop pocket pair — and hidden on the river. Full caliber, worked example and edge cases: [Implied Odds](#implied-odds)
 - **Player Stats Tracking (VPIP/PFR)**: Long-term tracking of preflop behavior across multiple hands — the stats table covers bots and real players on the same footing
@@ -193,7 +199,13 @@ Per-combination breakdown:
 1. **Preflop, ICM reaches the bot only when GTO is OFF.** On the heuristic path `botAI.decidePreflop` applies the risk premium (`gtoICM.riskPremiumFor`) and `gtoShortStack`. When GTO is ON, preflop tournament tightening is expressed solely through the derived range tables in `gtoPreflop` (`TOURNAMENT_*_KEEP`), which do **not** stack a risk premium. **Postflop and river are different**: there the premium is applied under *both* engines, because `gtoPostflop` / `gtoRiver` / `gtoDeepStack` (shared with the panel's `Action` row) and the heuristic `botAI.decidePostflop` / `decideRiver` all fold it into the call threshold via `gtoICM.riskAdjustedThreshold`.
 2. **The panel never applies ICM — but it does *display* the bot-side premium.** `HandAnalysis` imports only `gtoICM.riskPremiumForScenario` and uses it for the caveat text; none of its numbers (the recommendation row, MDF / Call EV / Raise EV / V:B) is ICM-adjusted. The caveat line therefore starts with *未计 ICM* in both scenarios and, under tournaments, annotates the bot's premium as *（机器人溢价 +X%）* — a signed value (negative for a short stack, i.e. a *loosened* threshold). What *does* change the panel's numbers under tournaments is the opponent's modelled range (tightened preflop) — and that has its own label, *锦标赛范围收紧*. The quoted strings are the literal UI labels, which are Chinese.
 
-**The panel's `Bot Action` row is not a fifth channel of the table above.** It answers a *hypothetical* — "if this real player's seat were bot-controlled, what would it do?" — by running the bot's decision path on that seat (`getShadowBotAction`). It shares the *code* with ④ (both end in `getBotAction`) but not the *sample*: ④ is the bot's real action, `Bot Action` is one deterministic draw from the same mixed strategy. They may legitimately differ, and neither is a bug. The row is hidden when the hero has folded or is all-in.
+**The panel's `Bot Action` rows are not a fifth channel of the table above.** They answer a *hypothetical* — "if this seat were a TAG / a LAG, what would it do?" — by running the bot's decision path on that seat (`getShadowBotActions`). They share the *code* with ④ (all end in `getBotAction`) but not the *sample*: ④ is the bot's real action, each `Bot Action` row is one deterministic draw from the same mixed strategy. They may legitimately differ, and neither is a bug. The two rows are **always shown**; when the seat has no actionable decision (hero folded, all-in, settled, …) the value degrades to a `— / 无可行动作` placeholder rather than disappearing.
+
+### Known Limits
+
+- **Personality calibration is partial.** The §4 VPIP/PFR/AF/WTSD ranges are *working targets*, not hard guarantees. On the 6-player calibration table the VPIP/PFR **ratio** and the TAG/LAG **PFR** targets are **not reachable** by tuning the personality knobs alone (the preflop raise branch is gated so that non-blind seats almost always enter by *calling*), the Fish `WTSD ≤ 30` target contradicts its loose-passive semantics, and Maniac is not sampled by the calibration runner. Full data, root cause and follow-up plan: `docs/BOT_PERSONALITY_PLAN.md` §17.1.
+- **7/8-player tables.** The first full acceptance round is the 6-player table `1 real + 5 bots`. For 7/8 players only configuration correctness, save/restore and all-seat legality are gated; the full six-type calibration at 7 players (R1/B6, with a Maniac real-play special) and at 8 players is a later phase. Full position unification for 7/8 seats is **not** part of this change.
+- **Save / refresh mid-hand.** Recovery is guaranteed from a **settled-hand snapshot**. Resuming an in-progress hand after a refresh is a separate, known issue and is not claimed as supported.
 
 ### Tech Stack
 
@@ -235,7 +247,7 @@ npm run build
 - **Integration Tests**: `src/e2eTests/` - Full game flow (end-to-end)
 - **Hook Tests**: `src/hooks/__tests__/` - Hook behavior tests
 - **Component Tests**: `src/components/__tests__/` - UI, settlement, equity panel, and the player-stats popover
-- **Test Coverage**: 1111 tests across 62 test suites (1109 passed, 2 skipped) — run `npm test` for the current figure
+- **Test Coverage**: 1700 tests across 91 test suites (1698 passed, 2 skipped) — run `npm test` for the current figure
 
 ---
 
@@ -253,11 +265,17 @@ npm run build
   - **翻后 AI**: Monte Carlo 胜率模拟（300-400 次迭代）+ 底池赔率比较
   - **听牌检测**: 同花听牌、两头顺子、卡顺，基于 Outs 概率计算
   - **对手画像**: 自动识别激进/被动型对手，动态调整决策阈值
+- **Bot 性格（persona）**: 每个 Bot 可被分配六类性格之一，重塑其翻前/翻后门槛与下注尺寸；在开始页设置（**默认开**、开新盘时选定、盘内只读）
+  - **六类与 A′ 配额**: B 个 Bot 的分配是多重集 `TAG`（B=1）、`TAG+Fish`（B=2）、`TAG+LAG+Fish`（B=3）、`TAG+LAG+Fish+Nit`（B=4）、`TAG+LAG+Fish+Nit+CS`（B=5）、`TAG+LAG+Fish+Nit+CS+Maniac`（B=6）；普通新局上限 B≤6
+  - **分配 ≠ 实测**: **分配**的类型通过七个旋钮（`openWiden` / `defendVsOpen` / `threeBetFreq` / `valueShift` / `aggressionMult` / `callBias` / `sizingMult`）驱动机器人决策；统计表里的**实测**类型则由机器人真实 VPIP/PFR 分类得出 —— 两者可以合法地不同
+  - **座位标签**: 一手结算后每个 Bot 座位显示其**分配**的性格（悬停有说明）；下注阶段不显示，关闭/未分配的座位不虚构标签
+  - **按分配类型聚合**: 统计浮层按**分配**的性格把 Bot 分组展示，与按座位的实测统计并列
+  - **校准**: 参数由闭环 runner（`npm run calibrate`，复用生产 reducer，3000 手）拟合得出 —— 见 [已知限制](#已知限制)；§4 的若干目标区间**仅靠调旋钮无法达到**
 - **手牌分析面板**: 实时显示**随机权益**与**范围权益**、底池赔率、隐含赔率、听牌信息、**Bot Action** 和行动建议
   - **随机权益**: 我方手牌 vs N 手均匀随机牌（Monte Carlo；单挑河牌走精确枚举）—— 「vs 随机牌」的口径说明挂在该行的**悬停提示**里，不占版面（写在行内会把百分比挤出去）
   - **范围权益**: 我方手牌 vs 推断出的对手续玩范围（翻前角色 + 位置表 + 去牌 + VPIP 宽度修正，再按观测到的翻后行动线收窄）
   - 翻前起即可用；行动建议与 EV 数字由范围权益驱动，无法推断范围时回退为随机权益
-  - **Bot Action**（位于 `GTO Math` 之前）: **这个真人座位如果交给机器人**会怎么打 —— 与场上机器人同一条决策路径（`getShadowBotAction` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同
+  - **Bot Action**（位于 `GTO Math` 之前）: **固定两行** —— `Bot 紧凶Action` / `Bot 松凶Action` —— 显示这个座位**如果是 TAG / LAG** 会怎么打，与当盘实际分配无关（当盘没有这两类 Bot、甚至整盘关闭性格，两行都在）。与场上机器人同一条决策路径（`getShadowBotActions` → `getBotAction`），只是把策略随机换成由局面签名派生的 PRNG，因此面板渲染**不会**推进真机器人的混合频率序列；两行共享一次权益计算。它是**假设性**结果，与机器人的真实动作（下表通道 ④）可以合法地不同；该座位没有可行动作时值退化成 `— / 无可行动作`，但两行不消失
   - **底池赔率**: 百分比 + 同一件事的**比率形式**（底池 : 跟注），如 `33.3% 2 : 1` —— 1/4 池 `5 : 1`、1/2 池 `3 : 1`、3/4 池 `2.3 : 1`、一个池 `2 : 1`、两个池 `1.5 : 1`，与标准表逐行一致
   - **隐含赔率**: `（底池 + 对手未来投入）:（跟注 + 我未来跟注）` —— 主值是**追牌计划**口径（成牌之后对手还会付多少），旁边的小号「上界」是教材式乐观对照。只在手牌还有变强路径时显示（听牌 / 后门同花听 / 三条 / 翻前口袋对），河牌隐藏。完整口径、算例与边界见 [隐含赔率](#隐含赔率)
 - **玩家数据统计 (VPIP/PFR)**: 跨多局长期追踪翻牌前行为 —— 统计表里 Bot 与真人同一口径
@@ -427,7 +445,13 @@ npm run build
 1. **翻前，ICM 只在 GTO OFF 时影响机器人。** 启发式路径的 `botAI.decidePreflop` 会叠风险溢价（`gtoICM.riskPremiumFor`）与 `gtoShortStack`。GTO ON 时翻前锦标赛的收紧全部由 `gtoPreflop` 的派生范围表（`TOURNAMENT_*_KEEP`）表达，**不叠**风险溢价。**翻后与河牌不一样**：两条引擎都会把溢价折进跟注门槛 —— `gtoPostflop` / `gtoRiver` / `gtoDeepStack`（与面板 `Action` 行同源）与启发式的 `botAI.decidePostflop` / `decideRiver` 都走 `gtoICM.riskAdjustedThreshold`。
 2. **面板从不计 ICM —— 但会*显示*机器人侧的溢价。** `HandAnalysis` 只 import `gtoICM.riskPremiumForScenario`，且仅用于口径文案；它的任何数字（建议行、MDF / Call EV / Raise EV / V:B）都不做 ICM 调整。所以口径标注在两种赛制下都以「未计 ICM」开头，锦标赛那句把机器人侧的溢价标成「机器人溢价 ±X%」（**有符号**：短筹码为负 = 门槛被放宽）。锦标赛下面板数字**确实**会变，但变的原因是**对手范围被收紧**，那件事有自己的标注「锦标赛范围收紧」。
 
-**面板的 `Bot Action` 行不是上表的第五条通道。** 它回答的是一个**假设性问题** ——「这个真人座位如果交给机器人会怎么打」—— 做法是对该座位跑一次机器人决策路径（`getShadowBotAction`）。它与 ④ **共用代码**（最终都走 `getBotAction`），但不共用**样本**：④ 是机器人的真实动作，`Bot Action` 是从同一套混合策略里抽出的一个确定性样本。两者可以合法地不同，谁都不是 bug。真人已弃牌或已全下时该行隐藏。
+**面板的 `Bot Action` 两行不是上表的第五条通道。** 它们回答的是一个**假设性问题** ——「这个座位如果是 TAG / LAG 会怎么打」—— 做法是对该座位跑一次机器人决策路径（`getShadowBotActions`）。它与 ④ **共用代码**（最终都走 `getBotAction`），但不共用**样本**：④ 是机器人的真实动作，每个 `Bot Action` 行是从同一套混合策略里抽出的一个确定性样本。两者可以合法地不同，谁都不是 bug。两行**恒在**；该座位没有可行动作（真人已弃牌、已全下、已结算…）时值退化成 `— / 无可行动作` 占位符，而不是整行消失。
+
+### 已知限制
+
+- **性格校准是部分的。** §4 的 VPIP/PFR/AF/WTSD 区间是**工作目标**，不是硬保证。六人桌校准实测下，VPIP/PFR 的 **ratio** 与 TAG/LAG 的 **PFR** 目标**仅靠调性格旋钮无法达到**（翻前加注分支被门控，非盲位几乎总走跟注入池）；Fish 的 `WTSD ≤ 30` 与「松被动」语义相悖；Maniac 未被校准 runner 采样。完整数据、根因与后续计划见 `docs/BOT_PERSONALITY_PLAN.md` §17.1。
+- **7/8 人桌。** 首轮完整验收是六人桌 `1 真人 + 5 Bot`。7/8 人只做配置正确性、存档恢复与全座位合法性门；七人（R1/B6，含 Maniac 真实对局专项）与八人的六类完整校准为后续阶段。7/8 的完整位置统一**不在**本次改动内。
+- **中途存档 / 刷新。** 只保证从**结算快照**恢复。刷新后续打一手进行中的牌是另一个已知问题，不在支持范围内。
 
 ### 技术栈
 
@@ -468,4 +492,4 @@ npm run build
 - **集成测试**: `src/e2eTests/` - 完整游戏流程（端到端）
 - **Hook 测试**: `src/hooks/__tests__/` - Hook 行为测试
 - **组件测试**: `src/components/__tests__/` - UI、结算、权益面板和玩家数据浮层测试
-- **测试覆盖**: 62 个测试套件，共 1111 个测试用例（1109 通过，2 跳过）—— 以 `npm test` 的实际输出为准
+- **测试覆盖**: 91 个测试套件，共 1700 个测试用例（1698 通过，2 跳过）—— 以 `npm test` 的实际输出为准
