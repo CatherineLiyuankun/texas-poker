@@ -66,56 +66,61 @@ export interface PersonalityParams {
 }
 
 /**
- * 六类性格的参数初值（方案 §7.1 表）。
+ * 六类性格的参数表 —— 由 P9-4 真实闭环校准定稿（方案 §17.1「最佳可达」）。
  *
- * TAG 是**基准**（`valueShift` 为 0、其余全 1.0）—— 这不代表原策略就是 TAG，
- * 只表示「persona = TAG」等价于不做平移。数值是示意初值，须经 P9 真实闭环校准；
- * 例如 Fish / CS 的 `openWiden` 偏低并未证明足以达到 38–45% VPIP。
+ * 初值来自 §7.1，但**逐值已被实测漂移**：§7.1 只给方向性示意，真实 VPIP/PFR/AF
+ * 由「分类树 + 价格门槛 + 硬编码加注字面量」共同决定，无法从旋钮直接反推。
+ * 本表是 3000 手生产迭代下的**最佳可达**结果（§17.1 表），并**记录了三处结构性
+ * 缺口**（ratio/PFR 天花板、Fish WTSD 语义冲突、Maniac 未被 runner 覆盖）。
+ *
+ * ⚠️ **TAG 不再是恒等变换**：§7.1 里 TAG 恰为基准纯属巧合，P9-4 后其翻前三参
+ * 已漂移（`openWiden 1.1 / defendVsOpen 0.18 / threeBetFreq 6.0`）。「无 persona」
+ * 的恒等语义**由 `preflopWidths(undefined)` 写死**，不读本表 —— 见 `personaParamsFor`。
  */
 export const PERSONALITY_PARAMS: Readonly<Record<BotPersonality, PersonalityParams>> = {
   Nit: {
-    openWiden: 0.6,
-    defendVsOpen: 0.6,
-    threeBetFreq: 0.4,
+    openWiden: 0.5,
+    defendVsOpen: 0.5,
+    threeBetFreq: 0.5,
     valueShift: 0.05,
     aggressionMult: 0.7,
     callBias: 0.8,
     sizingMult: 0.9,
   },
   TAG: {
-    openWiden: 1.0,
-    defendVsOpen: 1.0,
-    threeBetFreq: 1.0,
+    openWiden: 1.1,
+    defendVsOpen: 0.18,
+    threeBetFreq: 6.0,
     valueShift: 0.0,
     aggressionMult: 1.0,
     callBias: 1.0,
     sizingMult: 1.0,
   },
   LAG: {
-    openWiden: 1.6,
-    defendVsOpen: 1.5,
-    threeBetFreq: 1.6,
+    openWiden: 1.7,
+    defendVsOpen: 0.5,
+    threeBetFreq: 6.0,
     valueShift: -0.05,
     aggressionMult: 1.4,
     callBias: 0.9,
     sizingMult: 1.1,
   },
   Fish: {
-    openWiden: 0.8,
-    defendVsOpen: 1.6,
+    openWiden: 2.8,
+    defendVsOpen: 6.0,
     threeBetFreq: 0.3,
-    valueShift: -0.1,
-    aggressionMult: 0.5,
-    callBias: 1.3,
+    valueShift: -0.10,
+    aggressionMult: 0.05,
+    callBias: 3.0,
     sizingMult: 1.2,
   },
   'Calling Station': {
-    openWiden: 0.7,
-    defendVsOpen: 1.8,
-    threeBetFreq: 0.2,
+    openWiden: 2.6,
+    defendVsOpen: 5.5,
+    threeBetFreq: 1.5,
     valueShift: -0.12,
-    aggressionMult: 0.3,
-    callBias: 1.5,
+    aggressionMult: 0.05,
+    callBias: 2.6,
     sizingMult: 1.1,
   },
   Maniac: {

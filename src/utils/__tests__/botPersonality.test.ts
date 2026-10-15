@@ -7,7 +7,7 @@
  *   - 越界 Bot 数抛错（不静默钳人数）；
  *   - 分配只洗牌、不改构成；随机可注入；B=1 恒定；注入越界值不崩；
  *   - 非法 type 校验（恢复层用）；
- *   - 参数表覆盖六类、TAG 为基准、逐值对齐 §7.1；
+ *   - 参数表覆盖六类、逐值对齐 P9-4 校准表（§7.1 初值已按实测漂移）；
  *   - 配额常量不被分配调用污染。
  */
 import {
@@ -220,52 +220,67 @@ describe('botPersonality：参数表（方案 §7.1）', () => {
     }
   });
 
-  it('TAG 是基准：valueShift=0，其余为 1.0', () => {
+  it('TAG 的翻后四参仍是恒等（valueShift=0 / aggression=1 / callBias=1 / sizing=1）', () => {
     const tag = PERSONALITY_PARAMS.TAG;
     expect(tag.valueShift).toBe(0);
-    expect(tag.openWiden).toBe(1);
-    expect(tag.defendVsOpen).toBe(1);
-    expect(tag.threeBetFreq).toBe(1);
     expect(tag.aggressionMult).toBe(1);
     expect(tag.callBias).toBe(1);
     expect(tag.sizingMult).toBe(1);
   });
 
-  it('逐值对齐 §7.1 表', () => {
+  it('TAG 的翻前三参已随 P9-4 校准漂移（不再是恒等）', () => {
+    // 方案 §7.1：TAG 初值恰好恒等只是巧合，会随 P9 校准漂移；P9-4 实测已漂移。
+    // 这里只钉「已漂移」这一事实，具体数值由下面的逐值断言覆盖。
+    const tag = PERSONALITY_PARAMS.TAG;
+    expect(tag.openWiden).not.toBe(1);
+    expect(tag.defendVsOpen).not.toBe(1);
+    expect(tag.threeBetFreq).not.toBe(1);
+  });
+
+  it('逐值对齐 P9-4 校准表（§7.1 初值经闭环实测调整）', () => {
     expect(PERSONALITY_PARAMS.Nit).toEqual({
-      openWiden: 0.6,
-      defendVsOpen: 0.6,
-      threeBetFreq: 0.4,
+      openWiden: 0.5,
+      defendVsOpen: 0.5,
+      threeBetFreq: 0.5,
       valueShift: 0.05,
       aggressionMult: 0.7,
       callBias: 0.8,
       sizingMult: 0.9,
     });
+    expect(PERSONALITY_PARAMS.TAG).toEqual({
+      openWiden: 1.1,
+      defendVsOpen: 0.18,
+      threeBetFreq: 6.0,
+      valueShift: 0,
+      aggressionMult: 1.0,
+      callBias: 1.0,
+      sizingMult: 1.0,
+    });
     expect(PERSONALITY_PARAMS.LAG).toEqual({
-      openWiden: 1.6,
-      defendVsOpen: 1.5,
-      threeBetFreq: 1.6,
+      openWiden: 1.7,
+      defendVsOpen: 0.5,
+      threeBetFreq: 6.0,
       valueShift: -0.05,
       aggressionMult: 1.4,
       callBias: 0.9,
       sizingMult: 1.1,
     });
     expect(PERSONALITY_PARAMS.Fish).toEqual({
-      openWiden: 0.8,
-      defendVsOpen: 1.6,
+      openWiden: 2.8,
+      defendVsOpen: 6.0,
       threeBetFreq: 0.3,
       valueShift: -0.1,
-      aggressionMult: 0.5,
-      callBias: 1.3,
+      aggressionMult: 0.05,
+      callBias: 3.0,
       sizingMult: 1.2,
     });
     expect(PERSONALITY_PARAMS['Calling Station']).toEqual({
-      openWiden: 0.7,
-      defendVsOpen: 1.8,
-      threeBetFreq: 0.2,
+      openWiden: 2.6,
+      defendVsOpen: 5.5,
+      threeBetFreq: 1.5,
       valueShift: -0.12,
-      aggressionMult: 0.3,
-      callBias: 1.5,
+      aggressionMult: 0.05,
+      callBias: 2.6,
       sizingMult: 1.1,
     });
     expect(PERSONALITY_PARAMS.Maniac).toEqual({
@@ -443,16 +458,16 @@ describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
     expect(preflopWidths(undefined).open).toBe(1);
   });
 
-  it('preflopWidths：三档各自映射到正确的旋钮', () => {
+  it('preflopWidths：三档各自映射到正确的旋钮（P9-4 校准值）', () => {
     expect(preflopWidths(PERSONALITY_PARAMS.LAG)).toEqual({
-      open: 1.6,
-      defend: 1.5,
-      threeBet: 1.6,
+      open: 1.7,
+      defend: 0.5,
+      threeBet: 6.0,
     });
     expect(preflopWidths(PERSONALITY_PARAMS.Nit)).toEqual({
-      open: 0.6,
-      defend: 0.6,
-      threeBet: 0.4,
+      open: 0.5,
+      defend: 0.5,
+      threeBet: 0.5,
     });
     expect(preflopWidths(PERSONALITY_PARAMS.Maniac)).toEqual({
       open: 2.2,
@@ -461,11 +476,13 @@ describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
     });
   });
 
-  it('preflopWidths：TAG 恰好是恒等（记录这个巧合，但它不是实现依据）', () => {
+  it('preflopWidths：TAG 已随 P9-4 漂移，不再恰好是恒等', () => {
+    // 方案 §7.1：TAG 初值恰好恒等只是巧合；P9-4 校准后 openWiden/defendVsOpen/
+    // threeBetFreq 都变了。恒等只属于 `undefined`（见上一条）。
     expect(preflopWidths(PERSONALITY_PARAMS.TAG)).toEqual({
-      open: 1,
-      defend: 1,
-      threeBet: 1,
+      open: 1.1,
+      defend: 0.18,
+      threeBet: 6.0,
     });
   });
 
@@ -480,12 +497,12 @@ describe('botPersonality：persona 解析与翻前宽度（P6a）', () => {
     expect(preflopWidths(broken)).toEqual({ open: 1, defend: 1, threeBet: 1 });
   });
 
-  it('preflopWidths：返回新对象，改它不会污染 §7.1 参数表', () => {
+  it('preflopWidths：返回新对象，改它不会污染参数表', () => {
     const w = preflopWidths(PERSONALITY_PARAMS.LAG);
     w.open = 99;
     w.defend = 99;
-    expect(PERSONALITY_PARAMS.LAG.openWiden).toBe(1.6);
-    expect(PERSONALITY_PARAMS.LAG.defendVsOpen).toBe(1.5);
+    expect(PERSONALITY_PARAMS.LAG.openWiden).toBe(1.7);
+    expect(PERSONALITY_PARAMS.LAG.defendVsOpen).toBe(0.5);
   });
 
   it('preflopWidths：persona 只读三档，不泄漏翻后参数', () => {
@@ -507,9 +524,9 @@ describe('botPersonality：翻后派生量与 callShift 映射（P6b）', () => 
   });
 
   it('callShift 对 callBias 单调递减（越大越爱跟注 → 门槛越低）', () => {
-    // 六类初值按 callBias 升序：Maniac 0.3 < Nit 0.8 < LAG 0.9 < TAG 1.0
-    //   < Fish 1.3 < CS 1.5
-    const biases = [0.3, 0.8, 0.9, 1.0, 1.3, 1.5];
+    // 六类 callBias 升序：Maniac 0.3 < Nit 0.8 < LAG 0.9 < TAG 1.0
+    //   < CS 2.6 < Fish 3.0
+    const biases = [0.3, 0.8, 0.9, 1.0, 2.6, 3.0];
     const shifts = biases.map(callShift);
     for (let i = 1; i < shifts.length; i++) {
       expect(shifts[i]).toBeLessThan(shifts[i - 1]);
@@ -557,7 +574,7 @@ describe('botPersonality：翻后派生量与 callShift 映射（P6b）', () => 
     });
   });
 
-  it('postflopParams：逐类映射到 §7.1 表（valueShift / aggressionMult / sizingMult）', () => {
+  it('postflopParams：逐类映射到参数表（valueShift / aggressionMult / sizingMult）', () => {
     const nit = postflopParams(PERSONALITY_PARAMS.Nit);
     expect(nit.valueShift).toBe(0.05);
     expect(nit.aggression).toBe(0.7);
@@ -572,8 +589,13 @@ describe('botPersonality：翻后派生量与 callShift 映射（P6b）', () => 
 
     const cs = postflopParams(PERSONALITY_PARAMS['Calling Station']);
     expect(cs.valueShift).toBe(-0.12);
-    expect(cs.aggression).toBe(0.3);
+    expect(cs.aggression).toBe(0.05); // P9-4：压到极低以压 AF
     expect(cs.callShift).toBeLessThan(0);
+
+    const fish = postflopParams(PERSONALITY_PARAMS.Fish);
+    expect(fish.valueShift).toBe(-0.1); // P9-4：保持负值（多跟注，人设自洽）
+    expect(fish.aggression).toBe(0.05);
+    expect(fish.callShift).toBeLessThan(0);
   });
 
   it('postflopParams：非法参数退回恒等分量（NaN valueShift → 0）', () => {
@@ -664,13 +686,14 @@ describe('botPersonality：翻后派生量与 callShift 映射（P6b）', () => 
   it('renormalizeAggression：六类的激进度排序体现在进取概率上', () => {
     const at = (p: keyof typeof PERSONALITY_PARAMS) =>
       renormalizeAggression(0.6, 0.4, postflopParams(PERSONALITY_PARAMS[p]).aggression);
-    expect(at('Calling Station')).toBeLessThan(at('Fish'));
+    // P9-4：Fish 与 CS 的 aggressionMult 都压到 0.05（同为最被动），故此处用 <=
+    expect(at('Calling Station')).toBeLessThanOrEqual(at('Fish'));
     expect(at('Fish')).toBeLessThan(at('TAG'));
     expect(at('TAG')).toBeLessThan(at('LAG'));
     expect(at('LAG')).toBeLessThan(at('Maniac'));
     expect(at('TAG')).toBeCloseTo(0.6, 12);
     expect(at('Maniac')).toBeCloseTo(1.5 / 1.9, 12);
-    expect(at('Calling Station')).toBeCloseTo(0.18 / 0.58, 12);
+    expect(at('Calling Station')).toBeCloseTo(0.03 / 0.43, 12);
   });
 
   it('renormalizeAggression：权重全为 0 / NaN 时返回 0，不产生 NaN 概率', () => {

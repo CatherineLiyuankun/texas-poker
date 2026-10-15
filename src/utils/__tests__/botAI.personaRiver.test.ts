@@ -280,13 +280,19 @@ describe('botAI 河牌 persona 接线（P6c-1）', () => {
       });
     });
 
-    it('权益 0.20 面对下注：只有 CS 跟注（callShift −0.1216 把门槛压到 0.178）', () => {
+    it('权益 0.20 面对下注：CS 与 Fish 跟注（callShift 把门槛压到 0.178 以下）', () => {
       // 边缘门槛：CS 0.30 − 0.12 = 0.18 ≤ 0.20 ⇒ 进判据；跟注门槛
-      // 0.30 − 0.1216 = 0.1784 ≤ 0.20 ⇒ call。其余五类要么门槛不够要么边缘档落空 ⇒ fold。
-      expect(decideAtEquity(0.2, FACING, 'Calling Station')).toEqual({
-        action: 'call', amount: undefined, randomCalls: 0,
-      });
-      for (const name of ['(none)', 'Nit', 'TAG', 'LAG', 'Fish', 'Maniac'] as Name[]) {
+      // 0.30 − 0.2867 = 0.0133 ≤ 0.20 ⇒ call。Fish（callBias 3.0 ⇒ callShift 夹到 −0.30）
+      // 同样进判据并跟注。其余四类要么门槛不够要么边缘档落空 ⇒ fold。
+      for (const name of ['Calling Station', 'Fish'] as const) {
+        expect({ name, ...decideAtEquity(0.2, FACING, name) }).toEqual({
+          name,
+          action: 'call',
+          amount: undefined,
+          randomCalls: 0,
+        });
+      }
+      for (const name of ['(none)', 'Nit', 'TAG', 'LAG', 'Maniac'] as Name[]) {
         const botType = name === '(none)' ? undefined : (name as BotPersonality);
         const r = decideAtEquity(0.2, FACING, botType);
         expect({ name, action: r.action }).toEqual({ name, action: 'fold' });
@@ -309,7 +315,7 @@ describe('botAI 河牌 persona 接线（P6c-1）', () => {
       // 中等门槛最高的是 Nit 0.55 ≤ 0.55。面对下注时 canCheck 为假 ⇒ 只掷一次骰子，
       // raise ⇔ v < p_bet ⇒ 谓词单调，可二分。
       const aggression: Record<string, number> = {
-        '(none)': 1, Nit: 0.7, TAG: 1, LAG: 1.4, Fish: 0.5, 'Calling Station': 0.3, Maniac: 2.5,
+        '(none)': 1, Nit: 0.7, TAG: 1, LAG: 1.4, Fish: 0.05, 'Calling Station': 0.05, Maniac: 2.5,
       };
       for (const name of ALL_NAMES) {
         const botType = name === '(none)' ? undefined : (name as BotPersonality);
@@ -318,27 +324,27 @@ describe('botAI 河牌 persona 接线（P6c-1）', () => {
         const got = findRaiseBoundary(0.55, FACING, botType);
         expect({ name, got: +got.toFixed(9) }).toEqual({ name, got: +expected.toFixed(9) });
       }
-      // 闭式核对：g/(1+g) —— TAG 0.5、Maniac 5/7、CS 3/13
+      // 闭式核对：g/(1+g) —— TAG 0.5、Maniac 5/7、Fish 0.05/1.05（P9-4 压到 0.05）
       expect(aggression.Maniac / (1 + aggression.Maniac)).toBeCloseTo(5 / 7, 12);
-      expect(aggression['Calling Station'] / (1 + aggression['Calling Station'])).toBeCloseTo(0.3 / 1.3, 12);
+      expect(aggression.Fish / (1 + aggression.Fish)).toBeCloseTo(0.05 / 1.05, 12);
     });
 
     it('同一权益 0.55 下，进取侧概率随 aggression 单调（常数源两侧对照）', () => {
-      // v = 0.45：低于 Maniac/LAG/TAG 的 p_bet（0.714 / 0.583 / 0.5）⇒ 加注；
-      // 高于 Nit 的 0.412 也加注，但高于 CS 的 0.231 与 Fish 的 0.333 ⇒ 也加注。
-      // 所以改用 v = 0.30 来区分：低于 Fish 0.333 / LAG 0.583 / Maniac 0.714 ⇒ raise，
-      // 高于 CS 0.231 ⇒ call。这条断言不依赖任何种子。
+      // p_bet = g/(1+g)（P9-4）：CS/Fish 0.048、Nit 0.412、TAG 0.5、LAG 0.583、Maniac 0.714。
+      // 取常数随机源 v，比较 `v < p_bet`：谓词单调，可据此把六类切成两侧。这条不依赖种子。
       const at = (v: number) => (bt?: BotPersonality) =>
         decideAtEquity(0.55, FACING, bt, { constV: v }).action;
-      // v = 0.30：CS(0.231) ⇒ call；Fish(0.333) ⇒ raise
+      // v = 0.30：CS / Fish（0.048）⇒ call；Nit 及以上（0.412+）⇒ raise
       expect(at(0.3)('Calling Station')).toBe('call');
-      expect(at(0.3)('Fish')).toBe('raise');
-      // v = 0.65：TAG(0.5) ⇒ call；Maniac(0.714) ⇒ raise
-      expect(at(0.65)('TAG')).toBe('call');
-      expect(at(0.65)('Maniac')).toBe('raise');
-      // v = 0.45：Nit(0.412) ⇒ call；LAG(0.583) ⇒ raise
+      expect(at(0.3)('Fish')).toBe('call');
+      expect(at(0.3)('Nit')).toBe('raise');
+      expect(at(0.3)('LAG')).toBe('raise');
+      // v = 0.45：Nit（0.412）⇒ call；LAG（0.583）⇒ raise
       expect(at(0.45)('Nit')).toBe('call');
       expect(at(0.45)('LAG')).toBe('raise');
+      // v = 0.65：TAG（0.5）⇒ call；Maniac（0.714）⇒ raise
+      expect(at(0.65)('TAG')).toBe('call');
+      expect(at(0.65)('Maniac')).toBe('raise');
       // 无 persona 与 TAG 同权重（p = 0.5）⇒ 两侧都一致
       expect(at(0.45)()).toBe('raise');
       expect(at(0.65)()).toBe('call');

@@ -380,7 +380,7 @@ describe('gtoPostflop persona 接线（P6b-3）', () => {
   // ───────────────── 2. valueShift 平移分档线 ─────────────────
 
   describe('机器人引擎：valueShift 平移分档线（§7.2 第 4 行）', () => {
-    it('权益 0.72 面对下注：Nit 掉出 strong 改为跟注，其余五类仍加注', () => {
+    it('权益 0.72 面对下注：Nit 掉出 strong 改为跟注，TAG/LAG/Maniac 仍加注', () => {
       // strong 线 0.70。Nit 的 valueShift = +0.05 ⇒ 等效权益 0.67 < 0.70 ⇒ 落到
       // medium 分支（门槛 0.1667 + 0.05 + 0.0669 = 0.2836，0.72 远超 ⇒ call）。
       const none = decideGto(0.72, FACING, undefined);
@@ -391,10 +391,19 @@ describe('gtoPostflop persona 接线（P6b-3）', () => {
         amount: undefined,
         randomCalls: 0,
       });
-      for (const name of ['TAG', 'LAG', 'Fish', 'Calling Station', 'Maniac'] as const) {
+      for (const name of ['TAG', 'LAG', 'Maniac'] as const) {
         const got = decideGto(0.72, FACING, PERSONALITY_PARAMS[name]);
-        expect(got.action).toBe('raise');
-        expect(got.randomCalls).toBe(1);
+        expect({ name, action: got.action, randomCalls: got.randomCalls }).toEqual({
+          name,
+          action: 'raise',
+          randomCalls: 1,
+        });
+      }
+      // Fish / CS 的 aggressionMult 在 P9-4 被压到 0.05 ⇒ strong 分支的加注骰子几乎不中
+      // （同一固定种子下不中）⇒ 落到跟注。这条与 valueShift 无关，是激进度旋钮的作用。
+      for (const name of ['Fish', 'Calling Station'] as const) {
+        const got = decideGto(0.72, FACING, PERSONALITY_PARAMS[name]);
+        expect({ name, action: got.action }).toEqual({ name, action: 'call' });
       }
     });
 
@@ -918,15 +927,16 @@ describe('gtoPostflop persona 接线（P6b-3）', () => {
       const bad: string[] = [];
       // 期望值由解析式算出：`p = w·g / ((1−w) + w·g)`，`bet = round(p×100)`。
       // very_dry 牌面 ⇒ flop IP c-bet 0.80；档位乘数 strong 1.0 / medium 0.50 /
-      // air 0.20 / draw 0.60。六类 `aggressionMult` 依次 0.3 / 0.5 / 0.7 / 1.0 / 1.4 / 2.5。
+      // air 0.20 / draw 0.60。六类 `aggressionMult` 依次 0.05 / 0.05 / 0.7 / 1.0 / 1.4 / 2.5
+      // （P9-4：Fish/CS 压到 0.05）。
       // facing strong 的权重是**内联字面量 0.40**、facing draw 是 **0.25**（不走 catFreq）。
       const expected: Record<string, number[]> = {
-        'strong-nobet': [55, 67, 74, 80, 85, 91], // w = 0.80 × 1.0
-        'medium-nobet': [17, 25, 32, 40, 48, 63], // w = 0.80 × 0.50
-        'air-nobet': [5, 9, 12, 16, 21, 32], // w = 0.80 × 0.20
-        'draw-nobet': [22, 32, 39, 48, 56, 70], // w = 0.80 × 0.60
-        'strong-facing': [17, 25, 32, 40, 48, 63], // w = 0.40（内联）
-        'draw-facing': [9, 14, 19, 25, 32, 45], // w = 0.25（内联）
+        'strong-nobet': [17, 17, 74, 80, 85, 91], // w = 0.80 × 1.0
+        'medium-nobet': [3, 3, 32, 40, 48, 63], // w = 0.80 × 0.50
+        'air-nobet': [1, 1, 12, 16, 21, 32], // w = 0.80 × 0.20
+        'draw-nobet': [4, 4, 39, 48, 56, 70], // w = 0.80 × 0.60
+        'strong-facing': [3, 3, 32, 40, 48, 63], // w = 0.40（内联）
+        'draw-facing': [2, 2, 19, 25, 32, 45], // w = 0.25（内联）
       };
       for (const [label, spot] of spots) {
         const bets = BY_AGGRESSION.map(

@@ -373,10 +373,17 @@ describe('gtoRiver persona 接线（P6c-2）', () => {
         const st = strategy({
           ...overbet, equity: 0.2, handRank: 'high_card' as HandRank, persona: personaOf(name),
         });
-        expect({ name, isOverbet: st.isOverbet, action: st.action }).toEqual({
-          name, isOverbet: true, action: 'fold',
-        });
+        expect({ name, isOverbet: st.isOverbet, callOrFold: st.action === 'call' || st.action === 'fold' })
+          .toEqual({ name, isOverbet: true, callOrFold: true });
       }
+      // 弱牌默认弃牌；Fish 的 valueShift(−0.10) 把 0.20 抬到边缘档（0.30）⇒ 跟注。
+      const at = (name?: Name) =>
+        strategy({
+          ...overbet, equity: 0.2, handRank: 'high_card' as HandRank,
+          persona: name === undefined ? undefined : personaOf(name),
+        }).action;
+      expect(at()).toBe('fold');
+      expect(at('Fish')).toBe('call');
       // 强牌（两对）在超池下 call，仍不加注
       for (const name of ALL_NAMES) {
         const st = strategy({
@@ -403,8 +410,9 @@ describe('gtoRiver persona 接线（P6c-2）', () => {
       const bets = BY_AGGRESSION.map(
         (name) => panel({ equity: 0.9, toCall: 0, totalPot: 300, persona: PERSONALITY_PARAMS[name] }).freq.bet,
       );
-      // none/TAG 70、Nit 62、LAG 77、Fish 54、CS 41、Maniac 85（闭式已核）
-      expect(bets).toEqual([41, 54, 62, 70, 77, 85]);
+      // none/TAG 70、Nit 62、LAG 77、Fish/CS 10、Maniac 85（闭式已核；
+      // P9-4 把 Fish/CS 的 aggressionMult 压到 0.05 ⇒ 前两位从 54/41 降到 10）
+      expect(bets).toEqual([10, 10, 62, 70, 77, 85]);
       for (let i = 1; i < bets.length; i += 1) {
         expect(bets[i]).toBeGreaterThanOrEqual(bets[i - 1]);
       }

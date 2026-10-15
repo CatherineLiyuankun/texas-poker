@@ -2,12 +2,14 @@
  * P6a：启发式翻前（GTO OFF）的 persona 接线。
  *
  * 这里钉三件事：
- *   1. **无 persona 逐位不变** —— `botType: undefined` 与 `TAG`（初值恒等）必须给出
- *      同一个动作、**同一个随机消费次数**（策略随机流不能被多掷一次）；
+ *   1. **无 persona 逐位不变** —— `botType: undefined` 必须**完全不读**参数表：
+ *      把六类参数改成任意极端值，它的动作与**随机消费次数**都不变（策略随机流
+ *      不能被多掷一次）。⚠️ 这条不能再用「与 TAG 比对」来表达 —— P9-4 校准后
+ *      TAG 的翻前宽度已漂移，不再是恒等（方案 §7.1 早已声明那只是巧合）；
  *   2. **按真实场景选旋钮** —— 方案 §7.2 要求「按真实 unopened/limp/open/3bet 场景
  *      派生」，所以判据是 `detectPreflopScenario`，不是 `ctx.toCall > 0`
  *      （后者把「非盲位补大盲注」也算成面对加注）。同一局面只换场景、不换别的，
- *      `CS`（openWiden 0.7 / defendVsOpen 1.8）必须从「更紧」翻成「更松」——
+ *      `LAG`（openWiden 1.7 / defendVsOpen 0.5）必须从「进池」翻成「弃牌」——
  *      这是「换的是旋钮」的直接证据；
  *   3. **翻后不受影响** —— 翻后 persona 属 P6b，现在一个座位都不该被改动。
  *
@@ -17,7 +19,7 @@
  * **跟注价格门槛**。所以下面用的是「A9o（tier 5）+ 跟注价格 0.4」这类局面。
  */
 import { getBotAction } from '../botAI';
-import { PERSONALITY_PARAMS } from '../botPersonality';
+import { BOT_PERSONALITY_TYPES, PERSONALITY_PARAMS } from '../botPersonality';
 import { resetGtoConfig, setGtoConfig } from '../gtoConfig';
 import { resetOpponentStats } from '../opponentModel';
 import { resetRakeConfig } from '../rake';
@@ -130,21 +132,45 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
       ['K', 'J'],
     ];
 
-    it('六个座位 × 五手牌：TAG 与「无 botType」动作与随机消费完全一致', () => {
-      const mismatches: string[] = [];
-      for (const seat of SEATS) {
-        for (const hand of HANDS) {
-          const none = decide(preflopState({ seat, hand }), seat);
-          const tag = decide(preflopState({ seat, hand, botType: 'TAG' }), seat);
-          if (none.action !== tag.action || none.randomCalls !== tag.randomCalls) {
-            mismatches.push(
-              `${seat} ${hand.join('')}: none=${none.action}/${none.randomCalls} ` +
-                `TAG=${tag.action}/${tag.randomCalls}`,
-            );
+    it('六个座位 × 五手牌：无 botType 的动作与随机消费不受参数表影响', () => {
+      // 「无 persona 逐位不变」的**强形式**：`undefined` 既不查 PERSONALITY_PARAMS，
+      // 也不走 TAG。把六类参数全改成极端值后，`undefined` 的决策必须逐位不变
+      // （方案 §7.1：TAG 初值恰好恒等只是巧合、会随 P9 校准漂移，所以不能再用
+      // 「与 TAG 比对」来表达这条不变量）。
+      const snapshot = (): string[] => {
+        const out: string[] = [];
+        for (const seat of SEATS) {
+          for (const hand of HANDS) {
+            const d = decide(preflopState({ seat, hand }), seat);
+            out.push(`${seat} ${hand.join('')}: ${d.action}/${d.randomCalls}`);
           }
         }
+        return out;
+      };
+
+      const baseline = snapshot();
+      const saved = BOT_PERSONALITY_TYPES.map((t) => ({
+        type: t,
+        params: { ...PERSONALITY_PARAMS[t] },
+      }));
+      let mutated: string[] = [];
+      try {
+        for (const t of BOT_PERSONALITY_TYPES) {
+          Object.assign(PERSONALITY_PARAMS[t], {
+            openWiden: 9,
+            defendVsOpen: 9,
+            threeBetFreq: 9,
+            valueShift: 0.5,
+            aggressionMult: 9,
+            callBias: 9,
+            sizingMult: 9,
+          });
+        }
+        mutated = snapshot();
+      } finally {
+        for (const { type, params } of saved) Object.assign(PERSONALITY_PARAMS[type], params);
       }
-      expect(mismatches).toEqual([]);
+      expect(mutated).toEqual(baseline);
     });
 
     it('「没有 botType 字段」与「botType: undefined」等价（判据只有 botType）', () => {
@@ -160,35 +186,41 @@ describe('botAI 翻前 persona 接线（P6a）', () => {
   });
 
   describe('按真实场景选旋钮（方案 §7.2 第 1 行）', () => {
-    /** MP 座位拿 A9o（tier 5）、跟注价格 0.4 —— 基准会 fold。 */
+    /** 座位 4（相对位置 3 = late position）、A9o（tier 5）、跟注价格 0.4 —— 基准 fold。 */
     const seat: PlayerId = 4;
     const hand: [string, string] = ['A', '9'];
 
-    it('开池场景用 openWiden：LAG 进池、CS / Nit 更紧、基准 fold', () => {
+    it('开池场景用 openWiden：openWiden > 4/3 进池，≤ 4/3 弃牌', () => {
+      // 判据（P6a 实测 + §16.3）：非盲位在 RFI 必须补大盲 ⇒ `isFacingRaise` 恒真 ⇒
+      // tier 5 的 `!isFacingRaise` 位置分支不可达。真正决定「进不进池」的是
+      // 「跟注价格 0.4」与 `entryOdds(0.30) = min(0.30 × openWiden, 1)`（late position
+      // 阈值 0.30）的比较：call ⟺ 0.4 < 0.30 × openWiden ⟺ openWiden > 4/3 ≈ 1.333。
       const of = (botType?: BotPersonality) =>
         decide(preflopState({ seat, hand, botType }), seat).action;
-      expect(of(undefined)).toBe('fold');
-      expect(of('TAG')).toBe('fold');
-      expect(of('LAG')).toBe('call'); // openWiden 1.6 → 门槛 0.48 > 0.4
+      expect(of(undefined)).toBe('fold'); // 恒等宽度 0.30 < 0.4
+      expect(of('Nit')).toBe('fold'); // 0.5 → 0.15
+      expect(of('TAG')).toBe('fold'); // 1.1 → 0.33
+      expect(of('LAG')).toBe('call'); // 1.7 → 0.51 > 0.4
       expect(of('Maniac')).toBe('call'); // 2.2 → 0.66
-      expect(of('Calling Station')).toBe('fold'); // openWiden 0.7 → 0.21 < 0.4
-      expect(of('Fish')).toBe('fold'); // 0.8 → 0.24
-      expect(of('Nit')).toBe('fold'); // 0.6 → 0.18
+      expect(of('Calling Station')).toBe('call'); // 2.6 → 0.78
+      expect(of('Fish')).toBe('call'); // 2.8 → 0.84
     });
 
-    it('面对开池场景换成 defendVsOpen：CS / Fish 由 fold 翻成 call，Nit 仍 fold', () => {
-      // 同座位、同手牌、同跟注价格，**只**把链改成「有人真实加注过」。
+    it('面对开池场景换成 defendVsOpen：同一局面只换旋钮，LAG 由 call 翻成 fold', () => {
+      // 同座位、同手牌、同跟注价格，**只**把链改成「有人真实加注过」，callWidth 从
+      // openWiden 换成 defendVsOpen（判据同样是 0.4 < 0.30 × callWidth）。这是「换的是
+      // 旋钮」的直接证据：LAG 的 openWiden 1.7 让它开池进池，但 defendVsOpen 0.5 让它
+      // 面对加注时弃牌。
       const chain = [{ playerId: 6 as PlayerId, kind: 'raise' as const, fullRaise: true }];
       const of = (botType?: BotPersonality) =>
         decide(preflopState({ seat, hand, botType, chain }), seat).action;
-      expect(of(undefined)).toBe('fold');
-      expect(of('TAG')).toBe('fold');
-      // 关键对照：CS 在开池场景 fold（用 openWiden 0.7），在这里 call（用 defendVsOpen 1.8）
-      expect(of('Calling Station')).toBe('call');
-      expect(of('Fish')).toBe('call');
-      expect(of('LAG')).toBe('call');
-      expect(of('Maniac')).toBe('call');
-      expect(of('Nit')).toBe('fold');
+      expect(of(undefined)).toBe('fold'); // 0.30 < 0.4
+      expect(of('TAG')).toBe('fold'); // 0.18 → 0.054
+      expect(of('Nit')).toBe('fold'); // 0.5 → 0.15
+      expect(of('LAG')).toBe('fold'); // 0.5 → 0.15（P9-4 后 LAG 收紧了面对加注的防守）
+      expect(of('Maniac')).toBe('call'); // 1.4 → 0.42 > 0.4
+      expect(of('Calling Station')).toBe('call'); // 5.5 → 1.65
+      expect(of('Fish')).toBe('call'); // 6.0 → 1.8
     });
 
     it('盲位（小盲）也按同一套场景派生（tier 5 的盲位防守分支）', () => {

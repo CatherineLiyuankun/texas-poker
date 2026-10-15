@@ -296,7 +296,12 @@ describe('botAI 翻后 persona 接线（P6b-2）', () => {
       // 边缘门槛：TAG 0.35（0.30 < 0.35 落空）；CS 0.35 − 0.12 = 0.23（进分支）
       expect(decideAtEquity(0.3, () => flopState(NOBET)).action).toBe('check');
       expect(decideAtEquity(0.3, () => flopState(NOBET), 'TAG').action).toBe('check');
-      expect(decideAtEquity(0.3, () => flopState(NOBET), 'Calling Station').action).toBe('raise');
+      // 用常数随机源 0 把 CS 的诈唬骰子钉成「必中」—— P9-4 把 CS 的 aggressionMult 压到
+      // 0.05 后，默认种子下这颗骰子几乎不中（动作会变 check），但「CS 进边缘分支」这个
+      // 事实仍在；钉死随机源才能稳定观测到分支本身（而不是激进度旋钮的副产品）。
+      expect(
+        decideAtEquity(0.3, () => flopState(NOBET), 'Calling Station', 2, undefined, 0).action,
+      ).toBe('raise');
     });
 
     it('Nit 的 valueShift 抬高门槛：同一权益下 Nit 不比对 TAG 更激进', () => {

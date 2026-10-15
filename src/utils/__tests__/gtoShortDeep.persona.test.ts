@@ -6,9 +6,11 @@
  * 静默绕过 persona」，§12.3 的验收是「短筹码无 persona golden 不变」+「深筹码路径
  * 独立核实」。本文件钉五件事：
  *
- *   1. **短筹码无 persona 逐位不变** —— `undefined` 与 `TAG`（open/defend 宽度都是 1）
- *      对全部 169 类 × 各深度 × 各位置给出**同一动作**；且 `matchesRangeForPersona`
- *      在 `factor === 1` 时**直接走原 `handMatchesRange`**（不建表、不派生）。
+ *   1. **短筹码无 persona 逐位不变** —— `undefined` 必须**完全不读**参数表：把六类参数
+ *      改成任意极端值后，对全部 169 类 × 各深度 × 各位置仍给出**同一动作**；且
+ *      `matchesRangeForPersona` 在 `factor === 1` 时**直接走原 `handMatchesRange`**
+ *      （不建表、不派生）。⚠️ 这条不能再用「与 TAG 比对」表达 —— P9-4 校准后 TAG 的
+ *      openWiden 已是 1.1（不再恒等，方案 §7.1 早已声明那只是巧合）。
  *   2. **推注 / 防守范围随宽度单调**（`openWiden` / `defendVsOpen`）—— 放宽 ⇒
  *      `base ⊆ derived`、收紧 ⇒ `derived ⊆ base`。这是 `rescaleActionCells`
  *      「只加格 / 只删格、从不重排」的必然结果，比数格子更稳（不依赖具体范围表内容）。
@@ -37,6 +39,7 @@ import { getDeepStackRecommendation } from '../gtoDeepStack';
 import { getBotAction } from '../botAI';
 import * as rangeEquity from '../rangeEquity';
 import {
+  BOT_PERSONALITY_TYPES,
   PERSONALITY_PARAMS,
   preflopWidths,
   type BotPersonality,
@@ -212,28 +215,51 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
 
   describe('推注范围（rfi，openWiden）', () => {
     // 探针实测的 in-range 格数（169 格中 allin/raise 的数量），锁定派生幅度。
+    // ⚠️ 这些数字是**预期行为变更**的硬编码清单：P9-4 改了 openWiden，它们就变了。
     const RFI_COUNTS: Record<string, Record<Name, number>> = {
-      'UTG@10': { '(none)': 40, Nit: 29, TAG: 40, LAG: 75, Fish: 36, 'Calling Station': 33, Maniac: 100 },
-      'BTN@10': { '(none)': 132, Nit: 92, TAG: 132, LAG: 169, Fish: 113, 'Calling Station': 104, Maniac: 169 },
+      'UTG@10': { '(none)': 40, Nit: 26, TAG: 48, LAG: 83, Fish: 123, 'Calling Station': 114, Maniac: 100 },
+      'BTN@10': { '(none)': 132, Nit: 82, TAG: 150, LAG: 169, Fish: 169, 'Calling Station': 169, Maniac: 169 },
     };
     const RFI_SPOTS: Record<string, { depth: number; pos: number }> = {
       'UTG@10': { depth: 10, pos: 3 },
       'BTN@10': { depth: 10, pos: 0 },
     };
 
-    it('无 persona 与 TAG 对全部 169 格给出同一动作（逐位不变）', () => {
-      const mismatches: string[] = [];
-      for (const [label, spot] of Object.entries(RFI_SPOTS)) {
-        for (let i = 0; i < 13; i += 1) {
-          for (let j = 0; j < 13; j += 1) {
-            const hand = cellHand(i, j);
-            const none = shortAction(hand, spot.depth, 0, spot.pos, undefined);
-            const tag = shortAction(hand, spot.depth, 0, spot.pos, PERSONALITY_PARAMS.TAG);
-            if (none !== tag) mismatches.push(`${label} ${i},${j}: none=${none} tag=${tag}`);
+    it('无 persona 时不读参数表：把六类参数改成极端值，169 格推送动作仍逐位不变', () => {
+      const snapshot = (): string[] => {
+        const out: string[] = [];
+        for (const [label, spot] of Object.entries(RFI_SPOTS)) {
+          for (let i = 0; i < 13; i += 1) {
+            for (let j = 0; j < 13; j += 1) {
+              out.push(`${label} ${i},${j}: ${shortAction(cellHand(i, j), spot.depth, 0, spot.pos, undefined)}`);
+            }
           }
         }
+        return out;
+      };
+      const baseline = snapshot();
+      const saved = BOT_PERSONALITY_TYPES.map((t) => ({
+        type: t,
+        params: { ...PERSONALITY_PARAMS[t] },
+      }));
+      let mutated: string[] = [];
+      try {
+        for (const t of BOT_PERSONALITY_TYPES) {
+          Object.assign(PERSONALITY_PARAMS[t], {
+            openWiden: 9,
+            defendVsOpen: 9,
+            threeBetFreq: 9,
+            valueShift: 0.5,
+            aggressionMult: 9,
+            callBias: 9,
+            sizingMult: 9,
+          });
+        }
+        mutated = snapshot();
+      } finally {
+        for (const { type, params } of saved) Object.assign(PERSONALITY_PARAMS[type], params);
       }
-      expect(mismatches).toEqual([]);
+      expect(mutated).toEqual(baseline);
     });
 
     it('放宽 ⇒ base ⊆ derived；收紧 ⇒ derived ⊆ base（集合包含，不依赖具体范围表）', () => {
@@ -282,27 +308,49 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
 
   describe('防守范围（facing open，defendVsOpen）', () => {
     const DEFEND_COUNTS: Record<string, Record<Name, number>> = {
-      'BB@15': { '(none)': 48, Nit: 35, TAG: 48, LAG: 87, Fish: 91, 'Calling Station': 100, Maniac: 79 },
-      'SB@15': { '(none)': 118, Nit: 81, TAG: 118, LAG: 169, Fish: 169, 'Calling Station': 169, Maniac: 166 },
+      'BB@15': { '(none)': 48, Nit: 30, TAG: 11, LAG: 30, Fish: 169, 'Calling Station': 169, Maniac: 79 },
+      'SB@15': { '(none)': 118, Nit: 74, TAG: 30, LAG: 74, Fish: 169, 'Calling Station': 169, Maniac: 166 },
     };
     const DEFEND_SPOTS: Record<string, { depth: number; pos: number }> = {
       'BB@15': { depth: 15, pos: 2 },
       'SB@15': { depth: 15, pos: 1 },
     };
 
-    it('无 persona 与 TAG 对全部 169 格给出同一动作（逐位不变）', () => {
-      const mismatches: string[] = [];
-      for (const [label, spot] of Object.entries(DEFEND_SPOTS)) {
-        for (let i = 0; i < 13; i += 1) {
-          for (let j = 0; j < 13; j += 1) {
-            const hand = cellHand(i, j);
-            const none = shortAction(hand, spot.depth, 20, spot.pos, undefined);
-            const tag = shortAction(hand, spot.depth, 20, spot.pos, PERSONALITY_PARAMS.TAG);
-            if (none !== tag) mismatches.push(`${label} ${i},${j}: none=${none} tag=${tag}`);
+    it('无 persona 时不读参数表：把六类参数改成极端值，169 格防守动作仍逐位不变', () => {
+      const snapshot = (): string[] => {
+        const out: string[] = [];
+        for (const [label, spot] of Object.entries(DEFEND_SPOTS)) {
+          for (let i = 0; i < 13; i += 1) {
+            for (let j = 0; j < 13; j += 1) {
+              out.push(`${label} ${i},${j}: ${shortAction(cellHand(i, j), spot.depth, 20, spot.pos, undefined)}`);
+            }
           }
         }
+        return out;
+      };
+      const baseline = snapshot();
+      const saved = BOT_PERSONALITY_TYPES.map((t) => ({
+        type: t,
+        params: { ...PERSONALITY_PARAMS[t] },
+      }));
+      let mutated: string[] = [];
+      try {
+        for (const t of BOT_PERSONALITY_TYPES) {
+          Object.assign(PERSONALITY_PARAMS[t], {
+            openWiden: 9,
+            defendVsOpen: 9,
+            threeBetFreq: 9,
+            valueShift: 0.5,
+            aggressionMult: 9,
+            callBias: 9,
+            sizingMult: 9,
+          });
+        }
+        mutated = snapshot();
+      } finally {
+        for (const { type, params } of saved) Object.assign(PERSONALITY_PARAMS[type], params);
       }
-      expect(mismatches).toEqual([]);
+      expect(mutated).toEqual(baseline);
     });
 
     it('放宽 ⇒ base ⊆ derived；收紧 ⇒ derived ⊆ base', () => {
@@ -336,16 +384,17 @@ describe('gtoShortStack persona 接线（P6b-4）', () => {
       }
     });
 
-    it('只有 Nit 收紧防守（defendVsOpen < 1），其余四类都放宽', () => {
-      // defendVsOpen：Nit 0.6 < 1；LAG 1.5 / Fish 1.6 / CS 1.8 / Maniac 1.4 > 1。
-      // 这条钉住「防守宽度用的是 defendVsOpen 而不是 openWiden」——
-      // 若接错旋钮，Fish（openWiden 0.8 会收紧）在防守上就会变小而不是变大。
+    it('防守宽度用的是 defendVsOpen（不是 openWiden）：TAG 收紧、Fish 放宽', () => {
+      // defendVsOpen（P9-4）：Nit 0.5 / TAG 0.18 / LAG 0.5 < 1；Fish 6.0 / CS 5.5 / Maniac 1.4 > 1。
+      // 这条钉住「防守宽度用的是 defendVsOpen 而不是 openWiden」—— 若接错旋钮，
+      // TAG（openWiden 1.1 > 1 本会放宽）在防守上就会变大而不是变小。
       const spot = DEFEND_SPOTS['BB@15'];
-      const base = inRangeCells(spot.depth, spot.pos, undefined, 'defend');
-      const nit = inRangeCells(spot.depth, spot.pos, PERSONALITY_PARAMS.Nit, 'defend');
-      const fish = inRangeCells(spot.depth, spot.pos, PERSONALITY_PARAMS.Fish, 'defend');
-      expect(nit.size).toBeLessThan(base.size);
-      expect(fish.size).toBeGreaterThan(base.size); // Fish openWiden 0.8 但 defendVsOpen 1.6
+      const sizeOf = (name: Name) => inRangeCells(spot.depth, spot.pos, personaOf(name), 'defend').size;
+      const base = inRangeCells(spot.depth, spot.pos, undefined, 'defend').size;
+      expect(sizeOf('TAG')).toBeLessThan(base); // TAG openWiden 1.1 但 defendVsOpen 0.18
+      expect(sizeOf('Nit')).toBeLessThan(base);
+      expect(sizeOf('LAG')).toBeLessThan(base);
+      expect(sizeOf('Fish')).toBeGreaterThan(base); // Fish openWiden 2.8、defendVsOpen 6.0
     });
   });
 });

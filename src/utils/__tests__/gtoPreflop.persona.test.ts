@@ -3,7 +3,9 @@
  *
  * 这一层要钉住四件事：
  *   1. **无 persona 逐位不变** —— `persona: undefined` 与完全不传该字段、以及
- *      `persona: PERSONALITY_PARAMS.TAG`（初值恰好是恒等）三者输出完全一致；
+ *      `persona: IDENTITY`（写死的恒等七参数）三者输出完全一致；
+ *      ⚠️ 不能再用 `PERSONALITY_PARAMS.TAG` 当恒等对照 —— P9-4 校准后 TAG 的翻前
+ *      宽度已漂移（方案 §7.1 早已声明那只是巧合）；
  *   2. **F 扩展** —— 原表的 `F` 是硬 0，`0 × 倍率` 永远是 0，所以放宽必须**显式**
  *      把最强的 `F` 格搬进 `R`/`C`（`derivePreflopRangeTable` 的放宽分支）；
  *   3. **宽度按组合数计** —— pair=6 / suited=4 / offsuit=12，不是 169 格等权；
@@ -95,8 +97,21 @@ const LAG = PERSONALITY_PARAMS.LAG;
 const NIT = PERSONALITY_PARAMS.Nit;
 const MANIAC = PERSONALITY_PARAMS.Maniac;
 const CS = PERSONALITY_PARAMS['Calling Station'];
-/** 只放开再加注频率、防守宽度保持基准 —— 用来验证 threeBetFreq 是「转移」。 */
-const THREE_BET_ONLY: PersonalityParams = { ...TAG, threeBetFreq: 1.6 };
+/**
+ * 写死的恒等七参数 —— `undefined` 走的就是这一套（`preflopWidths(undefined)` 返回
+ * `{1,1,1}`）。P9-4 之后不能再用 `PERSONALITY_PARAMS.TAG` 当恒等对照（TAG 已漂移）。
+ */
+const IDENTITY: PersonalityParams = {
+  openWiden: 1,
+  defendVsOpen: 1,
+  threeBetFreq: 1,
+  valueShift: 0,
+  aggressionMult: 1,
+  callBias: 1,
+  sizingMult: 1,
+};
+/** 只放开再加注频率、其余保持基准 —— 用来验证 threeBetFreq 是「转移」。 */
+const THREE_BET_ONLY: PersonalityParams = { ...IDENTITY, threeBetFreq: 1.6 };
 
 /** 四个真实 spot 的代表查询。 */
 const SPOTS: { label: string; query: Query }[] = [
@@ -131,15 +146,15 @@ describe('GTO 翻前 persona 范围派生（P6a）', () => {
   });
 
   describe('无 persona 逐位不变', () => {
-    it('四个 spot × 169 类：不传 persona ≡ 传 undefined ≡ 传 TAG（初值恒等）', () => {
+    it('四个 spot × 169 类：不传 persona ≡ 传 undefined ≡ 传恒等参数', () => {
       const mismatches: string[] = [];
       for (const { label, query } of SPOTS) {
         for (const cell of ALL_CELLS) {
           const omitted = actionOf(cell, query);
           const undef = actionOf(cell, query, undefined);
-          const tag = actionOf(cell, query, TAG);
-          if (omitted !== undef || omitted !== tag) {
-            mismatches.push(`${label} ${cell.cls}: ${omitted}/${undef}/${tag}`);
+          const identity = actionOf(cell, query, IDENTITY);
+          if (omitted !== undef || omitted !== identity) {
+            mismatches.push(`${label} ${cell.cls}: ${omitted}/${undef}/${identity}`);
           }
         }
       }
@@ -159,7 +174,7 @@ describe('GTO 翻前 persona 范围派生（P6a）', () => {
       );
       const base = classesOf(tournament, 'R');
       expect(classesOf(tournament, 'R', undefined)).toEqual(base);
-      expect(classesOf(tournament, 'R', TAG)).toEqual(base);
+      expect(classesOf(tournament, 'R', IDENTITY)).toEqual(base);
     });
   });
 
@@ -185,22 +200,22 @@ describe('GTO 翻前 persona 范围派生（P6a）', () => {
       const maniacCombos = combosOf(classesOf(query, 'R', MANIAC));
 
       expect(baseCombos).toBe(202);
-      // 目标 = 202 × 1.6 = 323.2，落格（最小单位是对子 6）会有一次溢出，取 ±12 容差
-      expect(lagCombos).toBe(326);
-      expect(Math.abs(lagCombos / baseCombos - 1.6)).toBeLessThan(0.05);
+      // 目标 = 202 × 1.7 = 343.4，落格（最小单位是对子 6）会有一次溢出，取 ±12 容差
+      expect(lagCombos).toBe(350);
+      expect(Math.abs(lagCombos / baseCombos - 1.7)).toBeLessThan(0.05);
       // Maniac 2.2 倍：202 × 2.2 = 444.4 → 454
       expect(maniacCombos).toBe(454);
       expect(Math.abs(maniacCombos / baseCombos - 2.2)).toBeLessThan(0.05);
     });
 
-    it('UTG：收紧只留最强的那部分（21 类 / 132 组合）', () => {
+    it('UTG：收紧只留最强的那部分（17 类 / 106 组合）', () => {
       const query: Query = { rfiPosition: 'UTG', spot: 'rfi' };
       const nit = classesOf(query, 'R', NIT);
-      expect(nit).toHaveLength(21);
-      expect(combosOf(nit)).toBe(132);
-      // 目标 = 202 × 0.6 = 121.2，保留侧只向上溢出一次
-      expect(combosOf(nit)).toBeGreaterThanOrEqual(202 * 0.6);
-      expect(combosOf(nit)).toBeLessThanOrEqual(202 * 0.6 + 12);
+      expect(nit).toHaveLength(17);
+      expect(combosOf(nit)).toBe(106);
+      // 目标 = 202 × 0.5 = 101，保留侧只向上溢出一次
+      expect(combosOf(nit)).toBeGreaterThanOrEqual(202 * 0.5);
+      expect(combosOf(nit)).toBeLessThanOrEqual(202 * 0.5 + 12);
     });
 
     it('UTG：F 扩展的具体清单（A8s / 55 / 44 进池，A9s / 66 / KJo 被收紧裁掉）', () => {
@@ -229,14 +244,14 @@ describe('GTO 翻前 persona 范围派生（P6a）', () => {
       expect(actionOf(cell('A8s'), query, NIT)).toBe('F');
     });
 
-    it('BTN：基表已经很宽，LAG 仍能继续扩（96→144 类 / 658→1058 组合）', () => {
+    it('BTN：基表已经很宽，LAG 仍能继续扩（96→152 类 / 658→1122 组合）', () => {
       const query: Query = { rfiPosition: 'BTN', spot: 'rfi' };
       expect(classesOf(query, 'R')).toHaveLength(96);
       expect(combosOf(classesOf(query, 'R'))).toBe(658);
       const lag = classesOf(query, 'R', LAG);
-      expect(lag).toHaveLength(144);
-      expect(combosOf(lag)).toBe(1058);
-      expect(Math.abs(combosOf(lag) / 658 - 1.6)).toBeLessThan(0.05);
+      expect(lag).toHaveLength(152);
+      expect(combosOf(lag)).toBe(1122);
+      expect(Math.abs(combosOf(lag) / 658 - 1.7)).toBeLessThan(0.05);
     });
   });
 
@@ -271,22 +286,25 @@ describe('GTO 翻前 persona 范围派生（P6a）', () => {
       );
     });
 
-    it('defendVsOpen 放大防守：CS 的 C 从 212 组合涨到 414，同时 4bet 被压到 12', () => {
+    it('defendVsOpen 放大防守：CS 的 C 从 212 组合涨到 1152，R 也随 threeBetFreq 扩到 66', () => {
       const baseC = classesOf(facing, 'C');
       const baseR = classesOf(facing, 'R');
       const csC = classesOf(facing, 'C', CS);
       const csR = classesOf(facing, 'R', CS);
 
       expect(combosOf(baseC)).toBe(212);
-      expect(combosOf(csC)).toBe(414);
-      expect(combosOf(csR)).toBe(12);
+      expect(combosOf(csC)).toBe(1152);
+      expect(combosOf(csR)).toBe(66);
 
-      // 防守是**外扩**：原表的 C 一个都没丢
-      expect(baseC.filter((c) => !csC.includes(c))).toEqual([]);
+      // 防守是**外扩**：原表的 C 一个都没丢 —— 唯一离开 C 的几格是被
+      // threeBetFreq 1.5 > 1 沿「转移」规则搬进了 R（仍在 R∪C 内，不是被丢弃）。
+      const lostFromC = baseC.filter((c) => !csC.includes(c)).sort();
+      expect(lostFromC).toEqual(['AJs', 'AQs', 'JJ', 'KQs', 'TT']);
+      expect(lostFromC.every((c) => csR.includes(c))).toBe(true);
       // 外扩的部分来自原表的 F 格（硬 0 → C）
       expect(csC.filter((c) => !baseC.includes(c) && !baseR.includes(c)).length).toBeGreaterThan(0);
-      // 同时 threeBetFreq = 0.2 把边缘 R 降级成 C（同一套「转移」规则）
-      expect(csC.filter((c) => baseR.includes(c)).length).toBeGreaterThan(0);
+      // CS threeBetFreq 1.5 > 1 把 R 也外扩（同一套「转移」规则），故 R 严格多于基表
+      expect(combosOf(csR)).toBeGreaterThan(combosOf(baseR));
     });
 
     it('收紧防守：Nit 的 C 与 R 都严格变小', () => {
