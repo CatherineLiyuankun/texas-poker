@@ -665,7 +665,7 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
     return getPanelRecommendation(decisionEquity, callThreshold, phase);
   }, [decisionEquity, callThreshold, phase]);
 
-  // 翻后 GTO 建议（面板「Board 牌面 / Action / Reasoning」三行）。
+  // 翻后 GTO 建议（面板「Board 牌面 + 动作」一行、`Reasoning` 一行）。
   //
   // 这里必须用 decisionEquity —— 它就是「范围权益」那一行显示的值（推断失败时
   // 是随机权益），这样 Reasoning 里的 Equity 与面板权益行是同一个数，不会再出现
@@ -1276,11 +1276,20 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
         </div>
       )}
 
-      {/* GTO postflop 牌面纹理 + Action */}
+      {/* GTO postflop 牌面纹理 + 动作 + Reasoning */}
       {postflopRecommendation && (
-        <div className="border-t border-white/10 pt-1 mt-1">
-          <div className="grid grid-cols-[3fr_2fr] gap-x-2 gap-y-1">
-            {/* Left column: Board texture */}
+        <div className="border-t border-white/10 pt-1 mt-1 space-y-1">
+          {/* 牌面与动作**同一行**：「Board 牌面」在左，动作值贴到行尾。
+              原先动作带 `Action` 标签另占半列（`grid-cols-[3fr_2fr]`），半列只有
+              约 96px —— 标签「Board 牌面」被从中间折成两行，而动作那一格大半是空白。
+              去掉标签后动作值与牌面共处一行：动作本来只有一个候选值（由 `action` /
+              `sizingPercent` / `isAllIn` 三者决定的那一个），`Action` 标签只是复述
+              行义，删掉不影响可读性。
+              动作贴右（`justify-between`）而不是紧跟牌面 —— 它是这一行的结论，
+              与「赔率 Pot Odds」那行把建议贴右是同一套读法。
+              `shrink-0 whitespace-nowrap`：动作是个整体（`Raise 75% pot`），
+              面板被压窄时宁可让左边的牌面文案换行，也不把动作从数字中间折断。 */}
+          <div className="flex items-center justify-between gap-2">
             <GridRow
               label={translations.gtoPostflop.board}
               value={
@@ -1303,49 +1312,45 @@ export const HandAnalysis: React.FC<HandAnalysisProps> = ({
               }
             />
 
-            {/* Right column: Bet action */}
+            {/* 动作值（原先的 `Action` 那一格，标签已去掉） */}
+            <span
+              className={`text-[10px] shrink-0 whitespace-nowrap ${
+                getGtoActionColor(postflopRecommendation.action === 'raise' ? 'R' : postflopRecommendation.action === 'call' ? 'C' : postflopRecommendation.action === 'fold' ? 'F' : 'check')
+              }`}
+            >
+              {postflopRecommendation.isAllIn
+                ? translations.gtoPostflop.allIn
+                : postflopRecommendation.sizingPercent
+                  ? `${translations.gtoPostflop.raise} ${postflopRecommendation.sizingPercent}% pot`
+                  : postflopRecommendation.action === 'check'
+                    ? translations.gtoPostflop.check
+                    : postflopRecommendation.action === 'fold'
+                      ? translations.gtoPostflop.fold
+                      : postflopRecommendation.action === 'call'
+                        ? translations.gtoPostflop.call
+                        : translations.gtoPostflop.raise}
+            </span>
+          </div>
+
+          {/* Full width: Reasoning */}
+          {postflopRecommendation.freq && (
             <GridRow
-              label={translations.gtoPostflop.action}
+              label={translations.gtoPostflop.reasoning}
               value={
-                <span className="text-[10px]">
-                  {postflopRecommendation.isAllIn
-                    ? translations.gtoPostflop.allIn
-                    : postflopRecommendation.sizingPercent
-                      ? `${translations.gtoPostflop.raise} ${postflopRecommendation.sizingPercent}% pot`
-                      : postflopRecommendation.action === 'check'
-                        ? translations.gtoPostflop.check
-                        : postflopRecommendation.action === 'fold'
-                          ? translations.gtoPostflop.fold
-                          : postflopRecommendation.action === 'call'
-                            ? translations.gtoPostflop.call
-                            : translations.gtoPostflop.raise}
+                <span className="text-[9px] text-white/50">
+                  {postflopRecommendation.reasoning}
+                  {/* Reasoning 里的 Equity 就是 decisionEquity：范围推断失败时
+                      它是随机权益，必须就地标注，否则和上面那行一样会被误读。 */}
+                  {decisionBasis === 'random' && (
+                    <span className="text-gray-400">
+                      {' · '}
+                      {translations.handAnalysis.equityVsRandomTag}
+                    </span>
+                  )}
                 </span>
               }
-              color={getGtoActionColor(postflopRecommendation.action === 'raise' ? 'R' : postflopRecommendation.action === 'call' ? 'C' : postflopRecommendation.action === 'fold' ? 'F' : 'check')}
             />
-
-            {/* Full width: Reasoning */}
-            {postflopRecommendation.freq && (
-              <div className="col-span-2">
-                <GridRow
-                  label={translations.gtoPostflop.reasoning}
-                  value={
-                    <span className="text-[9px] text-white/50">
-                      {postflopRecommendation.reasoning}
-                      {/* Reasoning 里的 Equity 就是 decisionEquity：范围推断失败时
-                          它是随机权益，必须就地标注，否则和上面那行一样会被误读。 */}
-                      {decisionBasis === 'random' && (
-                        <span className="text-gray-400">
-                          {' · '}
-                          {translations.handAnalysis.equityVsRandomTag}
-                        </span>
-                      )}
-                    </span>
-                  }
-                />
-              </div>
-            )}
-          </div>
+          )}
         </div>
       )}
 

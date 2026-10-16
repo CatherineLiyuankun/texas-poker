@@ -217,7 +217,6 @@ export const translations = {
     wet: 'Wet 湿润',
     veryWet: 'Very Wet 极湿',
     cbet: 'C-bet',
-    action: 'Action',
     check: 'Check', // 过牌
     fold: 'Fold',
     call: 'Call', // 跟注
