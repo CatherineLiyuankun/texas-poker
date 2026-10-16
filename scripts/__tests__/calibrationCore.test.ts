@@ -17,6 +17,7 @@ import {
   TYPE_ORDER,
   evaluateTargets,
   formatReport,
+  hashSeed,
   parseCalibrationArgs,
   proxyDecide,
   wilsonInterval,
@@ -87,6 +88,59 @@ describe('parseCalibrationArgs', () => {
     expect(() =>
       parseCalibrationArgs(['--realPlayers=5', '--botPlayers=6']),
     ).toThrow(/不得超过 10/);
+  });
+});
+
+// ── 发牌流的每手重播种种子（方案 §9 阶段 1 / O1） ─────────────────────────────
+
+describe('hashSeed', () => {
+  it('精确值对齐（FNV-1a，改算法必须同时改这里）', () => {
+    expect(hashSeed(101, 0)).toBe(1611422939);
+    expect(hashSeed(101, 1)).toBe(1594645320);
+    expect(hashSeed(211, 0)).toBe(3373529379);
+  });
+
+  it('同输入 → 同输出（可复现）', () => {
+    expect(hashSeed(101, 599)).toBe(hashSeed(101, 599));
+    expect(hashSeed(503, 0)).toBe(hashSeed(503, 0));
+  });
+
+  it('返回值是 32 位无符号整数', () => {
+    for (const v of [hashSeed(0), hashSeed(101, 0), hashSeed(999999, 12345)]) {
+      expect(Number.isInteger(v)).toBe(true);
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(0xffffffff);
+    }
+  });
+
+  it('参数不同 → 输出不同（区分 seed、手序与参数顺序）', () => {
+    expect(hashSeed(101, 0)).not.toBe(hashSeed(211, 0));
+    expect(hashSeed(101, 0)).not.toBe(hashSeed(101, 1));
+    expect(hashSeed(1, 2)).not.toBe(hashSeed(2, 1));
+  });
+
+  it('按 `|` 拼接 ⇒ 边界不塌缩：hashSeed(1,23) ≠ hashSeed(12,3)', () => {
+    // 若直接相加/相乘而不是拼字符串，这两个会撞成同一个种子。
+    expect(hashSeed(1, 23)).toBe(3017445119);
+    expect(hashSeed(12, 3)).toBe(3860717379);
+    expect(hashSeed(1, 23)).not.toBe(hashSeed(12, 3));
+  });
+
+  it('相邻手序的种子不是「相邻整数」（避免 mulberry32 的相位相关）', () => {
+    const seeds = Array.from({ length: 600 }, (_, k) => hashSeed(101, k));
+    expect(new Set(seeds).size).toBe(600);
+    const gaps = seeds.slice(1).map((s, i) => Math.abs(s - seeds[i]));
+    expect(Math.min(...gaps)).toBeGreaterThan(1000);
+  });
+
+  it('默认 5 seed × 600 手 = 3000 个种子互不相同（不撞种子）', () => {
+    const all = DEFAULT_CALIBRATION_CONFIG.seeds.flatMap((s) =>
+      Array.from({ length: DEFAULT_CALIBRATION_CONFIG.handsPerSeed }, (_, k) =>
+        hashSeed(s, k),
+      ),
+    );
+    expect(all).toHaveLength(3000);
+    expect(new Set(all).size).toBe(3000);
   });
 });
 

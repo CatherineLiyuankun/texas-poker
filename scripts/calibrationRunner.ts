@@ -99,6 +99,7 @@ import {
 import {
   evaluateTargets,
   formatReport,
+  hashSeed,
   parseCalibrationArgs,
   proxyDecide,
   TYPE_ORDER,
@@ -388,14 +389,39 @@ function tallySeats(state: GameState, playerTypes: BotTypeMap, counters: RunCoun
  * 做（与 `computeTypeStats` 内部池化是同一套加法，口径不可能分叉）。
  */
 function runSeed(cfg: CalibrationConfig, seed: number, counters: RunCounters): void {
-  const dealRng = mulberry32(seed);
   const sessionRng = mulberry32(seed ^ 0x5bf03635);
   const proxyRng = mulberry32(seed ^ 0x1b56c4e9);
 
   // 发牌 + 蒙特卡洛走 `Math.random`（与生产一致：那是「发牌/模拟」随机）。
   // 策略混合频率走 `random.ts`（生产里唯一受 `setRandomSeed` 控制的那条）。
+  //
+  // ── O1：发牌流**每手重播种**（方案 §9 阶段 1；`docs/CALIBRATION_RNG_PLAN.md`）──
+  //
+  // 此前 `Math.random` 是一条从 `mulberry32(seed)` 一路用到底的流，而蒙特卡洛权益
+  // 也吃这条流 ⇒ 任何参数改动都会改变权益调用次数，从而让**后续每一次洗牌**整体错位、
+  // 整个样本重抽（实测：只动 Nit 的 `openWiden`，参数未动的 TAG 的 PFR 18.4→20.2、
+  // LAG 的 VPIP 33.8→31.7）。
+  //
+  // 现在每次发牌前把流重播种到 `mulberry32(hashSeed(seed, dealIndex))`，于是
+  // 「第 k 手拿到的牌」= 该流的**前 51 次**抽样（`shuffleDeck` 的 Fisher-Yates），
+  // 只由 `(seed, k)` 决定，与「本手之前消耗了多少随机数」无关。
+  //
+  // ⚠️ 本阶段只解耦了**发牌**：权益流仍与发牌流共用这条 `Math.random`（阶段 2 才拆），
+  // 策略流也仍是「每 seed 播种一次、全桌共用」（阶段 3 才按决策重播种）。所以本阶段
+  // 拿到的是**发牌级**的配置无关性，**指标级**的还没拿到。
   const originalMathRandom = Math.random;
-  Math.random = dealRng;
+  /**
+   * 在**每次发牌前**把 `Math.random` 重播种到该手的独立流。
+   *
+   * `dealIndex` 用「已完成的累计手数」，因此在一个 seed 内唯一、且跨盘连续
+   * （每盘 `handsPerSession` 手，但索引不重置）—— 不同 seed 之间由 `seed` 区分。
+   * 也要覆盖 `createInitialState` 的 dealer 抽取：那一抽决定整盘（`RESET_ROUND`
+   * 之后 dealer 是按 `(dealer % n) + 1` **确定性**轮转的），所以它同样必须与
+   * 「此前消耗了多少随机数」无关。
+   */
+  const reseedDeal = (dealIndex: number): void => {
+    Math.random = mulberry32(hashSeed(seed, dealIndex));
+  };
   setRandomSeed(seed ^ 0x9e3779b9);
 
   try {
@@ -419,7 +445,10 @@ function runSeed(cfg: CalibrationConfig, seed: number, counters: RunCounters): v
       // `Math.random`**：`START_GAME` 的 dealer 取 `state.dealer || random`，而这里
       // `state.dealer` 恒为 1 或 2 ⇒ **每盘第一手的 dealer 只在 {1,2} 里**。这是生产
       // 现状，runner 原样复刻并在报告里注明（不偷偷"修"成按全桌人数抽）。
+      reseedDeal(handsDone);
       let state = createInitialState(2, 0);
+      // 发牌（`START_GAME` 的 `shuffleDeck`，51 次）从**本手独立流**的起点开始。
+      reseedDeal(handsDone);
       state = gameReducer(state, {
         type: 'START_GAME',
         realPlayerCount: cfg.realPlayers,
@@ -459,7 +488,10 @@ function runSeed(cfg: CalibrationConfig, seed: number, counters: RunCounters): v
         handsDone++;
 
         // 下一手（`GameBoard.handleResetRound` → `useGameState.resetRound`）。
+        // `RESET_ROUND` 只按 `(dealer % n) + 1` **确定性**轮转 dealer，不消耗随机数；
+        // 真正的发牌在随后的 `START_GAME`，所以在它之前重播种。
         state = gameReducer(state, { type: 'RESET_ROUND' });
+        reseedDeal(handsDone);
         state = gameReducer(state, {
           type: 'START_GAME',
           realPlayerCount: state.realPlayerCount,

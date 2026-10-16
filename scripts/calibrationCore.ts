@@ -171,6 +171,33 @@ export function parseCalibrationArgs(
   return cfg;
 }
 
+// ── 发牌流的每手重播种（方案 §9 阶段 1 / `docs/CALIBRATION_RNG_PLAN.md`） ───────
+
+/**
+ * FNV-1a 32 位哈希（与 `botAI.shadowSeed` 同族，见 `src/utils/botAI.ts:1502-1507`）。
+ *
+ * **用途**：把「种子 + 手序」压成一个 `mulberry32` 的种子，让 runner 的**发牌流每手重播种** ——
+ * 于是「第 k 手拿到的牌」只由 `(seed, k)` 决定，与本次运行里此前消耗了多少随机数无关。
+ *
+ * **为什么需要**：`calibrationRunner` 原先让**发牌**与**蒙特卡洛权益**共用同一条
+ * `Math.random`，而权益的消耗量由决策路径决定 ⇒ 改任何一个参数都会让后续洗牌整体错位、
+ * 整个样本重抽。实测：只动 Nit 的 `openWiden`（0.04→0.12），参数未动的 TAG 的 PFR 从
+ * 18.4 变 20.2、LAG 的 VPIP 从 33.8 变 31.7。根因、噪声底与分阶段修法见
+ * `docs/CALIBRATION_RNG_PLAN.md`。
+ *
+ * 参数按 `|` 拼成签名再哈希，所以 `hashSeed(1, 23)` 与 `hashSeed(12, 3)` **不同** ——
+ * 否则「手序进到两位数」时两个不同的组合会塌缩到同一个种子（`12|3` vs `1|23`）。
+ */
+export function hashSeed(...parts: (number | string)[]): number {
+  const signature = parts.join('|');
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < signature.length; i += 1) {
+    hash ^= signature.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
 // ── Wilson 区间 ──────────────────────────────────────────────────────────────
 
 export interface Interval {
