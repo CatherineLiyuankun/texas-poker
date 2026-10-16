@@ -311,6 +311,46 @@ describe('Board Texture Analysis', () => {
       );
     });
 
+    it('gutshot four-straight river is at least medium, not dry', () => {
+      // 8-10-J-Q on the board with a 5 kicker: any 9 makes 8-9-10-J-Q (~17% of
+      // opponent's range). Wetness must land in 'medium' or wetter so the panel
+      // does not suggest thin value with a top pair against this texture.
+      const gutshotFourStraight = [
+        card('♥', '5'),
+        card('♠', '10'),
+        card('♦', '8'),
+        card('♣', 'Q'),
+        card('♥', 'J'),
+      ];
+      const texture = analyzeBoard(gutshotFourStraight);
+      expect(texture.isStraightPossible).toBe(true);
+      expect(texture.classification).not.toBe('dry');
+      expect(texture.classification).not.toBe('very_dry');
+      expect(texture.wetness).toBeGreaterThanOrEqual(5);
+    });
+
+    it('open-ended four-straight river is wetter than gutshot four-straight', () => {
+      // Two completion ranks (8 or K) is a higher fraction of opponent's range
+      // (~33%) than one completion rank (~17%), so it should score strictly higher.
+      const gutshot = [
+        card('♥', '5'),
+        card('♠', '10'),
+        card('♦', '8'),
+        card('♣', 'Q'),
+        card('♥', 'J'),
+      ];
+      const openEnded = [
+        card('♥', '9'),
+        card('♠', '10'),
+        card('♦', 'J'),
+        card('♣', 'Q'),
+        card('♥', '2'),
+      ];
+      expect(analyzeBoard(openEnded).wetness).toBeGreaterThan(
+        analyzeBoard(gutshot).wetness,
+      );
+    });
+
     it('monotone straight river is very wet with straight on board', () => {
       const royal = [
         card('♠', 'A'),
