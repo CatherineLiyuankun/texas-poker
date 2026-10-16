@@ -224,11 +224,27 @@ function calculateRiverWetness(cards: Card[]): number {
   if (maxSuit >= 4) wetness += 8;
   else if (maxSuit === 3) wetness += 2;
 
-  // Two completion ranks (~31% of hands hold one of them) is a four-straight,
-  // nearly as wet as a four-flush; a single gutshot rank matters far less.
+  // 河牌的顺子相关 wetness —— 按「对手范围里**已经/很可能**拿到顺子」的密度排：
+  //   - straightOnBoard：牌面**本身** 5 张就是一条顺子（如 8-9-T-J-Q = Q-high）。
+  //     **只有 K-x 能形成更高顺子**（K-x → K-high，赢公共牌）；7-x 反而更弱
+  //     （7-x → J-high，输）；A-x / 6-x 都不成顺，最佳五张仍是公共牌 Q-high。
+  //     所以对手「能赢」的命中率只有 ~17%（4 张 K）—— **+6 不是按命中率拍的**。
+  //     真正的理由是 "board plays" 分池效应：没 K 的人基本相互 chop，拿 Q-high
+  //     下大注对方未必跟、没有 K 又诈唬不动（没人 fold 顺子），价值与诈唬
+  //     双向受限 → 小注 / 多过牌（0.33–0.50 pot），权重压在 medium 档。
+  //     （曾误写 +8：按「命中率最高」拍的，论据不成立；+6 的正当理由就是分池效应。）
+  //   - straightCompletions >= 2：open-ended four-straight。牌面 9-10-J-Q 之类缺
+  //     两端任一，~33% 对手范围有其中之一（4 张 8 + 4 张 K / 45 张剩余 ≈ 33%），
+  //     且 IP 开池范围含更多 8/K 的牌（KQ/KJ/98s…），range advantage 支持大尺度。
+  //   - straightCompletions === 1：gutshot four-straight（**four-straight 永远
+  //     是 1 张补牌**，注释里曾误把「two completions」叫成 four-straight，已修）。
+  //     牌面 8-10-J-Q 之类差中间一张（9），~17% 对手范围持有这张牌就拿到顺子
+  //     （C(41,2)/C(45,2) ≈ 83% 不含 9 ⇒ 含 9 概率 ≈ 17%）—— 绝对不算「少见」，
+  //     仍然要把 wetness 抬到至少 medium（+5），否则面板会把
+  //     `5-8-10-J-Q` 这类牌显示成「Dry 干燥」误导玩家继续用顶对过牌的薄价值打法。
   if (straightOnBoard) wetness += 6;
   else if (straightCompletions >= 2) wetness += 7;
-  else if (straightCompletions === 1) wetness += 3;
+  else if (straightCompletions === 1) wetness += 5;
 
   if ((straightOnBoard || straightCompletions > 0) && maxSuit >= 3) wetness += 1;
 
