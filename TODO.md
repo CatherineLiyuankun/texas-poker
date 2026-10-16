@@ -116,6 +116,10 @@
 
 > **📄 详细研究与修改方案见 `docs/CALIBRATION_RNG_PLAN.md`**（含噪声底实测、五个选项对比、
 > O1→O2→O3 分阶段路线、可断言的验收实验、源码索引）。本条目只留摘要。
+>
+> **✅ 方案 §8 的 6 条待确认已于 2026-10-16 按建议拍板**（Q1 §4 验收要重跑、Q2 接口不做生产可用、
+> Q3 计数器放 runner、Q4 CI 判定先实现再实测、Q5 样本不足硬拦停、Q6 不修生产 dealer 偏置）。
+> 所以「先拍板」这一关已过，本条现在的状态是「**设计已定、代码未动**」。
 
 - **位置**：`scripts/calibrationRunner.ts:391-399` —— `const dealRng = mulberry32(seed);`
   `Math.random = dealRng;` 一次设定、**全程共用**；翻后权益的蒙特卡洛（`equityCalculator`）
