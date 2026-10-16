@@ -2,6 +2,7 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "types": [
+      "vite/client",
       "jest",
       "node",
       "@testing-library/jest-dom"
