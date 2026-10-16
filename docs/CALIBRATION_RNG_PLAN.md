@@ -1,9 +1,9 @@
 # 校准仪器：发牌流与蒙特卡洛权益共用 `Math.random`
 
-> **状态：设计已定稿 + §8 六条待确认已按建议拍板；代码仍未改**（阶段 0 = 本文件，阶段 1~4 待实施）。  
-> **基线**：`ced460b`（本文所有行号以该提交为准）。该提交已随 **PR #19（merge commit `6740745`）合并进 `main`**，  
-> 所以本文档现在描述的是 **`main` 上存在的现状**。  
-> **最后更新**：2026-10-16（§8 拍板）  
+> **状态：设计已定稿 + §8 六条待确认已拍板；阶段 0、阶段 1（O1）已实施**，阶段 2~4 待实施。  
+> **基线**：`ced460b`（§2 / §12 的行号以该提交为准）。该提交已随 **PR #19（merge commit `6740745`）合并进 `main`**；  
+> 阶段 1 的改动落在其之上（提交 `6edcea0`，验收证据见 §9 阶段 1）。  
+> **最后更新**：2026-10-16（阶段 1 实施 + 验收）  
 > **关联**：`docs/BOT_PERSONALITY_PLAN.md` §17.3（发现现场）、`TODO.md` 第 6 条（待办原文）、`docs/BOT_PERSONALITY_PLAN.md` §10.4（低迭代 vs 生产迭代口径）。
 
 ---
@@ -292,14 +292,44 @@ O1 只让**发牌**配置无关。但**策略流 `random.ts` 是每个 seed 只�
 - 产出：本文件 + `TODO.md` 第 6 条的指向。
 - **不改任何代码。**
 
-### 阶段 1（O1）：每手重播种发牌流
+### 阶段 1（O1）：每手重播种发牌流 —— **✅ 已完成**（2026-10-16，提交 `6edcea0`）
 
-- **文件**：`scripts/calibrationRunner.ts`（`runSeed` 的手循环，`:432-473`）。
-- **改动**：进入每一手时 `Math.random = mulberry32(hashSeed(seed, handsDone))`；`hashSeed` 用 FNV-1a（与 `shadowSeed` 同族，可直接内联一个 5 行实现或抽到 `calibrationCore.ts` 便于单测）。
-- **测试**：`scripts/__tests__/calibrationCore.test.ts`（已存在，测纯逻辑）—— 新增 `hashSeed` 的**稳定性/分布/不同输入不同输出**单测。
-- **验证**：`npm run e2eTests` 无关；跑 §11.1 实验；`npx tsc -b` + `eslint`。
-- **风险**：**低**。仅 `scripts/`。唯一影响是报告数字全变（需重跑基线）。
-- **回滚**：还原 `runSeed` 的手循环。
+**实施（与初稿的差异：落点不是「每手开头」而是「每次发牌前」）**
+
+- `scripts/calibrationCore.ts` 新增 `hashSeed(...parts)`：FNV-1a 32 位哈希（与 `botAI.shadowSeed` 同族），
+  把「seed + 手序」压成 mulberry32 的种子。按 `|` 拼签名 ⇒ `hashSeed(1,23)` 与 `hashSeed(12,3)` 不塌缩。
+- `scripts/calibrationRunner.runSeed`：删掉「一条 `dealRng` 用到底」（原 `:391/:398`），改为
+  `reseedDeal(dealIndex)` = `Math.random = mulberry32(hashSeed(seed, dealIndex))`，在**三处**调用：
+  1. `createInitialState(2, 0)` 之前（那一抽决定整盘的 dealer —— `RESET_ROUND` 之后 dealer 是按
+     `(dealer % n) + 1` **确定性**轮转的，所以它也必须与「此前消耗量」无关）；
+  2. 开局的 `START_GAME` 之前（发第 1 手）；
+  3. 每手 `RESET_ROUND` → `START_GAME` 之间（发下一手）。
+
+  ⚠️ **初稿写的「进入每一手时重播种」是错的落点**：发牌发生在**上一轮循环末尾**的 `START_GAME`，
+  所以在循环开头重播种**管不到那一手要发的牌**（`playHand` 的权益消耗仍会插在重播种与发牌之间）。
+  必须把重播种放在**紧邻发牌之前**。`dealIndex` 用「累计已完成手数」⇒ 一个 seed 内唯一、跨盘连续。
+
+**验收证据（§11.1 实验，`--handsPerSession=50 --handsPerSeed=50`，5 seed，各 255 行 `DEAL`）**
+
+| 实验 | 做法 | 结果 |
+| --- | --- | --- |
+| **配置无关性（核心）** | A `--equityIterations=40` vs B `--equityIterations=80`（消耗量差一个量级，决策路径因此不同） | **255 行发出的牌逐字节相同** ★ |
+| 确定性 | A 连跑两次（A / A2） | 发牌相同 **且报告正文逐字节相同** |
+| 对照组（防「平凡相同」） | A vs B 的报告正文 | 差 **210 行** ⇒ 两次跑的决策路径确实不同 |
+
+⇒ 「发牌与『本手之前消耗了多少随机数』无关」**已端到端证明**。实验用**临时插桩**取得
+（`CALIB_DUMP_DEALS` 打印每手发出的牌，跑完已 `git checkout` 撤销、未提交）；复现命令见文末附录。
+
+**测试 / 门**
+
+- `npx jest scripts/__tests__` → **1 套 / 48 通过**（新增 7 条 `hashSeed`：精确值、可复现、32 位无符号、
+  参数区分、边界不拼接塌缩、600 手序唯一且相邻差不退化、默认 5 seed × 600 手 = 3000 个种子全唯一）。
+- `tsc -b` 0；`eslint`（3 个改动文件）0。
+
+**风险 / 回滚**：低（仅 `scripts/`）。回滚 = 还原 `runSeed` 的 `reseedDeal` 三处调用与 `hashSeed`。
+
+**本阶段**没有**拿到的**：权益流仍与发牌流共用 `Math.random`（阶段 2），策略流仍每 seed 播种一次、
+全桌共用（阶段 3）。所以**指标级**的配置无关性还没有 —— 本节只证明了**发牌级**。
 
 ### 阶段 2（O2）：权益流解耦
 
@@ -434,5 +464,39 @@ diff <(sed -n '/^## 每类型结果/,$p' /tmp/tp-det2-a.md) \
 # 生产口径基线（慢，~21 min）
 npm run calibrate -- --handsPerSeed=600 --out=scripts/reports/gap1-probe-<label>.md
 ```
+
+### 阶段 1 的「发牌级配置无关性」实验（§9 阶段 1 的验收）
+
+报告的指标层看不到「发了什么牌」，所以这个实验要**临时插桩**（跑完即撤，不进提交）：
+在 `scripts/calibrationRunner.runSeed` 里加一个 `dumpDeal`，在**两处发牌之后**各调一次 ——
+
+```ts
+// TEMP（未提交）：打印每手发出的牌，用来证明「发牌与消耗量无关」。
+const dumpDeal = (st: GameState, dealIndex: number): void => {
+  if (!process.env.CALIB_DUMP_DEALS) return;
+  console.error(
+    `DEAL ${seed} ${dealIndex} ` +
+      st.players.map((p) => p.hand.map((c) => `${c.rank}${c.suit}`).join('')).join(' '),
+  );
+};
+// …在「开局的 START_GAME 之后」与「循环内 RESET_ROUND → START_GAME 之后」各加一行：
+// dumpDeal(state, handsDone);
+```
+
+```bash
+# A/B 只差「权益消耗量」：迭代数 40 vs 80 ⇒ 决策路径不同、消耗量差一个量级
+for tag in A B A2; do
+  case $tag in A|A2) IT=40;; B) IT=80;; esac
+  CALIB_DUMP_DEALS=1 npm run calibrate -- --handsPerSession=50 --handsPerSeed=50 \
+    --equityIterations=$IT --out=/tmp/tp-o1-$tag.md > /tmp/tp-o1-$tag.log 2>&1
+done
+diff <(grep '^DEAL ' /tmp/tp-o1-A.log) <(grep '^DEAL ' /tmp/tp-o1-B.log)   # 必须为空
+diff <(sed -n '/^## 每类型结果/,$p' /tmp/tp-o1-A.md) \
+     <(sed -n '/^## 每类型结果/,$p' /tmp/tp-o1-B.md) | wc -l                # 必须 >0（对照组）
+```
+
+> 实测（2026-10-16，`6edcea0`）：A/B 的 255 行 `DEAL` **逐字节相同**；A vs A2 的发牌与报告正文
+> 都逐字节相同；A vs B 的报告正文差 **210 行**。⚠️ 阶段 2/3 落地后，这个实验应升级为
+> 「**全部指标**逐位不变」，届时更适合把它固化成脚本/慢速用例（见 §11.1 的建议）。
 
 > ⚠️ runner 强制 **≥5 seed**（`calibrationCore.ts:162`）—— 用少于 5 个种子会**直接报错退出**并写出**空报告**（实测踩过：两次「成功」的空文件 diff 相等，会误判成「确定性通过」）。
